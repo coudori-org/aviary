@@ -9,7 +9,7 @@ import {
 } from "react";
 
 import type { User } from "@/types";
-import { initiateLogin, isAuthenticated, logout as doLogout } from "@/lib/auth";
+import { ensureValidToken, initiateLogin, isAuthenticated, logout as doLogout } from "@/lib/auth";
 import { apiFetch } from "@/lib/api";
 
 interface AuthContextValue {
@@ -34,6 +34,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const refreshUser = useCallback(async () => {
     if (!isAuthenticated()) {
+      setUser(null);
+      setIsLoading(false);
+      return;
+    }
+    // Ensure we have a valid token before fetching user info
+    const token = await ensureValidToken();
+    if (!token) {
       setUser(null);
       setIsLoading(false);
       return;

@@ -1,4 +1,4 @@
-import { getAccessToken, logout } from "./auth";
+import { ensureValidToken, logout, refreshAccessToken } from "./auth";
 
 export class ApiError extends Error {
   constructor(
@@ -9,13 +9,11 @@ export class ApiError extends Error {
   }
 }
 
-export async function apiFetch<T>(
-  path: string,
-  options?: RequestInit
-): Promise<T> {
-  const token = getAccessToken();
+async function doFetch(path: string, options?: RequestInit): Promise<Response> {
+  // Ensure we have a valid (non-expired) token before making the request
+  const token = await ensureValidToken();
 
-  const res = await fetch(`/api${path}`, {
+  return fetch(`/api${path}`, {
     ...options,
     headers: {
       "Content-Type": "application/json",
@@ -23,7 +21,23 @@ export async function apiFetch<T>(
       ...options?.headers,
     },
   });
+}
 
+export async function apiFetch<T>(
+  path: string,
+  options?: RequestInit
+): Promise<T> {
+  let res = await doFetch(path, options);
+
+  // If 401, attempt one token refresh and retry
+  if (res.status === 401) {
+    const refreshed = await refreshAccessToken();
+    if (refreshed) {
+      res = await doFetch(path, options);
+    }
+  }
+
+  // Still 401 after refresh attempt — session is truly expired
   if (res.status === 401) {
     await logout();
     throw new ApiError(401, "Unauthorized");

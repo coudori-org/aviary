@@ -166,6 +166,25 @@ async def validate_token(token: str) -> TokenClaims:
     return TokenClaims(sub=sub, email=email, display_name=display_name, roles=roles, groups=groups)
 
 
+async def refresh_tokens(refresh_token: str) -> dict:
+    """Exchange a refresh token for new tokens via the OIDC token endpoint."""
+    config = await get_oidc_config()
+    token_endpoint = _rewrite_url(config["token_endpoint"])
+
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(
+            token_endpoint,
+            data={
+                "grant_type": "refresh_token",
+                "client_id": settings.oidc_client_id,
+                "refresh_token": refresh_token,
+            },
+            timeout=10,
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+
 async def exchange_code(code: str, redirect_uri: str, code_verifier: str) -> dict:
     """Exchange an authorization code for tokens via the OIDC token endpoint."""
     config = await get_oidc_config()

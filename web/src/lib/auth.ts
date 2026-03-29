@@ -3,7 +3,12 @@ import type { AuthConfig } from "@/types";
 const STORAGE_KEY_VERIFIER = "aviary_pkce_verifier";
 const STORAGE_KEY_STATE = "aviary_auth_state";
 const STORAGE_KEY_TOKEN = "aviary_access_token";
+const STORAGE_KEY_REFRESH = "aviary_refresh_token";
 const STORAGE_KEY_ID_TOKEN = "aviary_id_token";
+const STORAGE_KEY_EXPIRES_AT = "aviary_token_expires_at";
+
+// Refresh the token 60 seconds before it actually expires
+const REFRESH_BUFFER_SECONDS = 60;
 
 function generateRandomString(length: number): string {
   const array = new Uint8Array(length);
@@ -64,6 +69,27 @@ export async function initiateLogin(): Promise<void> {
   window.location.href = `${config.authorization_endpoint}?${params}`;
 }
 
+function storeTokens(data: {
+  access_token: string;
+  refresh_token?: string | null;
+  id_token?: string | null;
+  expires_in?: number;
+}) {
+  localStorage.setItem(STORAGE_KEY_TOKEN, data.access_token);
+
+  if (data.refresh_token) {
+    localStorage.setItem(STORAGE_KEY_REFRESH, data.refresh_token);
+  }
+  if (data.id_token) {
+    localStorage.setItem(STORAGE_KEY_ID_TOKEN, data.id_token);
+  }
+
+  // Store absolute expiry timestamp
+  const expiresIn = data.expires_in ?? 300;
+  const expiresAt = Date.now() + expiresIn * 1000;
+  localStorage.setItem(STORAGE_KEY_EXPIRES_AT, String(expiresAt));
+}
+
 export async function handleCallback(
   code: string,
   state: string
@@ -98,11 +124,7 @@ export async function handleCallback(
   }
 
   const data = await res.json();
-  localStorage.setItem(STORAGE_KEY_TOKEN, data.access_token);
-  // Store id_token for logout (Keycloak requires id_token_hint)
-  if (data.id_token) {
-    localStorage.setItem(STORAGE_KEY_ID_TOKEN, data.id_token);
-  }
+  storeTokens(data);
   return { accessToken: data.access_token };
 }
 
@@ -115,12 +137,77 @@ export function isAuthenticated(): boolean {
   return !!getAccessToken();
 }
 
+/**
+ * Check if the access token is expired or about to expire.
+ */
+export function isTokenExpired(): boolean {
+  const expiresAt = localStorage.getItem(STORAGE_KEY_EXPIRES_AT);
+  if (!expiresAt) return true;
+  // Consider expired if within the buffer period
+  return Date.now() >= Number(expiresAt) - REFRESH_BUFFER_SECONDS * 1000;
+}
+
+/**
+ * Attempt to refresh the access token using the stored refresh token.
+ * Returns true if refresh succeeded, false if it failed (should logout).
+ */
+let _refreshPromise: Promise<boolean> | null = null;
+
+export async function refreshAccessToken(): Promise<boolean> {
+  // Deduplicate concurrent refresh attempts
+  if (_refreshPromise) return _refreshPromise;
+
+  _refreshPromise = (async () => {
+    const refreshToken = localStorage.getItem(STORAGE_KEY_REFRESH);
+    if (!refreshToken) return false;
+
+    try {
+      const res = await fetch("/api/auth/refresh", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refresh_token: refreshToken }),
+      });
+
+      if (!res.ok) return false;
+
+      const data = await res.json();
+      storeTokens(data);
+      return true;
+    } catch {
+      return false;
+    } finally {
+      _refreshPromise = null;
+    }
+  })();
+
+  return _refreshPromise;
+}
+
+/**
+ * Ensure a valid access token is available. Refreshes if needed.
+ * Returns the access token or null if refresh failed.
+ */
+export async function ensureValidToken(): Promise<string | null> {
+  const token = getAccessToken();
+  if (!token) return null;
+
+  if (!isTokenExpired()) return token;
+
+  // Token expired or about to expire — try refresh
+  const refreshed = await refreshAccessToken();
+  if (!refreshed) return null;
+
+  return getAccessToken();
+}
+
 export async function logout(): Promise<void> {
   const idToken = localStorage.getItem(STORAGE_KEY_ID_TOKEN);
 
   // Clear all stored tokens
   localStorage.removeItem(STORAGE_KEY_TOKEN);
+  localStorage.removeItem(STORAGE_KEY_REFRESH);
   localStorage.removeItem(STORAGE_KEY_ID_TOKEN);
+  localStorage.removeItem(STORAGE_KEY_EXPIRES_AT);
   sessionStorage.removeItem(STORAGE_KEY_VERIFIER);
   sessionStorage.removeItem(STORAGE_KEY_STATE);
 

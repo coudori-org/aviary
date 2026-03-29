@@ -2,13 +2,15 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import get_current_user
-from app.auth.oidc import exchange_code, get_oidc_config, to_public_url, validate_token
+from app.auth.oidc import exchange_code, get_oidc_config, refresh_tokens, to_public_url, validate_token
 from app.db.models import User
 from app.db.session import get_db
 from app.schemas.common import (
     AuthConfigResponse,
     TokenExchangeRequest,
     TokenExchangeResponse,
+    TokenRefreshRequest,
+    TokenRefreshResponse,
     UserResponse,
 )
 
@@ -58,10 +60,31 @@ async def auth_callback(body: TokenExchangeRequest, db: AsyncSession = Depends(g
 
     return TokenExchangeResponse(
         access_token=access_token,
+        refresh_token=token_data.get("refresh_token"),
         id_token=token_data.get("id_token"),
         token_type="Bearer",
         expires_in=token_data.get("expires_in", 300),
         user=UserResponse.model_validate(user),
+    )
+
+
+@router.post("/refresh", response_model=TokenRefreshResponse)
+async def auth_refresh(body: TokenRefreshRequest):
+    """Exchange a refresh token for a new access token."""
+    try:
+        token_data = await refresh_tokens(body.refresh_token)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=f"Token refresh failed: {e}",
+        ) from e
+
+    return TokenRefreshResponse(
+        access_token=token_data["access_token"],
+        refresh_token=token_data.get("refresh_token"),
+        id_token=token_data.get("id_token"),
+        token_type="Bearer",
+        expires_in=token_data.get("expires_in", 300),
     )
 
 

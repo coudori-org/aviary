@@ -32,10 +32,23 @@ class TokenExchangeRequest(BaseModel):
 
 class TokenExchangeResponse(BaseModel):
     access_token: str
+    refresh_token: str | None = None
     id_token: str | None = None
     token_type: str = "Bearer"
     expires_in: int
     user: UserResponse
+
+
+class TokenRefreshRequest(BaseModel):
+    refresh_token: str
+
+
+class TokenRefreshResponse(BaseModel):
+    access_token: str
+    refresh_token: str | None = None
+    id_token: str | None = None
+    token_type: str = "Bearer"
+    expires_in: int
 
 
 class ErrorResponse(BaseModel):

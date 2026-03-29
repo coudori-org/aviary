@@ -8,6 +8,9 @@
   "resetPasswordAllowed": false,
   "editUsernameAllowed": false,
   "bruteForceProtected": false,
+  "accessTokenLifespan": 300,
+  "ssoSessionIdleTimeout": 7200,
+  "ssoSessionMaxLifespan": 86400,
   "roles": {
     "realm": [
       {
