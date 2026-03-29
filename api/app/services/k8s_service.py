@@ -130,9 +130,9 @@ async def create_agent_namespace(
         "metadata": {
             "name": ns_name,
             "labels": {
-                "agentbox/agent-id": agent_id,
-                "agentbox/owner": owner_id,
-                "agentbox/managed": "true",
+                "aviary/agent-id": agent_id,
+                "aviary/owner": owner_id,
+                "aviary/managed": "true",
             },
         },
     })
@@ -160,7 +160,7 @@ async def create_agent_namespace(
         },
         {  # Platform services: credential-proxy + inference-router
             "to": [{
-                "namespaceSelector": {"matchLabels": {"agentbox/namespace": "platform"}},
+                "namespaceSelector": {"matchLabels": {"aviary/namespace": "platform"}},
             }],
             "ports": [{"port": 8080, "protocol": "TCP"}],
         },
@@ -174,7 +174,7 @@ async def create_agent_namespace(
             "kind": "NetworkPolicy",
             "metadata": {"name": "session-egress", "namespace": ns_name},
             "spec": {
-                "podSelector": {"matchLabels": {"agentbox/role": "session"}},
+                "podSelector": {"matchLabels": {"aviary/role": "session"}},
                 "policyTypes": ["Egress", "Ingress"],
                 "ingress": [],
                 "egress": egress_rules,

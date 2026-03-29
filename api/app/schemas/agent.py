@@ -19,7 +19,7 @@ class AgentPolicy(BaseModel):
     allowedDomains: list[str] = []
     allowShellExec: bool = False
     allowFileWrite: bool = True
-    containerImage: str = "agentbox-runtime:latest"
+    containerImage: str = "aviary-runtime:latest"
 
 
 class McpServerConfig(BaseModel):

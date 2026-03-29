@@ -6,7 +6,7 @@ import { AuthProvider } from "@/components/providers/auth-provider";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "AgentBox",
+  title: "Aviary",
   description: "Multi-tenant AI Agent Platform",
 };
 

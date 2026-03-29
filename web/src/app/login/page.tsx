@@ -18,7 +18,7 @@ export default function LoginPage() {
   return (
     <div className="flex min-h-screen flex-col items-center justify-center gap-8">
       <div className="flex flex-col items-center gap-2">
-        <h1 className="text-4xl font-bold tracking-tight">AgentBox</h1>
+        <h1 className="text-4xl font-bold tracking-tight">Aviary</h1>
         <p className="text-muted-foreground">
           Multi-tenant AI Agent Platform
         </p>

@@ -83,7 +83,7 @@ async def add_credential(
     except PermissionError as e:
         raise HTTPException(status_code=403, detail=str(e)) from e
 
-    vault_path = f"agentbox/agents/{agent_id}/credentials/{body.name}"
+    vault_path = f"aviary/agents/{agent_id}/credentials/{body.name}"
 
     # Store secret in Vault
     try:

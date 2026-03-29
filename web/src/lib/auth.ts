@@ -1,9 +1,9 @@
 import type { AuthConfig } from "@/types";
 
-const STORAGE_KEY_VERIFIER = "agentbox_pkce_verifier";
-const STORAGE_KEY_STATE = "agentbox_auth_state";
-const STORAGE_KEY_TOKEN = "agentbox_access_token";
-const STORAGE_KEY_ID_TOKEN = "agentbox_id_token";
+const STORAGE_KEY_VERIFIER = "aviary_pkce_verifier";
+const STORAGE_KEY_STATE = "aviary_auth_state";
+const STORAGE_KEY_TOKEN = "aviary_access_token";
+const STORAGE_KEY_ID_TOKEN = "aviary_id_token";
 
 function generateRandomString(length: number): string {
   const array = new Uint8Array(length);

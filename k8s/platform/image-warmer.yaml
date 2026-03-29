@@ -4,19 +4,19 @@ metadata:
   name: image-warmer
   namespace: platform
   labels:
-    agentbox/service: image-warmer
+    aviary/service: image-warmer
 spec:
   selector:
     matchLabels:
-      agentbox/service: image-warmer
+      aviary/service: image-warmer
   template:
     metadata:
       labels:
-        agentbox/service: image-warmer
+        aviary/service: image-warmer
     spec:
       initContainers:
         - name: warm-runtime-image
-          image: agentbox-runtime:latest
+          image: aviary-runtime:latest
           imagePullPolicy: Never
           command: ["echo", "Image cached on node"]
       containers:

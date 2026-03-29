@@ -3,5 +3,5 @@ kind: Namespace
 metadata:
   name: platform
   labels:
-    agentbox/namespace: platform
-    agentbox/managed: "true"
+    aviary/namespace: platform
+    aviary/managed: "true"

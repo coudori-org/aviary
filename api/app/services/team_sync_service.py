@@ -1,11 +1,11 @@
-"""Sync OIDC groups (Keycloak/Okta) to AgentBox teams on every login.
+"""Sync OIDC groups (Keycloak/Okta) to Aviary teams on every login.
 
 On each login the token's `groups` claim is the source of truth:
 - Teams that appear in the claim are created if they don't exist.
 - The user is added as a member to those teams.
 - The user is removed from teams they no longer belong to (per the token).
 
-This keeps AgentBox team memberships in sync with the identity provider
+This keeps Aviary team memberships in sync with the identity provider
 without requiring a separate admin workflow.
 """
 

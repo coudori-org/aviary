@@ -8,7 +8,7 @@ from app.config import settings
 async def read_secret(path: str) -> dict:
     """Read a secret from Vault KV v2.
 
-    path: e.g. 'agentbox/agents/{agent_id}/credentials/{name}'
+    path: e.g. 'aviary/agents/{agent_id}/credentials/{name}'
     Returns the secret data dict.
     """
     url = f"{settings.vault_addr}/v1/secret/data/{path}"

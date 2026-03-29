@@ -31,7 +31,7 @@ from app.backends import (
 
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="AgentBox Inference Router", version="0.1.0")
+app = FastAPI(title="Aviary Inference Router", version="0.1.0")
 
 
 @app.post("/v1/messages")

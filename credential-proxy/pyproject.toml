@@ -1,7 +1,7 @@
 [project]
-name = "agentbox-credential-proxy"
+name = "aviary-credential-proxy"
 version = "0.1.0"
-description = "AgentBox Credential Proxy — injects secrets from Vault into outbound requests"
+description = "Aviary Credential Proxy — injects secrets from Vault into outbound requests"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi",

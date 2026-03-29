@@ -1,7 +1,7 @@
 [project]
-name = "agentbox-api"
+name = "aviary-api"
 version = "0.1.0"
-description = "AgentBox API Server"
+description = "Aviary API Server"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115.0",

@@ -19,9 +19,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY app/ /app/app/
 
 # Create non-root user (Claude Code CLI refuses --dangerously-skip-permissions as root)
-RUN useradd -m -u 1000 agentbox && \
-    chown -R agentbox:agentbox /app
-USER agentbox
+RUN useradd -m -u 1000 aviary && \
+    chown -R aviary:aviary /app
+USER aviary
 
 EXPOSE 3000
 

@@ -4,23 +4,23 @@ metadata:
   name: inference-router
   namespace: platform
   labels:
-    agentbox/service: inference-router
+    aviary/service: inference-router
 spec:
   replicas: 1
   selector:
     matchLabels:
-      agentbox/service: inference-router
+      aviary/service: inference-router
   template:
     metadata:
       labels:
-        agentbox/service: inference-router
+        aviary/service: inference-router
     spec:
       hostAliases:
         - ip: "172.18.0.1"
           hostnames: ["host.k3s.internal"]
       containers:
         - name: inference-router
-          image: agentbox-inference-router:latest
+          image: aviary-inference-router:latest
           imagePullPolicy: Never
           ports:
             - containerPort: 8080
@@ -57,10 +57,10 @@ metadata:
   name: inference-router
   namespace: platform
   labels:
-    agentbox/service: inference-router
+    aviary/service: inference-router
 spec:
   selector:
-    agentbox/service: inference-router
+    aviary/service: inference-router
   ports:
     - port: 8080
       targetPort: 8080

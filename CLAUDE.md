@@ -1,4 +1,4 @@
-# AgentBox
+# Aviary
 
 Multi-tenant AI agent platform. Users create/configure agents via Web UI, each running in isolated K8s namespaces with per-session Pods powered by claude-agent-sdk.
 
@@ -50,7 +50,7 @@ API container is outside K3s network. Communicates with session Pods via: `POST 
 All custom images use `imagePullPolicy: Never`. Loaded via `docker save | docker compose exec -T k3s ctr images import -`. The `setup-dev.sh` handles this for runtime, inference-router, and credential-proxy images.
 
 ### K3s Fixed Node Name
-`--node-name=agentbox-node` in docker-compose.yml prevents stale node accumulation on container restart. Without it, PVCs bind to old node names causing scheduling failures.
+`--node-name=aviary-node` in docker-compose.yml prevents stale node accumulation on container restart. Without it, PVCs bind to old node names causing scheduling failures.
 
 ### React Strict Mode
 Use `useRef` guards for WebSocket connections and OIDC callbacks to prevent duplicate execution in dev mode.
@@ -76,15 +76,15 @@ Role hierarchy: `viewer` < `user` < `admin` < `owner`.
 docker compose exec api pytest tests/ -v
 ```
 
-16 tests using dedicated `agentbox_test` database with `NullPool` (avoids asyncpg conflicts). Test app has no lifespan (no background tasks). Mock auth via `_TOKEN_CLAIMS` dict mapping tokens to claims for multi-user scenarios.
+16 tests using dedicated `aviary_test` database with `NullPool` (avoids asyncpg conflicts). Test app has no lifespan (no background tasks). Mock auth via `_TOKEN_CLAIMS` dict mapping tokens to claims for multi-user scenarios.
 
 ## Rebuilding K8s Images
 
 After modifying `runtime/`, `inference-router/`, or `credential-proxy/`:
 
 ```bash
-docker build -t agentbox-runtime:latest ./runtime/
-docker save agentbox-runtime:latest | docker compose exec -T k3s ctr images import -
+docker build -t aviary-runtime:latest ./runtime/
+docker save aviary-runtime:latest | docker compose exec -T k3s ctr images import -
 # Repeat for inference-router and credential-proxy if changed
 ```
 

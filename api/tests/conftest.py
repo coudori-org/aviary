@@ -1,6 +1,6 @@
 """Shared test fixtures — PostgreSQL test DB, mock auth, test client.
 
-Uses the same PostgreSQL instance with a separate 'agentbox_test' database.
+Uses the same PostgreSQL instance with a separate 'aviary_test' database.
 The test app has no lifespan (no background tasks, no OIDC init, no Redis).
 """
 
@@ -20,7 +20,7 @@ from app.db.session import get_db
 
 TEST_DB_URL = os.environ.get(
     "TEST_DATABASE_URL",
-    "postgresql+asyncpg://agentbox:agentbox@postgres:5432/agentbox_test",
+    "postgresql+asyncpg://aviary:aviary@postgres:5432/aviary_test",
 )
 
 from sqlalchemy.pool import NullPool
@@ -42,7 +42,7 @@ def _create_test_app() -> FastAPI:
     from app.routers import acl, agents, auth, catalog, credentials, inference, sessions
     from fastapi.middleware.cors import CORSMiddleware
 
-    test_app = FastAPI(title="AgentBox API Test", lifespan=_noop_lifespan)
+    test_app = FastAPI(title="Aviary API Test", lifespan=_noop_lifespan)
     test_app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
@@ -79,12 +79,12 @@ async def _ensure_test_db():
     if _db_initialized:
         return
 
-    admin_url = TEST_DB_URL.rsplit("/", 1)[0] + "/agentbox"
+    admin_url = TEST_DB_URL.rsplit("/", 1)[0] + "/aviary"
     admin_engine = create_async_engine(admin_url, isolation_level="AUTOCOMMIT")
     async with admin_engine.connect() as conn:
-        row = await conn.execute(text("SELECT 1 FROM pg_database WHERE datname = 'agentbox_test'"))
+        row = await conn.execute(text("SELECT 1 FROM pg_database WHERE datname = 'aviary_test'"))
         if not row.scalar():
-            await conn.execute(text("CREATE DATABASE agentbox_test"))
+            await conn.execute(text("CREATE DATABASE aviary_test"))
     await admin_engine.dispose()
 
     async with engine.begin() as conn:

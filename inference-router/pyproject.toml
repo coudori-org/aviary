@@ -1,7 +1,7 @@
 [project]
-name = "agentbox-inference-router"
+name = "aviary-inference-router"
 version = "0.1.0"
-description = "AgentBox Inference Router — single endpoint for all LLM backends"
+description = "Aviary Inference Router — single endpoint for all LLM backends"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi",

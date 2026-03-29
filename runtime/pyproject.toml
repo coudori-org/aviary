@@ -1,7 +1,7 @@
 [project]
-name = "agentbox-runtime"
+name = "aviary-runtime"
 version = "0.1.0"
-description = "AgentBox Agent Runtime — runs inside session Pods"
+description = "Aviary Agent Runtime — runs inside session Pods"
 requires-python = ">=3.12"
 dependencies = [
     "claude-agent-sdk",

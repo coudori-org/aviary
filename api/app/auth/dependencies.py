@@ -33,7 +33,7 @@ async def _upsert_user(db: AsyncSession, claims: TokenClaims) -> User:
         user.is_platform_admin = is_admin
         await db.flush()
 
-    # Sync OIDC groups → AgentBox teams
+    # Sync OIDC groups → Aviary teams
     if claims.groups is not None:
         await sync_user_teams(db, user.id, claims.groups)
 

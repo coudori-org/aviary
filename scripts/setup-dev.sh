@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 cd "$PROJECT_DIR"
 
-echo "=== AgentBox Dev Environment Setup ==="
+echo "=== Aviary Dev Environment Setup ==="
 
 # 1. Build and start all Docker Compose services
 echo "[1/7] Building and starting Docker Compose services..."
@@ -13,14 +13,14 @@ docker compose up -d --build
 
 # 2. Wait for PostgreSQL
 echo "[2/7] Waiting for PostgreSQL..."
-until docker compose exec -T postgres pg_isready -U agentbox > /dev/null 2>&1; do
+until docker compose exec -T postgres pg_isready -U aviary > /dev/null 2>&1; do
   sleep 1
 done
 echo "  PostgreSQL is ready."
 
 # 3. Wait for Keycloak
 echo "[3/7] Waiting for Keycloak..."
-until curl -sf http://localhost:8080/realms/agentbox/.well-known/openid-configuration > /dev/null 2>&1; do
+until curl -sf http://localhost:8080/realms/aviary/.well-known/openid-configuration > /dev/null 2>&1; do
   sleep 2
 done
 echo "  Keycloak is ready."
@@ -39,15 +39,15 @@ echo "  kubeconfig saved to api/kubeconfig.yaml"
 
 # 5. Build ALL K3s images and load them in one pass
 echo "[5/7] Building K3s images (runtime, inference-router, credential-proxy)..."
-docker build -t agentbox-runtime:latest          ./runtime/
-docker build -t agentbox-inference-router:latest  ./inference-router/
-docker build -t agentbox-credential-proxy:latest  ./credential-proxy/
+docker build -t aviary-runtime:latest          ./runtime/
+docker build -t aviary-inference-router:latest  ./inference-router/
+docker build -t aviary-credential-proxy:latest  ./credential-proxy/
 
 echo "  Loading images into K3s..."
 docker save \
-  agentbox-runtime:latest \
-  agentbox-inference-router:latest \
-  agentbox-credential-proxy:latest \
+  aviary-runtime:latest \
+  aviary-inference-router:latest \
+  aviary-credential-proxy:latest \
   | docker compose exec -T k3s ctr images import -
 echo "  All images loaded."
 
@@ -84,7 +84,7 @@ echo "  API Server:  http://localhost:8000"
 echo "  API Health:  http://localhost:8000/api/health"
 echo ""
 echo "Infrastructure:"
-echo "  PostgreSQL:  localhost:5432  (agentbox/agentbox)"
+echo "  PostgreSQL:  localhost:5432  (aviary/aviary)"
 echo "  Redis:       localhost:6379"
 echo "  Keycloak:    http://localhost:8080  (admin/admin)"
 echo "  Vault:       http://localhost:8200  (token: dev-root-token)"
@@ -101,7 +101,7 @@ echo "  If you change dependencies (pyproject.toml / package.json):"
 echo "    docker compose up -d --build api"
 echo "    docker compose up -d --build web"
 echo "  To rebuild K3s images:"
-echo "    docker build -t agentbox-runtime:latest ./runtime/"
-echo "    docker build -t agentbox-inference-router:latest ./inference-router/"
-echo "    docker save agentbox-runtime:latest agentbox-inference-router:latest | docker compose exec -T k3s ctr images import -"
+echo "    docker build -t aviary-runtime:latest ./runtime/"
+echo "    docker build -t aviary-inference-router:latest ./inference-router/"
+echo "    docker save aviary-runtime:latest aviary-inference-router:latest | docker compose exec -T k3s ctr images import -"
 echo "    docker compose exec -T k3s kubectl rollout restart deployment -n platform"

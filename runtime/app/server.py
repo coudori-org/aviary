@@ -22,7 +22,7 @@ async def lifespan(app: FastAPI):
     set_ready(False)
 
 
-app = FastAPI(title="AgentBox Runtime", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="Aviary Runtime", version="0.1.0", lifespan=lifespan)
 app.include_router(health_router)
 
 

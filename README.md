@@ -1,10 +1,10 @@
-# AgentBox
+# Aviary
 
 **Multi-Tenant AI Agent Platform**
 
 [한국어](./README.ko.md)
 
-AgentBox is an enterprise platform where internal employees can create, configure, deploy, and use purpose-built AI agents through a web UI. Each agent runs in an isolated Kubernetes namespace, and each user session gets a dedicated Pod for kernel-level isolation.
+Aviary is an enterprise platform where users can create, configure, deploy, and use purpose-built AI agents through a web UI. Each agent runs in an isolated Kubernetes namespace, and each user session gets a dedicated Pod for kernel-level isolation.
 
 ## Architecture
 
@@ -50,7 +50,7 @@ AgentBox is an enterprise platform where internal employees can create, configur
 - **Inference Router** — Centralized LLM gateway; model name determines backend routing transparently
 - **Multi-Backend Inference** — Claude API, Ollama, vLLM, AWS Bedrock; new backends require no NetworkPolicy changes
 - **Live Config Updates** — Agent config (instruction, tools) is passed from DB on every message; edits take effect immediately without Pod restarts
-- **OIDC Auth + Team Sync** — Keycloak (dev) / Okta (prod); IdP groups auto-sync to AgentBox teams on login
+- **OIDC Auth + Team Sync** — Keycloak (dev) / Okta (prod); IdP groups auto-sync to Aviary teams on login
 - **Granular ACL** — 7-step permission resolution with role hierarchy (`viewer` < `user` < `admin` < `owner`)
 - **Credential Proxy** — Secrets never enter session Pods; injected from Vault via a shared proxy
 - **Real-time Chat** — WebSocket streaming with Redis pub/sub for multi-user shared sessions
@@ -73,7 +73,7 @@ AgentBox is an enterprise platform where internal employees can create, configur
 ## Project Structure
 
 ```
-agentbox/
+aviary/
 ├── api/                     # API Server (FastAPI)
 │   ├── app/
 │   │   ├── auth/            # OIDC validation, team sync
@@ -109,7 +109,7 @@ agentbox/
 
 ```bash
 git clone <repository-url>
-cd agentbox
+cd aviary
 ./scripts/setup-dev.sh
 ```
 
@@ -149,8 +149,8 @@ docker compose up -d --build api
 docker compose up -d --build web
 
 # Rebuild runtime image (runs inside K3s)
-docker build -t agentbox-runtime:latest ./runtime/
-docker save agentbox-runtime:latest | docker compose exec -T k3s ctr images import -
+docker build -t aviary-runtime:latest ./runtime/
+docker save aviary-runtime:latest | docker compose exec -T k3s ctr images import -
 ```
 
 ## Testing
@@ -159,7 +159,7 @@ docker save agentbox-runtime:latest | docker compose exec -T k3s ctr images impo
 docker compose exec api pytest tests/ -v
 ```
 
-16 tests covering health, agent CRUD, ACL (visibility, grants, permission deny), and sessions (create, list, access control, archive). Uses a dedicated `agentbox_test` database and token-based mock auth for multi-user scenarios.
+16 tests covering health, agent CRUD, ACL (visibility, grants, permission deny), and sessions (create, list, access control, archive). Uses a dedicated `aviary_test` database and token-based mock auth for multi-user scenarios.
 
 ## API Endpoints
 

@@ -1,10 +1,10 @@
-# AgentBox
+# Aviary
 
 **멀티테넌트 AI 에이전트 플랫폼**
 
 [English](./README.md)
 
-AgentBox는 내부 직원이 웹 UI를 통해 AI 에이전트를 생성, 설정, 배포, 사용할 수 있는 엔터프라이즈 플랫폼입니다. 각 에이전트는 격리된 Kubernetes 네임스페이스에서 실행되며, 각 사용자 세션은 전용 Pod에서 구동되어 커널 수준의 격리를 제공합니다.
+Aviary는 웹 UI를 통해 AI 에이전트를 생성, 설정, 배포, 사용할 수 있는 엔터프라이즈 플랫폼입니다. 각 에이전트는 격리된 Kubernetes 네임스페이스에서 실행되며, 각 사용자 세션은 전용 Pod에서 구동되어 커널 수준의 격리를 제공합니다.
 
 ## 아키텍처
 
@@ -73,7 +73,7 @@ AgentBox는 내부 직원이 웹 UI를 통해 AI 에이전트를 생성, 설정,
 ## 프로젝트 구조
 
 ```
-agentbox/
+aviary/
 ├── api/                     # API 서버 (FastAPI)
 │   ├── app/
 │   │   ├── auth/            # OIDC 검증, 팀 동기화
@@ -109,7 +109,7 @@ agentbox/
 
 ```bash
 git clone <repository-url>
-cd agentbox
+cd aviary
 ./scripts/setup-dev.sh
 ```
 
@@ -149,8 +149,8 @@ docker compose up -d --build api
 docker compose up -d --build web
 
 # 런타임 이미지 리빌드 (K3s 내부에서 실행)
-docker build -t agentbox-runtime:latest ./runtime/
-docker save agentbox-runtime:latest | docker compose exec -T k3s ctr images import -
+docker build -t aviary-runtime:latest ./runtime/
+docker save aviary-runtime:latest | docker compose exec -T k3s ctr images import -
 ```
 
 ## 테스트
@@ -159,7 +159,7 @@ docker save agentbox-runtime:latest | docker compose exec -T k3s ctr images impo
 docker compose exec api pytest tests/ -v
 ```
 
-16개 테스트: 헬스, 에이전트 CRUD, ACL (가시성, 권한 부여/거부), 세션 (생성, 목록, 접근 제어, 아카이브). 전용 `agentbox_test` 데이터베이스와 토큰 기반 mock 인증으로 다중 사용자 시나리오를 지원합니다.
+16개 테스트: 헬스, 에이전트 CRUD, ACL (가시성, 권한 부여/거부), 세션 (생성, 목록, 접근 제어, 아카이브). 전용 `aviary_test` 데이터베이스와 토큰 기반 mock 인증으로 다중 사용자 시나리오를 지원합니다.
 
 ## API 엔드포인트
 

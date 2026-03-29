@@ -6,7 +6,7 @@ import asyncpg
 
 DATABASE_URL = os.environ.get(
     "DATABASE_URL",
-    "postgresql://agentbox:agentbox@postgres:5432/agentbox",
+    "postgresql://aviary:aviary@postgres:5432/aviary",
 )
 
 _pool: asyncpg.Pool | None = None
@@ -22,7 +22,7 @@ async def get_pool() -> asyncpg.Pool:
 async def get_credentials_for_session(session_id: str) -> list[dict]:
     """Look up all credentials for the agent associated with a session.
 
-    Returns list of {"name": "GITHUB_TOKEN", "vault_path": "agentbox/agents/.../credentials/GITHUB_TOKEN"}
+    Returns list of {"name": "GITHUB_TOKEN", "vault_path": "aviary/agents/.../credentials/GITHUB_TOKEN"}
     """
     pool = await get_pool()
     async with pool.acquire() as conn:

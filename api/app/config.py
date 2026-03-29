@@ -3,17 +3,17 @@ from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     # Database
-    database_url: str = "postgresql+asyncpg://agentbox:agentbox@localhost:5432/agentbox"
+    database_url: str = "postgresql+asyncpg://aviary:aviary@localhost:5432/aviary"
 
     # Redis
     redis_url: str = "redis://localhost:6379/0"
 
     # OIDC
-    oidc_issuer: str = "http://localhost:8080/realms/agentbox"
+    oidc_issuer: str = "http://localhost:8080/realms/aviary"
     # Internal URL for fetching OIDC discovery/JWKS (container-to-container)
     # If unset, falls back to oidc_issuer
     oidc_internal_issuer: str | None = None
-    oidc_client_id: str = "agentbox-web"
+    oidc_client_id: str = "aviary-web"
     oidc_audience: str | None = None
 
     # Vault
@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     kubeconfig: str | None = None
 
     # Agent Runtime
-    agent_runtime_image: str = "agentbox-runtime:latest"
+    agent_runtime_image: str = "aviary-runtime:latest"
     default_session_timeout: int = 1800
     default_max_sessions_per_agent: int = 20
 

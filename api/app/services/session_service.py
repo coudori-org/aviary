@@ -272,7 +272,7 @@ async def _spawn_session_pod(
         "metadata": {
             "name": pvc_name,
             "namespace": namespace,
-            "labels": {"agentbox/session-id": session_id},
+            "labels": {"aviary/session-id": session_id},
         },
         "spec": {
             "accessModes": ["ReadWriteOnce"],
@@ -289,8 +289,8 @@ async def _spawn_session_pod(
             "name": pod_name,
             "namespace": namespace,
             "labels": {
-                "agentbox/role": "session",
-                "agentbox/session-id": session_id,
+                "aviary/role": "session",
+                "aviary/session-id": session_id,
             },
         },
         "spec": {

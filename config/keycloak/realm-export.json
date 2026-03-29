@@ -1,5 +1,5 @@
 {
-  "realm": "agentbox",
+  "realm": "aviary",
   "enabled": true,
   "sslRequired": "none",
   "registrationAllowed": false,
@@ -37,8 +37,8 @@
   ],
   "clients": [
     {
-      "clientId": "agentbox-web",
-      "name": "AgentBox Web UI",
+      "clientId": "aviary-web",
+      "name": "Aviary Web UI",
       "enabled": true,
       "publicClient": true,
       "protocol": "openid-connect",

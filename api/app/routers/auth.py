@@ -23,7 +23,7 @@ async def auth_config():
     # Rewrite them to public URLs (localhost:8080) for the browser.
     return AuthConfigResponse(
         issuer=to_public_url(config["issuer"]),
-        client_id="agentbox-web",
+        client_id="aviary-web",
         authorization_endpoint=to_public_url(config["authorization_endpoint"]),
         token_endpoint=to_public_url(config["token_endpoint"]),
         end_session_endpoint=to_public_url(config.get("end_session_endpoint", "")),

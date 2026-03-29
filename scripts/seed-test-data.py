@@ -13,7 +13,7 @@ import asyncpg
 
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
-    "postgresql://agentbox:agentbox@localhost:5432/agentbox",
+    "postgresql://aviary:aviary@localhost:5432/aviary",
 )
 
 
