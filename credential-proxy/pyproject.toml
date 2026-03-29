@@ -1,0 +1,12 @@
+[project]
+name = "agentbox-credential-proxy"
+version = "0.1.0"
+description = "AgentBox Credential Proxy — injects secrets from Vault into outbound requests"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+    "httpx",
+    "asyncpg",
+    "pydantic",
+]
