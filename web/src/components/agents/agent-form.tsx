@@ -214,6 +214,7 @@ export function AgentForm({ initialData, onSubmit, submitLabel }: AgentFormProps
                 value={data.model_config.temperature}
                 onChange={(e) => updateModelConfig("temperature", parseFloat(e.target.value))}
               />
+              <p className="text-[11px] text-muted-foreground/60">0 = deterministic, 1+ = more creative</p>
             </div>
             <div className="space-y-2">
               <Label htmlFor="maxTokens">Max Tokens</Label>
@@ -225,6 +226,7 @@ export function AgentForm({ initialData, onSubmit, submitLabel }: AgentFormProps
                 value={data.model_config.maxTokens}
                 onChange={(e) => updateModelConfig("maxTokens", parseInt(e.target.value))}
               />
+              <p className="text-[11px] text-muted-foreground/60">Maximum response length per turn</p>
             </div>
           </div>
         </div>

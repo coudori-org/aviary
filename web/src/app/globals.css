@@ -75,32 +75,6 @@
     text-wrap: balance;
   }
 
-  /* Glow effects for accent elements */
-  .glow-primary {
-    box-shadow: 0 0 20px hsl(187 64% 56% / 0.15),
-                0 0 40px hsl(187 64% 56% / 0.05);
-  }
-
-  .glow-primary-sm {
-    box-shadow: 0 0 10px hsl(187 64% 56% / 0.1);
-  }
-
-  /* Glass effect for overlays */
-  .glass {
-    background: hsl(222 20% 11% / 0.8);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-  }
-
-  /* Subtle gradient backgrounds */
-  .gradient-surface {
-    background: linear-gradient(
-      180deg,
-      hsl(222 20% 11%) 0%,
-      hsl(222 22% 9%) 100%
-    );
-  }
-
   /* Animation utilities */
   @keyframes fade-in {
     from { opacity: 0; transform: translateY(8px); }

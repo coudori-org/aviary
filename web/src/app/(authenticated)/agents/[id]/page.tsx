@@ -10,7 +10,7 @@ import { apiFetch } from "@/lib/api";
 import type { Agent } from "@/types";
 
 export default function AgentDetailPage() {
-  const { user, isLoading } = useAuth();
+  const { user } = useAuth();
   const params = useParams();
   const router = useRouter();
   const [agent, setAgent] = useState<Agent | null>(null);
@@ -18,21 +18,16 @@ export default function AgentDetailPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!isLoading && !user) {
-      router.replace("/login");
-      return;
-    }
     if (!user) return;
-
     apiFetch<Agent>(`/agents/${params.id}`)
       .then(setAgent)
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false));
-  }, [user, isLoading, params.id, router]);
+  }, [user, params.id]);
 
-  if (isLoading || loading) {
+  if (loading) {
     return (
-      <div className="flex h-screen items-center justify-center">
+      <div className="flex h-full items-center justify-center">
         <div className="flex items-center gap-3 text-muted-foreground">
           <svg className="h-5 w-5 animate-spin" viewBox="0 0 24 24" fill="none">
             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
@@ -64,12 +59,20 @@ export default function AgentDetailPage() {
     router.push("/agents");
   };
 
+  const handleNewSession = async () => {
+    const session = await apiFetch<any>(`/agents/${agent.id}/sessions`, {
+      method: "POST",
+      body: JSON.stringify({ type: "private" }),
+    });
+    router.push(`/sessions/${session.id}`);
+  };
+
   return (
-    <div className="min-h-screen">
-      {/* Top bar */}
-      <nav className="sticky top-0 z-30 border-b border-border/50 glass">
-        <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-3">
-          <Link href="/agents" className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors">
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-4xl px-8 py-8">
+        {/* Breadcrumb + actions */}
+        <div className="mb-6 flex items-center justify-between">
+          <Link href="/agents" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 12H5"/><polyline points="12 19 5 12 12 5"/></svg>
             Agents
           </Link>
@@ -85,9 +88,7 @@ export default function AgentDetailPage() {
             </Button>
           </div>
         </div>
-      </nav>
 
-      <div className="mx-auto max-w-5xl px-6 py-8">
         {/* Agent header */}
         <div className="mb-8 flex items-start gap-4">
           <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-primary/10 text-2xl">
@@ -120,10 +121,9 @@ export default function AgentDetailPage() {
               <CardTitle>Configuration</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
-              <InfoRow label="Slug" value={agent.slug} mono />
+              <InfoRow label="Identifier" value={agent.slug} mono />
               <InfoRow label="Visibility" value={agent.visibility} capitalize />
               <InfoRow label="Status" value={agent.status} capitalize />
-              <InfoRow label="Namespace" value={agent.namespace || "—"} mono />
             </CardContent>
           </Card>
 
@@ -158,14 +158,17 @@ export default function AgentDetailPage() {
           </Card>
         </div>
 
-        {/* Start chat CTA */}
-        <div className="mt-8">
-          <Link href={`/agents/${agent.id}/sessions`}>
-            <Button size="lg" className="w-full glow-primary-sm">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-              </svg>
-              Start Chat Session
+        {/* Quick actions */}
+        <div className="mt-8 flex gap-3">
+          <Button size="lg" className="flex-1" onClick={handleNewSession}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+            </svg>
+            New Chat
+          </Button>
+          <Link href={`/agents/${agent.id}/sessions`} className="flex-1">
+            <Button size="lg" variant="outline" className="w-full">
+              View All Sessions
             </Button>
           </Link>
         </div>
@@ -174,23 +177,11 @@ export default function AgentDetailPage() {
   );
 }
 
-function InfoRow({
-  label,
-  value,
-  mono,
-  capitalize: cap,
-}: {
-  label: string;
-  value: string;
-  mono?: boolean;
-  capitalize?: boolean;
-}) {
+function InfoRow({ label, value, mono, capitalize: cap }: { label: string; value: string; mono?: boolean; capitalize?: boolean }) {
   return (
     <div className="flex items-center justify-between text-sm">
       <span className="text-muted-foreground">{label}</span>
-      <span className={`text-foreground/90 ${mono ? "font-mono text-xs" : ""} ${cap ? "capitalize" : ""}`}>
-        {value}
-      </span>
+      <span className={`text-foreground/90 ${mono ? "font-mono text-xs" : ""} ${cap ? "capitalize" : ""}`}>{value}</span>
     </div>
   );
 }

@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/components/providers/auth-provider";
 import { AgentCard } from "@/components/agents/agent-card";
@@ -16,18 +15,11 @@ interface AgentListResponse {
 }
 
 export default function AgentsPage() {
-  const { user, isLoading, logout } = useAuth();
-  const router = useRouter();
+  const { user } = useAuth();
   const [agents, setAgents] = useState<Agent[]>([]);
   const [total, setTotal] = useState(0);
   const [search, setSearch] = useState("");
   const [loadingAgents, setLoadingAgents] = useState(true);
-
-  useEffect(() => {
-    if (!isLoading && !user) {
-      router.replace("/login");
-    }
-  }, [user, isLoading, router]);
 
   useEffect(() => {
     if (!user) return;
@@ -46,62 +38,17 @@ export default function AgentsPage() {
       .finally(() => setLoadingAgents(false));
   }, [user, search]);
 
-  if (isLoading || !user) {
-    return (
-      <div className="flex h-screen items-center justify-center">
-        <div className="flex items-center gap-3 text-muted-foreground">
-          <svg className="h-5 w-5 animate-spin" viewBox="0 0 24 24" fill="none">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-          </svg>
-          <span className="text-sm">Loading...</span>
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div className="min-h-screen">
-      {/* Top nav */}
-      <nav className="sticky top-0 z-30 border-b border-border/50 glass">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-3">
-          <div className="flex items-center gap-3">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-primary">
-                <path d="M12 2L2 7l10 5 10-5-10-5z" />
-                <path d="M2 17l10 5 10-5" />
-                <path d="M2 12l10 5 10-5" />
-              </svg>
-            </div>
-            <span className="text-sm font-semibold text-foreground">Aviary</span>
-          </div>
-
-          <div className="flex items-center gap-3">
-            {user.is_platform_admin && (
-              <span className="rounded-full bg-primary/10 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-primary">
-                Admin
-              </span>
-            )}
-            <span className="text-sm text-muted-foreground">
-              {user.display_name || user.email}
-            </span>
-            <Button variant="ghost" size="sm" onClick={logout}>
-              Sign out
-            </Button>
-          </div>
-        </div>
-      </nav>
-
-      {/* Page content */}
-      <div className="mx-auto max-w-7xl px-6 py-8">
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-6xl px-8 py-8">
         {/* Page header */}
         <div className="mb-8 flex flex-col gap-6 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <h1 className="text-2xl font-bold tracking-tight text-foreground">
-              Agents
+            <h1 className="text-xl font-bold tracking-tight text-foreground">
+              All Agents
             </h1>
             <p className="mt-1 text-sm text-muted-foreground">
-              {total} agent{total !== 1 ? "s" : ""} available in your workspace
+              {total} agent{total !== 1 ? "s" : ""} in your workspace
             </p>
           </div>
           <Link href="/agents/new">
@@ -123,7 +70,7 @@ export default function AgentsPage() {
               <line x1="21" y1="21" x2="16.65" y2="16.65" />
             </svg>
             <Input
-              placeholder="Search agents by name or description..."
+              placeholder="Search agents..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="pl-10"
@@ -133,7 +80,7 @@ export default function AgentsPage() {
 
         {/* Content */}
         {loadingAgents ? (
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
             {[...Array(6)].map((_, i) => (
               <div key={i} className="h-44 animate-shimmer rounded-xl" />
             ))}
@@ -157,7 +104,7 @@ export default function AgentsPage() {
             )}
           </div>
         ) : (
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
             {agents.map((agent) => (
               <AgentCard key={agent.id} agent={agent} />
             ))}

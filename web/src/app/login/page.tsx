@@ -16,40 +16,34 @@ export default function LoginPage() {
   }, [user, isLoading, router]);
 
   return (
-    <div className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden">
-      {/* Background gradient orbs */}
-      <div className="pointer-events-none absolute inset-0">
-        <div className="absolute left-1/4 top-1/4 h-96 w-96 rounded-full bg-primary/5 blur-3xl" />
-        <div className="absolute bottom-1/4 right-1/4 h-80 w-80 rounded-full bg-primary/3 blur-3xl" />
-      </div>
-
-      <div className="relative z-10 flex flex-col items-center gap-10 animate-fade-in">
+    <div className="flex min-h-screen flex-col items-center justify-center">
+      <div className="flex flex-col items-center gap-10 animate-fade-in">
         {/* Logo & Brand */}
         <div className="flex flex-col items-center gap-4">
-          <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10 glow-primary">
-            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-primary">
+          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-primary">
               <path d="M12 2L2 7l10 5 10-5-10-5z" />
               <path d="M2 17l10 5 10-5" />
               <path d="M2 12l10 5 10-5" />
             </svg>
           </div>
           <div className="flex flex-col items-center gap-2">
-            <h1 className="text-4xl font-bold tracking-tight text-foreground">
+            <h1 className="text-3xl font-bold tracking-tight text-foreground">
               Aviary
             </h1>
-            <p className="text-base text-muted-foreground">
-              Deploy, manage, and chat with AI agents
+            <p className="text-sm text-muted-foreground">
+              AI Agent Platform
             </p>
           </div>
         </div>
 
-        {/* Sign in card */}
-        <div className="w-full max-w-sm rounded-2xl border border-border/50 bg-card/50 p-8 backdrop-blur-sm">
+        {/* Sign in */}
+        <div className="w-full max-w-sm rounded-xl border border-border/50 bg-card p-8">
           <Button
             size="lg"
             onClick={login}
             disabled={isLoading}
-            className="w-full glow-primary-sm"
+            className="w-full"
           >
             {isLoading ? (
               <span className="flex items-center gap-2">
