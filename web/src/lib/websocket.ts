@@ -1,0 +1,46 @@
+import { getAccessToken } from "./auth";
+
+export type ConnectionStatus =
+  | "connecting"
+  | "provisioning"
+  | "spawning"
+  | "waiting"
+  | "ready"
+  | "offline"
+  | "disconnected";
+
+export type WSMessage =
+  | { type: "status"; status: ConnectionStatus; message?: string }
+  | { type: "message"; content: string }
+  | { type: "chunk"; content: string }
+  | { type: "user_message"; sender_id: string; content: string }
+  | { type: "tool_use"; name: string; input: Record<string, unknown> }
+  | { type: "done"; messageId: string }
+  | { type: "error"; message: string };
+
+export function createSessionWebSocket(
+  sessionId: string,
+  onMessage: (msg: WSMessage) => void,
+  onClose?: () => void
+): WebSocket {
+  const token = getAccessToken();
+  const wsUrl =
+    process.env.NEXT_PUBLIC_WS_URL || `ws://${window.location.hostname}:8000`;
+  const ws = new WebSocket(`${wsUrl}/api/sessions/${sessionId}/ws?token=${token}`);
+
+  ws.onmessage = (event) => {
+    try {
+      const msg = JSON.parse(event.data) as WSMessage;
+      onMessage(msg);
+    } catch {
+      // Ignore unparseable messages
+    }
+  };
+
+  ws.onclose = () => {
+    onMessage({ type: "status", status: "disconnected" });
+    onClose?.();
+  };
+
+  return ws;
+}
