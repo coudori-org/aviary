@@ -1,0 +1,165 @@
+services:
+  # ── Infrastructure ──────────────────────────────────────────
+
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: agentbox
+      POSTGRES_USER: agentbox
+      POSTGRES_PASSWORD: agentbox
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agentbox"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:25.0
+    command: start-dev --import-realm
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
+      KC_DB_USERNAME: agentbox
+      KC_DB_PASSWORD: agentbox
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./config/keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  vault:
+    image: hashicorp/vault:1.17
+    command: server -dev -dev-root-token-id=dev-root-token
+    environment:
+      VAULT_DEV_ROOT_TOKEN_ID: dev-root-token
+      VAULT_DEV_LISTEN_ADDRESS: "0.0.0.0:8200"
+      VAULT_ADDR: "http://127.0.0.1:8200"
+    ports:
+      - "8200:8200"
+    cap_add:
+      - IPC_LOCK
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider --quiet http://127.0.0.1:8200/v1/sys/health || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  vault-init:
+    image: hashicorp/vault:1.17
+    depends_on:
+      vault:
+        condition: service_healthy
+    environment:
+      VAULT_ADDR: "http://vault:8200"
+      VAULT_TOKEN: "dev-root-token"
+    entrypoint: /bin/sh
+    command: >
+      -c "
+        vault secrets enable -version=2 -path=secret kv 2>/dev/null || true &&
+        vault kv put secret/agentbox/agents/test-agent/credentials/GITHUB_TOKEN value=ghp_test_12345 &&
+        vault kv put secret/agentbox/agents/test-agent/credentials/SLACK_TOKEN value=xoxb-test-12345 &&
+        echo 'Vault initialized with test secrets'
+      "
+
+  k3s:
+    image: rancher/k3s:v1.31.4-k3s1
+    command: server --disable=traefik --write-kubeconfig-mode=644 --node-name=agentbox-node
+    hostname: agentbox-node
+    privileged: true
+    environment:
+      K3S_TOKEN: agentbox-dev-token
+    ports:
+      - "6443:6443"
+    volumes:
+      - k3sdata:/var/lib/rancher/k3s
+      - ./config/k3s/registries.yaml:/etc/rancher/k3s/registries.yaml
+
+  # ── Application ─────────────────────────────────────────────
+
+  api:
+    build:
+      context: ./api
+    ports:
+      - "8000:8000"
+    volumes:
+      # Bind-mount source code → hot reload via uvicorn --reload
+      - ./api:/app
+      # Anonymous volume protects container's installed packages from host's .venv
+      - /app/.venv
+      - /app/*.egg-info
+    environment:
+      DATABASE_URL: postgresql+asyncpg://agentbox:agentbox@postgres:5432/agentbox
+      REDIS_URL: redis://redis:6379/0
+      # Public issuer (must match token's iss claim — browser URL)
+      OIDC_ISSUER: http://localhost:8080/realms/agentbox
+      # Internal issuer (container-to-container — for fetching discovery/JWKS/token exchange)
+      OIDC_INTERNAL_ISSUER: http://keycloak:8080/realms/agentbox
+      OIDC_CLIENT_ID: agentbox-web
+      VAULT_ADDR: http://vault:8200
+      VAULT_TOKEN: dev-root-token
+      KUBECONFIG: /app/kubeconfig.yaml
+      INFERENCE_OLLAMA_URL: http://host.k3s.internal:11434
+      INFERENCE_VLLM_URL: http://host.k3s.internal:8001
+      HOST_GATEWAY_IP: 172.18.0.1
+      CORS_ORIGINS: '["http://localhost:3000"]'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      vault:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8000/api/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  web:
+    build:
+      context: ./web
+    ports:
+      - "3000:3000"
+    volumes:
+      # Bind-mount source code → hot reload via Next.js dev server
+      - ./web:/app
+      # Anonymous volume protects container's node_modules from host's node_modules
+      - /app/node_modules
+      - /app/.next
+    environment:
+      # NEXT_PUBLIC_* are baked into client-side JS → must use localhost (browser URLs)
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+      NEXT_PUBLIC_WS_URL: ws://localhost:8000
+      NEXT_PUBLIC_OIDC_ISSUER: http://localhost:8080/realms/agentbox
+      NEXT_PUBLIC_OIDC_CLIENT_ID: agentbox-web
+      # Server-side only: Next.js rewrites proxy → container-to-container
+      INTERNAL_API_URL: http://api:8000
+      # Ensure Next.js accepts connections from outside the container
+      HOSTNAME: "0.0.0.0"
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  k3sdata:
