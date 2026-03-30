@@ -3,7 +3,6 @@ import json
 import logging
 import uuid
 
-import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -27,7 +26,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-# ── Session CRUD (REST) ───────────────────────────────────────
+# -- Session CRUD (REST) -------------------------------------------
 
 @router.get("/agents/{agent_id}/sessions", response_model=SessionListResponse)
 async def list_sessions(
@@ -68,7 +67,7 @@ async def create_session(
     return SessionResponse.from_orm_session(session)
 
 
-# ── Session status polling (for sidebar) ─────────────────────
+# -- Session status polling (for sidebar) ---------------------------
 # IMPORTANT: must be registered BEFORE /sessions/{session_id} to avoid
 # FastAPI matching "status" as a UUID path parameter.
 
@@ -147,7 +146,7 @@ async def invite_to_session(
     return {"status": "invited"}
 
 
-# ── WebSocket Chat ────────────────────────────────────────────
+# -- WebSocket Chat ------------------------------------------------
 
 @router.websocket("/sessions/{session_id}/ws")
 async def websocket_chat(websocket: WebSocket, session_id: uuid.UUID):
@@ -190,7 +189,7 @@ async def websocket_chat(websocket: WebSocket, session_id: uuid.UUID):
                 await websocket.send_json({"type": "error", "message": "Not a session participant"})
                 return
 
-            # Get agent for pod routing
+            # Get agent for deployment routing
             result = await db.execute(select(Agent).where(Agent.id == session.agent_id))
             agent = result.scalar_one_or_none()
             if not agent:
@@ -213,22 +212,23 @@ async def websocket_chat(websocket: WebSocket, session_id: uuid.UUID):
                     agent.namespace = ns_name
                 except Exception:
                     await websocket.send_json({"type": "status", "status": "offline", "message": "Failed to provision K8s namespace"})
+                    return
 
-            # Ensure a Pod is running for this session
+            # Ensure agent Deployment is running
             await websocket.send_json({"type": "status", "status": "spawning"})
             try:
-                pod_name = await session_service.ensure_session_pod(db, session, agent)
+                namespace = await session_service.ensure_agent_ready(db, agent)
             except Exception as e:
-                await websocket.send_json({"type": "status", "status": "offline", "message": f"Failed to spawn Pod: {e}"})
+                await websocket.send_json({"type": "status", "status": "offline", "message": f"Failed to start agent: {e}"})
                 return
 
             await db.commit()
 
-        # Wait for Pod readiness
+        # Wait for Deployment readiness
         await websocket.send_json({"type": "status", "status": "waiting"})
-        ready = await _wait_for_pod_ready(agent.namespace, pod_name, timeout=90)
+        ready = await _wait_for_deployment_ready(namespace, timeout=90)
         if not ready:
-            await websocket.send_json({"type": "status", "status": "offline", "message": "Pod did not become ready in time"})
+            await websocket.send_json({"type": "status", "status": "offline", "message": "Agent pods did not become ready in time"})
             return
 
         await websocket.send_json({"type": "status", "status": "ready"})
@@ -294,17 +294,15 @@ async def websocket_chat(websocket: WebSocket, session_id: uuid.UUID):
                     "_sender": user_id_str,
                 })
 
-                # Re-read session/agent to get latest pod_name
+                # Re-read agent to get latest namespace
                 async with async_session_factory() as db:
-                    session = await session_service.get_session(db, session_id)
                     result = await db.execute(select(Agent).where(Agent.id == session.agent_id))
                     agent = result.scalar_one()
 
-                # Start background stream (non-blocking)
+                # Start background stream (non-blocking) — routes via Service
                 await stream_manager.start_stream(
                     session_id=session_id_str,
                     namespace=agent.namespace,
-                    pod_name=session.pod_name,
                     agent_model_config=agent.model_config_json,
                     agent_instruction=agent.instruction,
                     agent_tools=agent.tools,
@@ -361,8 +359,8 @@ async def _replay_stream_if_needed(websocket: WebSocket, session_id: str) -> Non
         await redis_service.clear_stream_buffer(session_id)
 
 
-async def _wait_for_pod_ready(namespace: str, pod_name: str, timeout: int = 120) -> bool:
-    """Poll the Pod's readiness probe via K8s API until it passes or timeout."""
+async def _wait_for_deployment_ready(namespace: str, timeout: int = 120) -> bool:
+    """Poll the agent Deployment until at least one Pod is ready or timeout."""
     import time
     from app.services.k8s_service import _get_k8s_client, _k8s_initialized, _load_kubeconfig
 
@@ -375,21 +373,20 @@ async def _wait_for_pod_ready(namespace: str, pod_name: str, timeout: int = 120)
         try:
             async with _get_k8s_client() as client:
                 resp = await client.get(
-                    f"/api/v1/namespaces/{namespace}/pods/{pod_name}"
+                    f"/apis/apps/v1/namespaces/{namespace}/deployments/agent-runtime"
                 )
                 if resp.status_code == 200:
-                    pod = resp.json()
-                    conditions = pod.get("status", {}).get("conditions", [])
-                    for cond in conditions:
-                        if cond.get("type") == "Ready" and cond.get("status") == "True":
-                            return True
+                    dep = resp.json()
+                    status_info = dep.get("status", {})
+                    ready_replicas = status_info.get("readyReplicas", 0)
+                    if ready_replicas and ready_replicas >= 1:
+                        return True
 
-                    # Also check container statuses for crash
-                    container_statuses = pod.get("status", {}).get("containerStatuses", [])
-                    for cs in container_statuses:
-                        waiting = cs.get("state", {}).get("waiting", {})
-                        if waiting.get("reason") in ("CrashLoopBackOff", "ErrImagePull", "ErrImageNeverPull"):
-                            return False
+                    # Check for image pull errors via pod conditions
+                    conditions = status_info.get("conditions", [])
+                    for cond in conditions:
+                        if cond.get("type") == "Available" and cond.get("status") == "True":
+                            return True
         except Exception:
             pass
 

@@ -174,7 +174,7 @@ async def create_agent_namespace(
             "kind": "NetworkPolicy",
             "metadata": {"name": "session-egress", "namespace": ns_name},
             "spec": {
-                "podSelector": {"matchLabels": {"aviary/role": "session"}},
+                "podSelector": {"matchLabels": {"aviary/role": "agent-runtime"}},
                 "policyTypes": ["Egress", "Ingress"],
                 "ingress": [],
                 "egress": egress_rules,
@@ -182,20 +182,20 @@ async def create_agent_namespace(
         },
     )
 
-    # 4. ResourceQuota
-    max_sessions = policy.get("maxConcurrentSessions", 20)
+    # 4. ResourceQuota — based on max_pods for agent-per-pod architecture
+    max_pods = policy.get("maxPods", 3)
     await _k8s_apply("POST", f"/api/v1/namespaces/{ns_name}/resourcequotas", {
         "apiVersion": "v1",
         "kind": "ResourceQuota",
         "metadata": {"name": "session-quota", "namespace": ns_name},
         "spec": {
             "hard": {
-                "pods": str(max_sessions),
+                "pods": str(max_pods + 2),  # +2 headroom for rolling updates
                 "requests.cpu": "10",
                 "requests.memory": "10Gi",
                 "limits.cpu": "20",
                 "limits.memory": "20Gi",
-                "persistentvolumeclaims": "100",
+                "persistentvolumeclaims": "10",
             },
         },
     })

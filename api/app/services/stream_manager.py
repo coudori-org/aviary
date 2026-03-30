@@ -4,6 +4,9 @@ Decouples Pod-forwarding from WebSocket lifecycle so that:
 - Streaming continues even if the client disconnects
 - Chunks are buffered in Redis for replay on reconnect
 - Agent response is always saved to DB on completion
+
+Routes to agent Pods via K8s Service (agent-runtime-svc) for load-balanced
+access across multiple agent replicas.
 """
 
 import asyncio
@@ -27,7 +30,6 @@ _active_streams: dict[str, asyncio.Task] = {}
 async def start_stream(
     session_id: str,
     namespace: str,
-    pod_name: str,
     agent_model_config: dict,
     agent_instruction: str,
     agent_tools: list,
@@ -52,7 +54,7 @@ async def start_stream(
 
     task = asyncio.create_task(
         _run_stream(
-            session_id, namespace, pod_name,
+            session_id, namespace,
             agent_model_config, agent_instruction,
             agent_tools, agent_mcp_servers, agent_policy,
             content, sender_id,
@@ -75,7 +77,6 @@ def is_streaming(session_id: str) -> bool:
 async def _run_stream(
     session_id: str,
     namespace: str,
-    pod_name: str,
     agent_model_config: dict,
     agent_instruction: str,
     agent_tools: list,
@@ -94,16 +95,15 @@ async def _run_stream(
     full_response = ""
 
     try:
-        # No pod/namespace → placeholder
-        if not pod_name or not namespace:
+        if not namespace:
             placeholder = "[Agent Pod not running — runtime container needed for inference.]"
             chunk_event = {"type": "chunk", "content": placeholder}
             await redis_service.append_stream_chunk(session_id, chunk_event)
             await redis_service.publish_message(session_id, chunk_event)
             full_response = placeholder
         else:
-            # Route to Pod via K8s API proxy
-            proxy_path = f"/api/v1/namespaces/{namespace}/pods/{pod_name}:3000/proxy/message"
+            # Route to Pod via K8s Service proxy (load-balanced across replicas)
+            proxy_path = f"/api/v1/namespaces/{namespace}/services/agent-runtime-svc:3000/proxy/message"
 
             async with _get_k8s_client() as client:
                 async with client.stream(

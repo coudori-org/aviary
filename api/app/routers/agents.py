@@ -96,3 +96,93 @@ async def delete_agent(
 
     await agent_service.delete_agent(db, agent)
     return None
+
+
+# ── Agent Deployment Management ──────────────────────────────
+
+
+@router.post("/{agent_id}/activate")
+async def activate_agent(
+    agent_id: uuid.UUID,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Manually activate an agent's Deployment (spawn pods)."""
+    agent = await agent_service.get_agent(db, agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+    try:
+        await acl_service.check_agent_permission(db, user, agent, "edit_config")
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
+
+    try:
+        await agent_service.activate_agent(db, agent)
+    except RuntimeError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return {"status": "activated", "deployment_active": True}
+
+
+@router.post("/{agent_id}/deactivate")
+async def deactivate_agent(
+    agent_id: uuid.UUID,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Manually deactivate an agent's Deployment (scale to 0)."""
+    agent = await agent_service.get_agent(db, agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+    try:
+        await acl_service.check_agent_permission(db, user, agent, "edit_config")
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
+
+    await agent_service.deactivate_agent(db, agent)
+    return {"status": "deactivated", "deployment_active": False}
+
+
+@router.get("/{agent_id}/deployment")
+async def get_deployment_status(
+    agent_id: uuid.UUID,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get Deployment status for an agent."""
+    from app.services import deployment_service
+
+    agent = await agent_service.get_agent(db, agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+    try:
+        await acl_service.check_agent_permission(db, user, agent, "view")
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
+
+    status_info = await deployment_service.get_deployment_status(agent)
+    return {
+        "deployment_active": agent.deployment_active,
+        "pod_strategy": agent.pod_strategy,
+        "min_pods": agent.min_pods,
+        "max_pods": agent.max_pods,
+        **status_info,
+    }
+
+
+@router.post("/{agent_id}/deploy")
+async def deploy_agent(
+    agent_id: uuid.UUID,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Trigger a rolling restart to apply config changes."""
+    agent = await agent_service.get_agent(db, agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+    try:
+        await acl_service.check_agent_permission(db, user, agent, "edit_config")
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
+
+    await agent_service.deploy_agent(db, agent)
+    return {"status": "deploying"}

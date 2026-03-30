@@ -1,24 +1,31 @@
-"""Conversation history manager — persists to /workspace/.history/ for PVC survival."""
+"""Conversation history manager — persists to /workspace/sessions/{session_id}/.history/."""
 
 import json
-import os
 from pathlib import Path
 from typing import Any
 
-HISTORY_DIR = Path("/workspace/.history")
-MESSAGES_FILE = HISTORY_DIR / "messages.jsonl"
+WORKSPACE_ROOT = Path("/workspace/sessions")
 
 
-def ensure_history_dir():
-    HISTORY_DIR.mkdir(parents=True, exist_ok=True)
+def _history_dir(session_id: str) -> Path:
+    return WORKSPACE_ROOT / session_id / ".history"
 
 
-def load_messages() -> list[dict[str, Any]]:
+def _messages_file(session_id: str) -> Path:
+    return _history_dir(session_id) / "messages.jsonl"
+
+
+def ensure_history_dir(session_id: str):
+    _history_dir(session_id).mkdir(parents=True, exist_ok=True)
+
+
+def load_messages(session_id: str) -> list[dict[str, Any]]:
     """Load all messages from the JSONL history file."""
-    if not MESSAGES_FILE.exists():
+    messages_file = _messages_file(session_id)
+    if not messages_file.exists():
         return []
     messages = []
-    with open(MESSAGES_FILE) as f:
+    with open(messages_file) as f:
         for line in f:
             line = line.strip()
             if line:
@@ -26,17 +33,17 @@ def load_messages() -> list[dict[str, Any]]:
     return messages
 
 
-def append_message(role: str, content: str, metadata: dict | None = None):
+def append_message(session_id: str, role: str, content: str, metadata: dict | None = None):
     """Append a message to the history file."""
-    ensure_history_dir()
+    ensure_history_dir(session_id)
     entry = {"role": role, "content": content}
     if metadata:
         entry["metadata"] = metadata
-    with open(MESSAGES_FILE, "a") as f:
+    with open(_messages_file(session_id), "a") as f:
         f.write(json.dumps(entry) + "\n")
 
 
-def get_conversation_for_sdk() -> list[dict[str, str]]:
+def get_conversation_for_sdk(session_id: str) -> list[dict[str, str]]:
     """Format conversation history for Claude Agent SDK."""
-    messages = load_messages()
+    messages = load_messages(session_id)
     return [{"role": m["role"], "content": m["content"]} for m in messages]

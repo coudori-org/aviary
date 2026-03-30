@@ -13,21 +13,21 @@ from app.services.redis_service import close_redis, get_client, init_redis
 logger = logging.getLogger(__name__)
 
 
-async def _idle_pod_cleanup_loop():
-    """Background task: clean up idle session Pods every 60 seconds."""
+async def _idle_agent_cleanup_loop():
+    """Background task: scale down idle agent Deployments every 5 minutes."""
     from app.db.session import async_session_factory
-    from app.services.session_service import cleanup_idle_sessions
+    from app.services.session_service import cleanup_idle_agents
 
     while True:
-        await asyncio.sleep(60)
+        await asyncio.sleep(300)  # 5 minutes
         try:
             async with async_session_factory() as db:
-                cleaned = await cleanup_idle_sessions(db)
+                cleaned = await cleanup_idle_agents(db)
                 await db.commit()
                 if cleaned:
-                    logger.info("Cleaned up %d idle session pods", cleaned)
+                    logger.info("Scaled down %d idle agent deployments", cleaned)
         except Exception:
-            logger.warning("Idle pod cleanup failed", exc_info=True)
+            logger.warning("Idle agent cleanup failed", exc_info=True)
 
 
 @asynccontextmanager
@@ -35,12 +35,23 @@ async def lifespan(app: FastAPI):
     # Startup
     await init_oidc()
     await init_redis()
-    cleanup_task = asyncio.create_task(_idle_pod_cleanup_loop())
+    cleanup_task = asyncio.create_task(_idle_agent_cleanup_loop())
+
+    # Auto-scaling loop
+    from app.services import scaling_service
+    scaling_task = asyncio.create_task(scaling_service.scaling_loop())
+
     yield
+
     # Shutdown
     cleanup_task.cancel()
+    scaling_task.cancel()
     try:
         await cleanup_task
+    except asyncio.CancelledError:
+        pass
+    try:
+        await scaling_task
     except asyncio.CancelledError:
         pass
     await close_redis()

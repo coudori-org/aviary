@@ -1,14 +1,18 @@
 """Agent runner using the official claude-agent-sdk package.
 
 All inference is routed through the Inference Router (platform namespace):
-  claude-agent-sdk → Claude Code CLI → Anthropic SDK
-    → POST http://inference-router.platform.svc:8080/v1/messages
-    → Router inspects model name → proxies to correct backend
+  claude-agent-sdk -> Claude Code CLI -> Anthropic SDK
+    -> POST http://inference-router.platform.svc:8080/v1/messages
+    -> Router inspects model name -> proxies to correct backend
 
 Multi-turn conversation is maintained via the SDK's session management:
-  - First message: new session, session_id stored to /workspace/.session_id
-  - Subsequent messages: continue_conversation=True resumes the session
+  - First message: new session, session_id stored to workspace/.session_id
+  - Subsequent messages: resume=<sdk_session_id> resumes the session
   - Pod restart with same PVC: session_id recovered from file
+
+Session isolation: each claude-agent-sdk subprocess runs inside a bubblewrap
+sandbox where only its own workspace directory is visible. Other sessions'
+directories don't exist in the mount namespace. See scripts/claude-sandbox.sh.
 """
 
 import json
@@ -33,14 +37,18 @@ from app.history import append_message
 
 # Agent config paths (mounted from ConfigMap)
 CONFIG_DIR = Path("/agent/config")
-WORKSPACE_DIR = Path("/workspace")
-SESSION_ID_FILE = WORKSPACE_DIR / ".session_id"
+WORKSPACE_ROOT = Path("/workspace/sessions")
 
 # Inference Router URL (K8s Service in platform namespace)
 INFERENCE_ROUTER_URL = os.environ.get(
     "INFERENCE_ROUTER_URL",
     "http://inference-router.platform.svc:8080",
 )
+
+
+def _session_workspace(session_id: str) -> Path:
+    """Get the isolated workspace directory for a session."""
+    return WORKSPACE_ROOT / session_id
 
 
 def load_agent_config() -> dict:
@@ -66,50 +74,52 @@ def load_agent_config() -> dict:
     return config
 
 
-def _load_session_id() -> str | None:
-    """Load the SDK session ID from the persistent workspace."""
-    if SESSION_ID_FILE.exists():
-        sid = SESSION_ID_FILE.read_text().strip()
+def _load_session_id(workspace: Path) -> str | None:
+    """Load the SDK session ID from the session workspace."""
+    sid_file = workspace / ".session_id"
+    if sid_file.exists():
+        sid = sid_file.read_text().strip()
         return sid if sid else None
     return None
 
 
-def _save_session_id(session_id: str) -> None:
-    """Save the SDK session ID to the persistent workspace."""
-    SESSION_ID_FILE.write_text(session_id)
+def _save_session_id(workspace: Path, session_id: str) -> None:
+    """Save the SDK session ID to the session workspace."""
+    (workspace / ".session_id").write_text(session_id)
 
 
-def _clear_session_id() -> None:
+def _clear_session_id(workspace: Path) -> None:
     """Remove a stale SDK session ID (e.g. after cluster restart)."""
-    if SESSION_ID_FILE.exists():
-        SESSION_ID_FILE.unlink()
-        logger.info("Cleared stale session ID file")
+    sid_file = workspace / ".session_id"
+    if sid_file.exists():
+        sid_file.unlink()
+        logger.info("Cleared stale session ID file in %s", workspace)
 
 
-def _build_options(agent_config: dict, model_config: dict) -> ClaudeAgentOptions:
-    """Build ClaudeAgentOptions routing all inference through the Inference Router."""
+def _build_options(agent_config: dict, model_config: dict, workspace: Path) -> ClaudeAgentOptions:
+    """Build ClaudeAgentOptions with bubblewrap sandbox isolation.
+
+    The `claude` binary in PATH is a wrapper script (installed by Dockerfile)
+    that reads SESSION_WORKSPACE env and runs claude-real inside a bwrap
+    mount namespace where only this session's directory is visible.
+    """
     model = model_config.get("model", "claude-sonnet-4-20250514")
-
-    # Check if we have an existing session to continue
-    existing_session_id = _load_session_id()
+    existing_session_id = _load_session_id(workspace)
 
     opts = ClaudeAgentOptions(
         model=model,
         system_prompt=agent_config.get("instruction"),
-        cwd=WORKSPACE_DIR,
+        cwd=workspace,
         permission_mode="bypassPermissions",
         include_partial_messages=False,
-        # Multi-turn: resume existing session or start new one
-        # resume=<session_id> continues the specific session (not continue_conversation)
         resume=existing_session_id,
-        # Route all Anthropic API calls through the Inference Router
         env={
             "ANTHROPIC_BASE_URL": INFERENCE_ROUTER_URL,
             "ANTHROPIC_API_KEY": "routed-via-inference-router",
+            "SESSION_WORKSPACE": str(workspace),
         },
     )
 
-    # Tools
     tools_list = agent_config.get("tools")
     if tools_list:
         opts.allowed_tools = tools_list
@@ -118,6 +128,7 @@ def _build_options(agent_config: dict, model_config: dict) -> ClaudeAgentOptions
 
 
 async def process_message(
+    session_id: str,
     content: str,
     model_config: dict | None = None,
     agent_config_from_api: dict | None = None,
@@ -128,16 +139,21 @@ async def process_message(
     message, ensuring edits to instruction/tools take effect immediately
     without Pod restart. Falls back to ConfigMap if not provided.
 
+    Each session operates in its own workspace directory for isolation.
+
     Yields SSE-formatted dicts:
       {"type": "chunk", "content": "..."}
       {"type": "tool_use", "name": "...", "input": {...}}
       {"type": "tool_result", "tool_use_id": "...", "content": "..."}
     """
+    workspace = _session_workspace(session_id)
+    workspace.mkdir(parents=True, exist_ok=True)
+
     agent_config = agent_config_from_api if agent_config_from_api else load_agent_config()
-    append_message("user", content)
+    append_message(session_id, "user", content)
 
     mc = model_config or {"backend": "claude", "model": "claude-sonnet-4-20250514"}
-    options = _build_options(agent_config, mc)
+    options = _build_options(agent_config, mc, workspace)
 
     full_response = ""
 
@@ -164,9 +180,8 @@ async def process_message(
                         }
 
             elif isinstance(message, ResultMessage):
-                # Save session_id for multi-turn continuation
                 if message.session_id:
-                    _save_session_id(message.session_id)
+                    _save_session_id(workspace, message.session_id)
 
                 if message.result and not full_response:
                     full_response = message.result
@@ -176,14 +191,12 @@ async def process_message(
         async for chunk in _run_query(options):
             yield chunk
     except Exception as e:
-        # If resume failed (stale session after pod/cluster restart),
-        # clear the stale session ID and retry as a fresh session
         if options.resume is not None:
             logger.warning(
                 "Session resume failed (session_id=%s), retrying as new session: %s",
                 options.resume, e,
             )
-            _clear_session_id()
+            _clear_session_id(workspace)
             options.resume = None
             full_response = ""
             try:
@@ -194,14 +207,14 @@ async def process_message(
                 model = mc.get("model", "unknown")
                 error_msg = f"[{backend}/{model}] Error: {retry_err}"
                 yield {"type": "chunk", "content": error_msg}
-                append_message("assistant", error_msg)
+                append_message(session_id, "assistant", error_msg)
                 return
         else:
             backend = mc.get("backend", "claude")
             model = mc.get("model", "unknown")
             error_msg = f"[{backend}/{model}] Error: {e}"
             yield {"type": "chunk", "content": error_msg}
-            append_message("assistant", error_msg)
+            append_message(session_id, "assistant", error_msg)
             return
 
-    append_message("assistant", full_response)
+    append_message(session_id, "assistant", full_response)

@@ -99,6 +99,39 @@ async def get_cached_session_pod(session_id: str) -> dict[str, str] | None:
     return data if data else None
 
 
+# ── Agent deployment cache ─────────────────────────────────
+
+_DEPLOYMENT_CACHE_TTL = 600  # 10 minutes
+
+
+async def cache_agent_deployment(agent_id: str, namespace: str) -> None:
+    """Cache the agent's deployment namespace (avoids DB lookup for routing)."""
+    client = get_client()
+    if not client:
+        return
+    key = f"agent:{agent_id}:deployment"
+    await client.hset(key, mapping={"namespace": namespace, "service": "agent-runtime-svc"})
+    await client.expire(key, _DEPLOYMENT_CACHE_TTL)
+
+
+async def get_cached_agent_deployment(agent_id: str) -> dict[str, str] | None:
+    """Get cached deployment info for an agent. Returns {"namespace": ..., "service": ...} or None."""
+    client = get_client()
+    if not client:
+        return None
+    key = f"agent:{agent_id}:deployment"
+    data = await client.hgetall(key)
+    return data if data else None
+
+
+async def clear_agent_deployment_cache(agent_id: str) -> None:
+    """Clear cached deployment info for an agent."""
+    client = get_client()
+    if not client:
+        return
+    await client.delete(f"agent:{agent_id}:deployment")
+
+
 # ── Online presence tracking ─────────────────────────────────
 
 async def add_ws_connection(session_id: str, user_id: str) -> None:

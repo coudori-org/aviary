@@ -103,6 +103,13 @@ class Agent(Base):
     # K8s
     namespace: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
+    # Pod strategy (agent-per-pod architecture)
+    pod_strategy: Mapped[str] = mapped_column(String(20), default="lazy", server_default="lazy")
+    min_pods: Mapped[int] = mapped_column(default=1, server_default="1")
+    max_pods: Mapped[int] = mapped_column(default=3, server_default="3")
+    last_activity_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
+    deployment_active: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+
     # Status
     status: Mapped[str] = mapped_column(String(20), default="active", server_default="active")
     created_at: Mapped[datetime] = mapped_column(

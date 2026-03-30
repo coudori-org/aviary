@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Agent, User
 from app.schemas.agent import AgentCreate, AgentUpdate
-from app.services import acl_service, k8s_service
+from app.services import acl_service, deployment_service, k8s_service
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +20,11 @@ async def create_agent(db: AsyncSession, user: User, data: AgentCreate) -> Agent
     if existing.scalar_one_or_none():
         raise ValueError(f"Agent slug '{data.slug}' already exists")
 
+    policy_dict = data.policy.model_dump()
+    pod_strategy = policy_dict.get("podStrategy", "lazy")
+    min_pods = policy_dict.get("minPods", 1)
+    max_pods = policy_dict.get("maxPods", 3)
+
     agent = Agent(
         name=data.name,
         slug=data.slug,
@@ -29,10 +34,13 @@ async def create_agent(db: AsyncSession, user: User, data: AgentCreate) -> Agent
         model_config_json=data.model_config_data.model_dump(),
         tools=data.tools,
         mcp_servers=[s.model_dump() for s in data.mcp_servers],
-        policy=data.policy.model_dump(),
+        policy=policy_dict,
         visibility=data.visibility,
         category=data.category,
         icon=data.icon,
+        pod_strategy=pod_strategy,
+        min_pods=min_pods,
+        max_pods=max_pods,
     )
     db.add(agent)
     await db.flush()
@@ -44,12 +52,19 @@ async def create_agent(db: AsyncSession, user: User, data: AgentCreate) -> Agent
             owner_id=str(user.id),
             instruction=data.instruction,
             tools=data.tools,
-            policy=data.policy.model_dump(),
+            policy=policy_dict,
             mcp_servers=[s.model_dump() for s in data.mcp_servers],
         )
         agent.namespace = ns_name
     except Exception:
         logger.warning("K8s namespace creation failed for agent %s — continuing without K8s", agent.id, exc_info=True)
+
+    # Eager strategy: spawn deployment immediately after namespace creation
+    if pod_strategy == "eager" and agent.namespace:
+        try:
+            await deployment_service.ensure_agent_deployment(db, agent)
+        except Exception:
+            logger.warning("Eager deployment failed for agent %s — will retry on first message", agent.id, exc_info=True)
 
     return agent
 
@@ -187,47 +202,30 @@ async def update_agent(
     return agent
 
 
-async def deploy_agent(db: AsyncSession, agent: Agent) -> int:
-    """Apply config changes to running sessions by restarting their Pods.
+async def deploy_agent(db: AsyncSession, agent: Agent) -> None:
+    """Apply config changes by triggering a rolling restart of the agent Deployment.
 
-    Pods are deleted and will be re-created on the next message with fresh
-    ConfigMap. The SDK session (conversation history) is preserved via PVC,
-    and the new system_prompt from the updated ConfigMap is applied on resume.
-    Returns the number of sessions restarted.
+    The SDK session (conversation history) is preserved via PVC,
+    and the new config is applied on resume since it's passed in the request body.
     """
-    from app.db.models import Session
+    if agent.deployment_active:
+        try:
+            await deployment_service.rolling_restart(agent)
+        except Exception:
+            logger.warning("Rolling restart failed for agent %s", agent.id, exc_info=True)
+    logger.info("Deployed agent %s: triggered rolling restart", agent.id)
 
-    result = await db.execute(
-        select(Session).where(
-            Session.agent_id == agent.id,
-            Session.status == "active",
-            Session.pod_name.is_not(None),
-        )
-    )
-    sessions = result.scalars().all()
 
-    restarted = 0
-    for session in sessions:
-        if agent.namespace and session.pod_name:
-            try:
-                await k8s_service._k8s_apply(
-                    "DELETE",
-                    f"/api/v1/namespaces/{agent.namespace}/pods/{session.pod_name}",
-                )
-            except Exception:
-                logger.warning("Failed to delete pod %s for deploy", session.pod_name, exc_info=True)
+async def activate_agent(db: AsyncSession, agent: Agent) -> None:
+    """Manually activate an agent's Deployment (for manual pod strategy)."""
+    if not agent.namespace:
+        raise RuntimeError(f"Agent {agent.id} has no K8s namespace")
+    await deployment_service.ensure_agent_deployment(db, agent)
 
-            session.pod_name = None
-            restarted += 1
 
-    if restarted:
-        await db.flush()
-        from app.services import redis_service
-        for session in sessions:
-            await redis_service.cache_session_pod(str(session.id), None, None)
-
-    logger.info("Deployed agent %s: restarted %d sessions", agent.id, restarted)
-    return restarted
+async def deactivate_agent(db: AsyncSession, agent: Agent) -> None:
+    """Manually deactivate an agent's Deployment (scale to 0)."""
+    await deployment_service.scale_to_zero(db, agent)
 
 
 async def delete_agent(db: AsyncSession, agent: Agent) -> None:
@@ -235,6 +233,14 @@ async def delete_agent(db: AsyncSession, agent: Agent) -> None:
     agent.status = "deleted"
     await db.flush()
 
+    # Delete deployment resources first
+    if agent.deployment_active:
+        try:
+            await deployment_service.delete_agent_deployment(agent)
+        except Exception:
+            logger.warning("Deployment deletion failed for agent %s", agent.id, exc_info=True)
+
+    # Delete the entire namespace (cascades all remaining resources)
     if agent.namespace:
         try:
             await k8s_service.delete_agent_namespace(str(agent.id))
