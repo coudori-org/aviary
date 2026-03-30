@@ -6,9 +6,9 @@ All inference is routed through the Inference Router (platform namespace):
     -> Router inspects model name -> proxies to correct backend
 
 Multi-turn conversation is maintained via the SDK's session management:
-  - First message: new session, session_id stored to workspace/.session_id
-  - Subsequent messages: resume=<sdk_session_id> resumes the session
-  - Pod restart with same PVC: session_id recovered from file
+  - Aviary session_id is passed directly as CLI session_id
+  - CLI stores conversation history at <workspace>/.claude/projects/...
+  - Pod restart with same PVC: resume=<session_id> restores conversation
 
 Session isolation: each claude-agent-sdk subprocess runs inside a bubblewrap
 sandbox where only its own workspace directory is visible. Other sessions'
@@ -26,14 +26,12 @@ logger = logging.getLogger(__name__)
 from claude_agent_sdk import (
     AssistantMessage,
     ClaudeAgentOptions,
+    ClaudeSDKClient,
     ResultMessage,
     TextBlock,
     ToolResultBlock,
     ToolUseBlock,
-    query,
 )
-
-from app.history import append_message
 
 # Agent config paths (mounted from ConfigMap)
 CONFIG_DIR = Path("/agent/config")
@@ -44,6 +42,9 @@ INFERENCE_ROUTER_URL = os.environ.get(
     "INFERENCE_ROUTER_URL",
     "http://inference-router.platform.svc:8080",
 )
+
+# Force SDK to use our bwrap wrapper instead of its bundled binary
+CLAUDE_CLI_PATH = "/usr/bin/claude"
 
 
 def _session_workspace(session_id: str) -> Path:
@@ -74,45 +75,43 @@ def load_agent_config() -> dict:
     return config
 
 
-def _load_session_id(workspace: Path) -> str | None:
-    """Load the SDK session ID from the session workspace."""
-    sid_file = workspace / ".session_id"
-    if sid_file.exists():
-        sid = sid_file.read_text().strip()
-        return sid if sid else None
-    return None
+def _has_session_history(workspace: Path, session_id: str) -> bool:
+    """Check if a CLI session history exists on PVC for resume."""
+    projects_dir = workspace / ".claude" / "projects"
+    if not projects_dir.exists():
+        return False
+    # CLI encodes cwd as directory name with slashes replaced by dashes
+    for d in projects_dir.iterdir():
+        session_file = d / f"{session_id}.jsonl"
+        if session_file.exists():
+            return True
+    return False
 
 
-def _save_session_id(workspace: Path, session_id: str) -> None:
-    """Save the SDK session ID to the session workspace."""
-    (workspace / ".session_id").write_text(session_id)
-
-
-def _clear_session_id(workspace: Path) -> None:
-    """Remove a stale SDK session ID (e.g. after cluster restart)."""
-    sid_file = workspace / ".session_id"
-    if sid_file.exists():
-        sid_file.unlink()
-        logger.info("Cleared stale session ID file in %s", workspace)
-
-
-def _build_options(agent_config: dict, model_config: dict, workspace: Path) -> ClaudeAgentOptions:
+def _build_options(agent_config: dict, model_config: dict, workspace: Path, session_id: str) -> ClaudeAgentOptions:
     """Build ClaudeAgentOptions with bubblewrap sandbox isolation.
 
     The `claude` binary in PATH is a wrapper script (installed by Dockerfile)
     that reads SESSION_WORKSPACE env and runs claude-real inside a bwrap
     mount namespace where only this session's directory is visible.
+
+    Uses the Aviary session_id directly as CLI session_id, so both layers
+    share the same ID. Resume is enabled when a prior session history exists.
     """
     model = model_config.get("model", "claude-sonnet-4-20250514")
-    existing_session_id = _load_session_id(workspace)
+    can_resume = _has_session_history(workspace, session_id)
 
     opts = ClaudeAgentOptions(
         model=model,
         system_prompt=agent_config.get("instruction"),
         cwd=workspace,
+        cli_path=CLAUDE_CLI_PATH,
         permission_mode="bypassPermissions",
         include_partial_messages=False,
-        resume=existing_session_id,
+        # First message: session_id sets the CLI session ID
+        # Subsequent messages: resume loads existing conversation history
+        session_id=None if can_resume else session_id,
+        resume=session_id if can_resume else None,
         env={
             "ANTHROPIC_BASE_URL": INFERENCE_ROUTER_URL,
             "ANTHROPIC_API_KEY": "routed-via-inference-router",
@@ -150,71 +149,64 @@ async def process_message(
     workspace.mkdir(parents=True, exist_ok=True)
 
     agent_config = agent_config_from_api if agent_config_from_api else load_agent_config()
-    append_message(session_id, "user", content)
 
     mc = model_config or {"backend": "claude", "model": "claude-sonnet-4-20250514"}
-    options = _build_options(agent_config, mc, workspace)
+    options = _build_options(agent_config, mc, workspace, session_id)
 
     full_response = ""
 
-    async def _run_query(opts: ClaudeAgentOptions) -> AsyncGenerator[dict, None]:
+    async def _run_with_client(opts: ClaudeAgentOptions) -> AsyncGenerator[dict, None]:
         nonlocal full_response
-        async for message in query(prompt=content, options=opts):
-            if isinstance(message, AssistantMessage):
-                for block in message.content:
-                    if isinstance(block, TextBlock):
-                        full_response += block.text
-                        yield {"type": "chunk", "content": block.text}
-                    elif isinstance(block, ToolUseBlock):
-                        yield {
-                            "type": "tool_use",
-                            "name": block.name,
-                            "input": block.input,
-                        }
-                    elif isinstance(block, ToolResultBlock):
-                        result_text = block.content if isinstance(block.content, str) else json.dumps(block.content)
-                        yield {
-                            "type": "tool_result",
-                            "tool_use_id": block.tool_use_id,
-                            "content": result_text,
-                        }
+        async with ClaudeSDKClient(options=opts) as client:
+            await client.query(content)
+            async for message in client.receive_response():
+                if isinstance(message, AssistantMessage):
+                    for block in message.content:
+                        if isinstance(block, TextBlock):
+                            full_response += block.text
+                            yield {"type": "chunk", "content": block.text}
+                        elif isinstance(block, ToolUseBlock):
+                            yield {
+                                "type": "tool_use",
+                                "name": block.name,
+                                "input": block.input,
+                            }
+                        elif isinstance(block, ToolResultBlock):
+                            result_text = block.content if isinstance(block.content, str) else json.dumps(block.content)
+                            yield {
+                                "type": "tool_result",
+                                "tool_use_id": block.tool_use_id,
+                                "content": result_text,
+                            }
 
-            elif isinstance(message, ResultMessage):
-                if message.session_id:
-                    _save_session_id(workspace, message.session_id)
-
-                if message.result and not full_response:
-                    full_response = message.result
-                    yield {"type": "chunk", "content": message.result}
+                elif isinstance(message, ResultMessage):
+                    if message.result and not full_response:
+                        full_response = message.result
+                        yield {"type": "chunk", "content": message.result}
 
     try:
-        async for chunk in _run_query(options):
+        async for chunk in _run_with_client(options):
             yield chunk
     except Exception as e:
         if options.resume is not None:
             logger.warning(
                 "Session resume failed (session_id=%s), retrying as new session: %s",
-                options.resume, e,
+                session_id, e,
             )
-            _clear_session_id(workspace)
             options.resume = None
             full_response = ""
             try:
-                async for chunk in _run_query(options):
+                async for chunk in _run_with_client(options):
                     yield chunk
             except Exception as retry_err:
                 backend = mc.get("backend", "claude")
                 model = mc.get("model", "unknown")
                 error_msg = f"[{backend}/{model}] Error: {retry_err}"
                 yield {"type": "chunk", "content": error_msg}
-                append_message(session_id, "assistant", error_msg)
                 return
         else:
             backend = mc.get("backend", "claude")
             model = mc.get("model", "unknown")
             error_msg = f"[{backend}/{model}] Error: {e}"
             yield {"type": "chunk", "content": error_msg}
-            append_message(session_id, "assistant", error_msg)
             return
-
-    append_message(session_id, "assistant", full_response)

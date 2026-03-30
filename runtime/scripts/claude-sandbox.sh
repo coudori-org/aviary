@@ -25,6 +25,10 @@ if [ ! -d "$SESSION_WORKSPACE" ]; then
     mkdir -p "$SESSION_WORKSPACE"
 fi
 
+# Persist CLI session data (~/.claude/) on PVC so that resume works across restarts
+CLAUDE_DATA_DIR="$SESSION_WORKSPACE/.claude"
+mkdir -p "$CLAUDE_DATA_DIR"
+
 exec bwrap \
     --ro-bind / / \
     --dev /dev \
@@ -32,6 +36,7 @@ exec bwrap \
     --tmpfs /tmp \
     --tmpfs /workspace/sessions \
     --bind "$SESSION_WORKSPACE" "$SESSION_WORKSPACE" \
+    --bind "$CLAUDE_DATA_DIR" /tmp/.claude \
     --unshare-pid \
     --die-with-parent \
     --setenv HOME /tmp \
