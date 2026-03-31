@@ -56,6 +56,9 @@ export default function EditAgentPage() {
             name: agent.name, slug: agent.slug, description: agent.description || "",
             instruction: agent.instruction, model_config: agent.model_config as any,
             tools: agent.tools as string[], visibility: agent.visibility, category: agent.category || "",
+            policy: {
+              allowedEgress: agent.policy?.allowedEgress || [],
+            },
           }}
           onSubmit={handleSubmit}
           submitLabel="Save Changes"

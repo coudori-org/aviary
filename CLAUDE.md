@@ -18,12 +18,18 @@ Test accounts: `admin@test.com`, `user1@test.com`, `user2@test.com` (all `passwo
 Browser → Next.js (:3000) → API rewrite proxy → FastAPI (:8000) → K8s Service → Agent Pods
                                                       ↓
                                                PostgreSQL / Redis / Vault / Keycloak
+
+Agent Pod outbound:
+  LLM calls  → Inference Router (platform NS) → Claude API / Ollama / vLLM / Bedrock
+  Secrets    → Credential Proxy (platform NS) → Vault
+  HTTP/HTTPS → Egress Proxy (platform NS, per-agent policy) → External APIs
 ```
 
 **Key flows:**
-- Agent CRUD → creates K8s Namespace + ConfigMap + NetworkPolicy + ResourceQuota + ServiceAccount
+- Agent CRUD → creates K8s Namespace + ConfigMap + NetworkPolicy + ResourceQuota + ServiceAccount + syncs egress policy to Redis
 - Chat message → WebSocket → ensure Deployment running → K8s API proxy to Service → agent Pod → claude-agent-sdk → Inference Router → LLM backend
 - Agent config edits → passed from DB on every message request body (NOT via ConfigMap). Immediate effect, no Pod restart.
+- Egress policy edits → Redis update + NetworkPolicy PUT + egress-proxy cache invalidation. Immediate effect, no Pod restart.
 
 **Pod Strategy (agent-per-pod):** Each agent gets a long-running Deployment with 1-N replicas. Multiple sessions share the same Pod(s), isolated by working directory (`/workspace/sessions/{session_id}/`). Pods auto-scale based on session load and are released after 7 days of inactivity.
 
@@ -35,6 +41,8 @@ Browser → Next.js (:3000) → API rewrite proxy → FastAPI (:8000) → K8s Se
 **Inference Router** (platform namespace): All LLM calls go through a centralized proxy. Model name determines backend: `claude-*` → Claude API, `name:tag` → Ollama, `org/model` → vLLM, `anthropic.*` → Bedrock. Speaks Anthropic Messages API so claude-agent-sdk works transparently.
 
 **Credential Proxy** (platform namespace): Session Pods never hold secrets. External API calls go through proxy which injects credentials from Vault.
+
+**Egress Proxy** (platform namespace): All outbound HTTP/HTTPS from agent Pods is routed through a centralized forward proxy via `HTTP_PROXY`/`HTTPS_PROXY` env vars. Identifies source agent by resolving pod IP → K8s namespace → agent ID. Per-agent egress policies stored in Redis (`egress:{agent_id}`). Supports CIDR, exact domain, wildcard domain (`*.example.com`, `.example.com`), and catch-all (`*`). Deny-by-default. Admin API on port 8081 (`/health`, `/invalidate/{agent_id}`). CIDR rules are also enforced at NetworkPolicy level for non-HTTP traffic.
 
 ## Critical Patterns & Gotchas
 
@@ -62,8 +70,17 @@ The `claude` binary in PATH is a wrapper script (`scripts/claude-sandbox.sh`). T
 ### Auto-Scaling
 Custom scaling loop in `scaling_service.py` (background task, 30s interval). Queries each Pod's `GET /metrics` endpoint for session counts. Scales up when sessions/pod > 5, down when < 2. Clamped to `[min_pods, max_pods]` per agent.
 
+### Egress Proxy Policy Enforcement
+Two-layer enforcement: (1) K8s NetworkPolicy blocks all egress except DNS, platform NS (port 8080), and explicitly allowed CIDRs. (2) Egress proxy (HTTP-level) enforces domain-based rules. Agent pods have `HTTP_PROXY`/`HTTPS_PROXY` pointing to `egress-proxy.platform.svc:8080`, with `NO_PROXY` excluding internal platform services. Policy flow: API writes to Redis `egress:{agent_id}` key → calls proxy admin API `/invalidate/{agent_id}` to drop cache → proxy re-reads from Redis on next request. See `redis_service.py:sync_egress_policy()`, `agent_service.py:update_agent()`, `egress-proxy/app/policy.py`.
+
+### Egress Rule Schema
+`EgressRule` in `schemas/agent.py` requires exactly one of `cidr` or `domain` (validated by `model_validator`). Domain patterns: `"example.com"` (exact), `"*.example.com"` (wildcard subdomain), `".example.com"` (same as `*`), `"*"` (all). Both types can be mixed in the same `allowedEgress` list. Optional `ports` field restricts to specific ports; empty means all ports allowed.
+
+### Claude Code Managed Settings
+`runtime/config/managed-settings.json` is installed to `/etc/claude-code/managed-settings.json` (the hardcoded path Claude Code CLI reads on Linux). Currently sets `skipWebFetchPreflight: true` to prevent CLI from calling `api.anthropic.com/api/web/domain_info` before each WebFetch — this endpoint is unreachable in air-gapped/fintech environments where all external traffic must go through the egress proxy. All model tiers (`ANTHROPIC_MODEL`, `ANTHROPIC_SMALL_FAST_MODEL`, `ANTHROPIC_DEFAULT_HAIKU_MODEL`, etc.) are remapped to the agent's configured model in `agent.py` so that CLI internal tasks (WebFetch summarization, subagents) route through the inference router.
+
 ### K3s Image Loading
-All custom images use `imagePullPolicy: Never`. Loaded via `docker save | docker compose exec -T k3s ctr images import -`. The `setup-dev.sh` handles this for runtime, inference-router, and credential-proxy images.
+All custom images use `imagePullPolicy: Never`. Loaded via `docker save | docker compose exec -T k3s ctr images import -`. The `setup-dev.sh` handles this for runtime, inference-router, credential-proxy, and egress-proxy images.
 
 ### K3s Fixed Node Name
 `--node-name=aviary-node` in docker-compose.yml prevents stale node accumulation on container restart. Without it, PVCs bind to old node names causing scheduling failures.
@@ -99,12 +116,12 @@ docker compose exec api pytest tests/ -v
 
 ## Rebuilding K8s Images
 
-After modifying `runtime/`, `inference-router/`, or `credential-proxy/`:
+After modifying `runtime/`, `inference-router/`, `credential-proxy/`, or `egress-proxy/`:
 
 ```bash
 docker build -t aviary-runtime:latest ./runtime/
 docker save aviary-runtime:latest | docker compose exec -T k3s ctr images import -
-# Repeat for inference-router and credential-proxy if changed
+# Repeat for inference-router, credential-proxy, egress-proxy if changed
 ```
 
 ## Key Environment Variables (API)
@@ -131,3 +148,13 @@ docker save aviary-runtime:latest | docker compose exec -T k3s ctr images import
 | `CREDENTIAL_PROXY_URL` | Credential proxy service URL |
 | `INFERENCE_OLLAMA_URL` | Ollama inference URL |
 | `INFERENCE_VLLM_URL` | vLLM inference URL |
+| `HTTP_PROXY` / `HTTPS_PROXY` | Egress proxy URL (`http://egress-proxy.platform.svc:8080`) |
+| `NO_PROXY` | Bypass proxy for internal services (platform SVCs, localhost) |
+
+## Key Environment Variables (Egress Proxy)
+
+| Variable | Purpose |
+|----------|---------|
+| `PROXY_PORT` | Forward proxy listen port (default: 8080) |
+| `ADMIN_PORT` | Admin API listen port (default: 8081) |
+| `REDIS_URL` | Redis for per-agent egress policies |

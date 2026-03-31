@@ -156,6 +156,36 @@ export default function AgentDetailPage() {
               )}
             </CardContent>
           </Card>
+
+          <Card className="md:col-span-2">
+            <CardHeader>
+              <CardTitle>Network Policy</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {agent.policy?.allowedEgress?.length > 0 ? (
+                <div className="space-y-2">
+                  {agent.policy.allowedEgress.map((rule: any, i: number) => (
+                    <div key={i} className="flex items-center gap-3 rounded-lg bg-secondary/50 px-3 py-2 text-sm">
+                      <span className="font-medium text-foreground/90">{rule.name}</span>
+                      <span className="rounded bg-accent px-1.5 py-0.5 font-mono text-[11px]">
+                        {rule.domain || rule.cidr}
+                      </span>
+                      {rule.ports?.length > 0 && (
+                        <span className="text-xs text-muted-foreground">
+                          ports: {rule.ports.map((p: any) => p.port).join(", ")}
+                        </span>
+                      )}
+                      <span className="ml-auto rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
+                        {rule.domain !== undefined ? "domain" : "cidr"}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">All external traffic blocked (default)</p>
+              )}
+            </CardContent>
+          </Card>
         </div>
 
         {/* Quick actions */}

@@ -1,0 +1,284 @@
+"""Egress proxy for Aviary agent pods.
+
+All external HTTP/HTTPS traffic from agent pods is routed through this proxy.
+Per-agent egress policies (domain wildcards + CIDR) are enforced here.
+
+Agent identification: source pod IP → K8s API lookup → namespace → agent ID.
+Policy source: Redis key ``egress:{agent_id}`` (JSON of policy dict).
+"""
+
+import asyncio
+import json
+import logging
+import os
+import time
+from pathlib import Path
+from urllib.parse import urlparse
+
+import httpx
+import redis.asyncio as aioredis
+
+from app.policy import PolicyChecker
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+logger = logging.getLogger("egress-proxy")
+
+PROXY_PORT = int(os.environ.get("PROXY_PORT", "8080"))
+REDIS_URL = os.environ.get("REDIS_URL", "redis://redis:6379/0")
+ADMIN_PORT = int(os.environ.get("ADMIN_PORT", "8081"))
+
+# ── Caches ──────────────────────────────────────────────────────
+_redis: aioredis.Redis | None = None
+_ip_to_agent: dict[str, tuple[float, str]] = {}  # pod IP → (timestamp, agent_id)
+_IP_CACHE_TTL = 300  # seconds — pod IPs can be reassigned
+_policy_cache: dict[str, tuple[float, PolicyChecker]] = {}  # agent_id → (timestamp, checker)
+_POLICY_CACHE_TTL = 30  # seconds — re-read from Redis after this
+
+# K8s in-cluster config
+_K8S_HOST = os.environ.get("KUBERNETES_SERVICE_HOST", "kubernetes.default.svc")
+_K8S_PORT = os.environ.get("KUBERNETES_SERVICE_PORT", "443")
+_K8S_TOKEN_PATH = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+_K8S_CA_PATH = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+
+
+# ── Redis helpers ───────────────────────────────────────────────
+async def _get_redis() -> aioredis.Redis:
+    global _redis
+    if _redis is None:
+        _redis = aioredis.from_url(REDIS_URL, decode_responses=True)
+    return _redis
+
+
+async def _get_policy(agent_id: str) -> PolicyChecker:
+    """Load per-agent policy from Redis, with TTL-based local cache."""
+    now = time.monotonic()
+    if agent_id in _policy_cache:
+        ts, checker = _policy_cache[agent_id]
+        if now - ts < _POLICY_CACHE_TTL:
+            return checker
+
+    r = await _get_redis()
+    raw = await r.get(f"egress:{agent_id}")
+    if raw:
+        policy = json.loads(raw)
+    else:
+        policy = {}  # no policy = deny all custom egress
+    checker = PolicyChecker.from_policy(policy)
+    _policy_cache[agent_id] = (now, checker)
+    return checker
+
+
+async def invalidate_policy(agent_id: str) -> None:
+    """Remove cached policy so next request re-reads from Redis."""
+    _policy_cache.pop(agent_id, None)
+
+
+# ── K8s pod IP → agent ID resolution ───────────────────────────
+async def _resolve_agent_id(source_ip: str) -> str | None:
+    """Resolve a pod's IP to an agent ID via K8s API."""
+    if source_ip in _ip_to_agent:
+        ts, agent_id = _ip_to_agent[source_ip]
+        if time.monotonic() - ts < _IP_CACHE_TTL:
+            return agent_id
+
+    try:
+        token = Path(_K8S_TOKEN_PATH).read_text().strip()
+    except (FileNotFoundError, PermissionError):
+        logger.warning("K8s token not available — cannot resolve pod IPs")
+        return None
+
+    url = f"https://{_K8S_HOST}:{_K8S_PORT}/api/v1/pods?fieldSelector=status.podIP={source_ip}"
+    async with httpx.AsyncClient(verify=_K8S_CA_PATH, timeout=5) as client:
+        resp = await client.get(url, headers={"Authorization": f"Bearer {token}"})
+        if resp.status_code != 200:
+            logger.error("K8s API returned %d for pod lookup: %s", resp.status_code, resp.text[:200])
+            return None
+        items = resp.json().get("items", [])
+        if not items:
+            return None
+        ns = items[0]["metadata"]["namespace"]
+        # agent namespace format: agent-{uuid}
+        if ns.startswith("agent-"):
+            agent_id = ns[len("agent-"):]
+            _ip_to_agent[source_ip] = (time.monotonic(), agent_id)
+            return agent_id
+    return None
+
+
+# ── HTTP CONNECT tunnel (HTTPS) ────────────────────────────────
+async def _handle_connect(reader: asyncio.StreamReader, writer: asyncio.StreamWriter, host: str, port: int):
+    """Establish a TCP tunnel for HTTPS CONNECT requests."""
+    try:
+        remote_reader, remote_writer = await asyncio.wait_for(
+            asyncio.open_connection(host, port), timeout=10,
+        )
+    except Exception as exc:
+        writer.write(b"HTTP/1.1 502 Bad Gateway\r\n\r\n")
+        await writer.drain()
+        logger.warning("CONNECT tunnel failed to %s:%d — %s", host, port, exc)
+        return
+
+    writer.write(b"HTTP/1.1 200 Connection Established\r\n\r\n")
+    await writer.drain()
+
+    async def _pipe(src: asyncio.StreamReader, dst: asyncio.StreamWriter):
+        try:
+            while True:
+                data = await src.read(65536)
+                if not data:
+                    break
+                dst.write(data)
+                await dst.drain()
+        except (ConnectionResetError, BrokenPipeError, asyncio.CancelledError):
+            pass
+        finally:
+            dst.close()
+
+    await asyncio.gather(_pipe(reader, remote_writer), _pipe(remote_reader, writer))
+
+
+# ── HTTP forward proxy ─────────────────────────────────────────
+async def _handle_http(writer: asyncio.StreamWriter, method: str, url: str, http_version: str, headers: list[tuple[str, str]], body: bytes):
+    """Forward a plain HTTP request."""
+    async with httpx.AsyncClient(timeout=30) as client:
+        try:
+            req_headers = {k: v for k, v in headers if k.lower() not in ("host", "proxy-connection", "proxy-authorization")}
+            resp = await client.request(
+                method=method,
+                url=url,
+                headers=req_headers,
+                content=body,
+            )
+            status_line = f"HTTP/1.1 {resp.status_code} {resp.reason_phrase}\r\n"
+            writer.write(status_line.encode())
+            for k, v in resp.headers.items():
+                if k.lower() not in ("transfer-encoding",):
+                    writer.write(f"{k}: {v}\r\n".encode())
+            writer.write(b"\r\n")
+            writer.write(resp.content)
+            await writer.drain()
+        except Exception as exc:
+            writer.write(b"HTTP/1.1 502 Bad Gateway\r\n\r\n")
+            await writer.drain()
+            logger.warning("HTTP forward failed for %s — %s", url, exc)
+
+
+# ── Main connection handler ─────────────────────────────────────
+async def _handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
+    peer = writer.get_extra_info("peername")
+    source_ip = peer[0] if peer else "unknown"
+
+    try:
+        # Read request line
+        request_line = await asyncio.wait_for(reader.readline(), timeout=10)
+        if not request_line:
+            return
+        request_line = request_line.decode("utf-8", errors="replace").strip()
+        parts = request_line.split(" ", 2)
+        if len(parts) < 3:
+            writer.write(b"HTTP/1.1 400 Bad Request\r\n\r\n")
+            await writer.drain()
+            return
+
+        method, target, http_version = parts
+
+        # Read headers
+        headers: list[tuple[str, str]] = []
+        content_length = 0
+        while True:
+            line = await asyncio.wait_for(reader.readline(), timeout=10)
+            if line in (b"\r\n", b"\n", b""):
+                break
+            decoded = line.decode("utf-8", errors="replace").strip()
+            if ":" in decoded:
+                k, v = decoded.split(":", 1)
+                headers.append((k.strip(), v.strip()))
+                if k.strip().lower() == "content-length":
+                    content_length = int(v.strip())
+
+        # Extract destination host:port
+        if method == "CONNECT":
+            # CONNECT host:port
+            if ":" in target:
+                host, port_str = target.rsplit(":", 1)
+                port = int(port_str)
+            else:
+                host, port = target, 443
+        else:
+            parsed = urlparse(target)
+            host = parsed.hostname or ""
+            port = parsed.port or 80
+
+        # Resolve agent and check policy
+        agent_id = await _resolve_agent_id(source_ip)
+        if agent_id:
+            checker = await _get_policy(agent_id)
+            if not checker.is_allowed(host, port):
+                logger.info("DENIED %s → %s:%d (agent=%s)", method, host, port, agent_id)
+                # Close immediately without response — client sees connection
+                # reset, which triggers fast failure instead of retry loops.
+                writer.close()
+                return
+        else:
+            # Unknown source — deny by default
+            logger.warning("DENIED %s → %s:%d (unknown source IP %s)", method, host, port, source_ip)
+            writer.close()
+            return
+
+        logger.info("ALLOWED %s → %s:%d (agent=%s)", method, host, port, agent_id)
+
+        if method == "CONNECT":
+            await _handle_connect(reader, writer, host, port)
+        else:
+            body = await reader.read(content_length) if content_length else b""
+            await _handle_http(writer, method, target, http_version, headers, body)
+
+    except (asyncio.TimeoutError, ConnectionResetError, BrokenPipeError):
+        pass
+    except Exception:
+        logger.exception("Unexpected error handling connection from %s", source_ip)
+    finally:
+        try:
+            writer.close()
+            await writer.wait_closed()
+        except Exception:
+            pass
+
+
+# ── Admin API (health, cache invalidation) ──────────────────────
+from fastapi import FastAPI
+
+admin_app = FastAPI(title="Egress Proxy Admin")
+
+
+@admin_app.get("/health")
+async def health():
+    return {"status": "ok"}
+
+
+@admin_app.post("/invalidate/{agent_id}")
+async def invalidate(agent_id: str):
+    """Invalidate cached policy for an agent. Called by API on policy update."""
+    await invalidate_policy(agent_id)
+    return {"invalidated": agent_id}
+
+
+# ── Entrypoint ──────────────────────────────────────────────────
+async def main():
+    # Start proxy server
+    proxy_server = await asyncio.start_server(_handle_client, "0.0.0.0", PROXY_PORT)
+    logger.info("Egress proxy listening on :%d", PROXY_PORT)
+
+    # Start admin API (health + cache invalidation) on separate port
+    import uvicorn
+    admin_config = uvicorn.Config(admin_app, host="0.0.0.0", port=ADMIN_PORT, log_level="warning")
+    admin_server = uvicorn.Server(admin_config)
+
+    await asyncio.gather(
+        proxy_server.serve_forever(),
+        admin_server.serve(),
+    )
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

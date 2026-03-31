@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Agent, User
 from app.schemas.agent import AgentCreate, AgentUpdate
-from app.services import acl_service, deployment_service, k8s_service
+from app.services import acl_service, deployment_service, k8s_service, redis_service
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +58,12 @@ async def create_agent(db: AsyncSession, user: User, data: AgentCreate) -> Agent
         agent.namespace = ns_name
     except Exception:
         logger.warning("K8s namespace creation failed for agent %s — continuing without K8s", agent.id, exc_info=True)
+
+    # Sync egress policy to Redis for the egress-proxy
+    try:
+        await redis_service.sync_egress_policy(str(agent.id), policy_dict)
+    except Exception:
+        logger.warning("Redis egress policy sync failed for agent %s", agent.id, exc_info=True)
 
     # Eager strategy: spawn deployment immediately after namespace creation
     if pod_strategy == "eager" and agent.namespace:
@@ -186,7 +192,7 @@ async def update_agent(
 
     await db.flush()
 
-    # Sync ConfigMap to K8s
+    # Sync K8s resources
     if agent.namespace:
         try:
             await k8s_service.update_agent_config(
@@ -198,6 +204,22 @@ async def update_agent(
             )
         except Exception:
             logger.warning("K8s config update failed for agent %s", agent.id, exc_info=True)
+
+        # Update NetworkPolicy and egress-proxy policy when policy changes
+        if data.policy is not None:
+            try:
+                await k8s_service.update_network_policy(
+                    namespace=agent.namespace,
+                    policy=agent.policy,
+                )
+            except Exception:
+                logger.warning("NetworkPolicy update failed for agent %s", agent.id, exc_info=True)
+
+            try:
+                await redis_service.sync_egress_policy(str(agent.id), agent.policy)
+                await redis_service.invalidate_egress_proxy_cache(str(agent.id))
+            except Exception:
+                logger.warning("Egress policy sync failed for agent %s", agent.id, exc_info=True)
 
     return agent
 
@@ -246,3 +268,9 @@ async def delete_agent(db: AsyncSession, agent: Agent) -> None:
             await k8s_service.delete_agent_namespace(str(agent.id))
         except Exception:
             logger.warning("K8s namespace deletion failed for agent %s", agent.id, exc_info=True)
+
+    # Clean up egress policy from Redis
+    try:
+        await redis_service.delete_egress_policy(str(agent.id))
+    except Exception:
+        logger.warning("Redis egress policy cleanup failed for agent %s", agent.id, exc_info=True)

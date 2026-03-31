@@ -9,43 +9,60 @@ Aviary is an enterprise platform where users can create, configure, deploy, and 
 ## Architecture
 
 ```
-┌───────────────────────────────────────────────────────────────┐
-│                       Web UI (Next.js 15)                      │
-│   Agent Catalog · Create/Edit · Chat Sessions · ACL Settings   │
-└──────────────┬────────────────────────────────────────────────┘
-               │ REST + WebSocket
-┌──────────────▼────────────────────────────────────────────────┐
-│                    API Server (FastAPI)                         │
-│   OIDC Auth · Agent CRUD · Session Mgr · ACL · Vault Client   │
-└───┬──────────┬───────────────────────────────────────────────┘
-    │          │ K8s API Proxy
-    │  ┌───────▼───────────────────────────────────────────────┐
-    │  │                Kubernetes Cluster                       │
-    │  │                                                        │
-    │  │  NS: platform                                          │
-    │  │  ┌────────────────┐ ┌──────────────┐ ┌──────────────┐ │
-    │  │  │Inference Router│ │ Credential   │ │ Image Warmer │ │
-    │  │  │(LLM gateway)   │ │ Proxy (Vault)│ │ (DaemonSet)  │ │
-    │  │  └───────┬────────┘ └──────────────┘ └──────────────┘ │
-    │  │          │                                              │
-    │  │    ┌─────┴──────────────────────┐                      │
-    │  │    ▼              ▼             ▼                      │
-    │  │ Claude API    Ollama/vLLM    Bedrock                   │
-    │  │                                                        │
-    │  │  NS: agent-{id}           NS: agent-{id}              │
-    │  │  ┌─────────────────┐     ┌─────────────────┐          │
-    │  │  │ Agent Pod (1-N)  │     │ Agent Pod (1-N)  │          │
-    │  │  │ claude-agent-sdk │     │ claude-agent-sdk │          │
-    │  │  │ + Claude Code CLI│     │ + Claude Code CLI│          │
-    │  │  │ + bwrap sandbox  │     │ + bwrap sandbox  │          │
-    │  │  │ PVC: /workspace  │     │ PVC: /workspace  │          │
-    │  │  └─────────────────┘     └─────────────────┘          │
-    │  └───────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────┐
+│                        Web UI (Next.js 15)                     │
+│    Agent Catalog · Create/Edit · Chat Sessions · ACL Settings  │
+└───────────────┬────────────────────────────────────────────────┘
+                │ REST + WebSocket
+┌───────────────▼────────────────────────────────────────────────┐
+│                     API Server (FastAPI)                        │
+│    OIDC Auth · Agent CRUD · Session Mgr · ACL · Vault Client   │
+└───┬───────────┬────────────────────────────────────────────────┘
+    │           │ K8s API Proxy
+    │   ┌───────▼────────────────────────────────────────────────┐
+    │   │                 Kubernetes Cluster                      │
+    │   │                                                        │
+    │   │  ┌─── NS: platform ──────────────────────────────────┐ │
+    │   │  │                                                    │ │
+    │   │  │  ┌─────────────────┐  ┌──────────────────┐        │ │
+    │   │  │  │ Inference Router │  │ Credential Proxy │        │ │
+    │   │  │  │ (LLM gateway)   │  │ (Vault secrets)  │        │ │
+    │   │  │  └────────┬────────┘  └──────────────────┘        │ │
+    │   │  │           │                                        │ │
+    │   │  │     ┌─────┴───────────────────┐                    │ │
+    │   │  │     ▼            ▼            ▼                    │ │
+    │   │  │  Claude API   Ollama/vLLM   Bedrock                │ │
+    │   │  │                                                    │ │
+    │   │  │  ┌─────────────────┐  ┌──────────────────┐        │ │
+    │   │  │  │  Egress Proxy   │  │  Image Warmer    │        │ │
+    │   │  │  │  (HTTP/HTTPS    │  │  (DaemonSet)     │        │ │
+    │   │  │  │   forward proxy │  └──────────────────┘        │ │
+    │   │  │  │   + policy      │                               │ │
+    │   │  │  │   enforcement)  │                               │ │
+    │   │  │  └────────┬────────┘                               │ │
+    │   │  │           │ per-agent allowlist                     │ │
+    │   │  │           ▼                                        │ │
+    │   │  │     External APIs (GitHub, S3, ...)                │ │
+    │   │  └────────────────────────────────────────────────────┘ │
+    │   │                                                        │
+    │   │  ┌─── NS: agent-{id} ──────┐  ┌── NS: agent-{id} ──┐ │
+    │   │  │  Agent Pod (1-N)         │  │  Agent Pod (1-N)    │ │
+    │   │  │  claude-agent-sdk        │  │  claude-agent-sdk   │ │
+    │   │  │  + Claude Code CLI       │  │  + Claude Code CLI  │ │
+    │   │  │  + bwrap sandbox         │  │  + bwrap sandbox    │ │
+    │   │  │  PVC: /workspace         │  │  PVC: /workspace    │ │
+    │   │  │                          │  │                     │ │
+    │   │  │  HTTP_PROXY ─────────────┼──┼──▶ Egress Proxy     │ │
+    │   │  │  NetworkPolicy: deny all │  │  NetworkPolicy:     │ │
+    │   │  │    except platform NS    │  │    deny all except  │ │
+    │   │  │    + allowed CIDRs       │  │    platform NS      │ │
+    │   │  └──────────────────────────┘  └─────────────────────┘ │
+    │   └────────────────────────────────────────────────────────┘
     │
     │  ┌───────────────┐  ┌──────────────┐  ┌────────────────┐
     └─▶│  PostgreSQL    │  │    Redis      │  │   Keycloak     │
        │  DB, sessions  │  │  pub/sub,     │  │   OIDC auth    │
-       │  ACL, agents   │  │  stream relay │  │   team sync    │
+       │  ACL, agents   │  │  egress rules │  │   team sync    │
        └───────────────┘  └──────────────┘  └────────────────┘
 ```
 
@@ -54,6 +71,7 @@ Aviary is an enterprise platform where users can create, configure, deploy, and 
 - **Agent-per-Pod with Multi-Session** — Each agent gets a long-running Deployment (1-N replicas) serving multiple sessions concurrently, auto-scaled based on session load
 - **Bubblewrap Session Isolation** — Each session runs inside a bwrap mount namespace; other sessions' files are invisible at the kernel level
 - **Namespace-per-Agent** — NetworkPolicy, ResourceQuota, and ServiceAccount scoped per agent
+- **Egress Proxy** — All outbound HTTP/HTTPS from agent Pods routed through a centralized proxy with per-agent allowlists (CIDR, exact domain, wildcard `*.example.com`); deny-by-default, policy changes take effect immediately without Pod restarts
 - **claude-agent-sdk Powered** — Full [Claude Code](https://docs.anthropic.com/en/docs/claude-code) harness via `ClaudeSDKClient` including tools, sub-agents, MCP servers, file I/O, and shell execution
 - **Inference Router** — Centralized LLM gateway; model name determines backend routing transparently
 - **Multi-Backend Inference** — Claude API, Ollama, vLLM, AWS Bedrock; new backends require no NetworkPolicy changes
@@ -71,6 +89,7 @@ Aviary is an enterprise platform where users can create, configure, deploy, and 
 | API Server | Python 3.12, FastAPI, SQLAlchemy 2.0 (async), Pydantic v2 |
 | Agent Runtime | Python 3.12, claude-agent-sdk, Claude Code CLI, Node.js 22 |
 | Inference Router | Python 3.12, FastAPI — Anthropic Messages API proxy |
+| Egress Proxy | Python 3.12, asyncio — HTTP/HTTPS forward proxy with policy enforcement |
 | Database | PostgreSQL 16 |
 | Cache / PubSub | Redis 7 |
 | Auth | Keycloak 25 (dev) / Okta (prod) — OIDC |
@@ -101,6 +120,8 @@ aviary/
 │   └── app/                 # Anthropic API proxy, backend routing
 ├── credential-proxy/        # Secret injection proxy (platform namespace)
 │   └── app/                 # Vault client, session resolver
+├── egress-proxy/            # HTTP/HTTPS egress proxy (platform namespace)
+│   └── app/                 # Forward proxy, per-agent policy checker
 ├── config/                  # Keycloak realm, K3s config
 ├── k8s/platform/            # K8s manifests
 ├── scripts/                 # Dev setup, DB init, seeding
@@ -156,9 +177,10 @@ Source code is bind-mounted into containers. Edits to `api/` and `web/` are refl
 docker compose up -d --build api
 docker compose up -d --build web
 
-# Rebuild runtime image (runs inside K3s)
+# Rebuild K3s images (runs inside K3s)
 docker build -t aviary-runtime:latest ./runtime/
-docker save aviary-runtime:latest | docker compose exec -T k3s ctr images import -
+docker build -t aviary-egress-proxy:latest ./egress-proxy/
+docker save aviary-runtime:latest aviary-egress-proxy:latest | docker compose exec -T k3s ctr images import -
 ```
 
 ## Testing
@@ -205,6 +227,9 @@ docker compose exec api pytest tests/ -v
 
 ### Inference Router
 Session Pods never call LLM backends directly. All inference goes through a centralized router in the platform namespace that determines the backend from the model name (e.g., `claude-*` → Claude API, `qwen:*` → Ollama). This keeps NetworkPolicy simple, centralizes API credentials, and preserves full claude-agent-sdk capabilities since the router speaks the Anthropic Messages API.
+
+### Egress Proxy
+All outbound HTTP/HTTPS from agent Pods is routed through a centralized egress proxy in the platform namespace via `HTTP_PROXY`/`HTTPS_PROXY` environment variables. The proxy identifies the source agent by resolving the pod's IP to its K8s namespace, then enforces per-agent egress policies stored in Redis. Supported rule types: CIDR ranges (`10.0.0.0/8`), exact domains (`api.github.com`), wildcard domains (`*.example.com`), and catch-all (`*`). Policies are deny-by-default and changes take effect immediately — updating policy writes to Redis and invalidates the proxy's cache, with no Pod restarts needed. CIDR rules are additionally enforced at the K8s NetworkPolicy level for non-HTTP traffic.
 
 ### Live Agent Config
 Agent configuration (instruction, tools, policy) is passed from the database to the runtime on every message turn. Edits take effect immediately on the next message without restarting Pods or affecting other users' sessions.

@@ -112,6 +112,76 @@ async def _k8s_apply(method: str, path: str, body: dict | None = None) -> dict:
         return resp.json() if resp.content else {}
 
 
+def _build_egress_rules(policy: dict) -> list[dict]:
+    """Build K8s NetworkPolicy egress rules from agent policy.
+
+    Always includes:
+      - DNS (kube-dns, UDP/53)
+      - Platform services (credential-proxy, inference-router, egress-proxy — TCP/8080)
+
+    CIDR-based allowedEgress entries are also added as direct NetworkPolicy rules
+    so non-HTTP traffic (e.g. raw TCP) can reach those IPs without the proxy.
+    Domain-based entries are enforced exclusively by the egress-proxy.
+    """
+    rules = [
+        {  # DNS
+            "to": [{"namespaceSelector": {}, "podSelector": {"matchLabels": {"k8s-app": "kube-dns"}}}],
+            "ports": [{"port": 53, "protocol": "UDP"}],
+        },
+        {  # Platform services: credential-proxy, inference-router, egress-proxy
+            "to": [{"namespaceSelector": {"matchLabels": {"aviary/namespace": "platform"}}}],
+            "ports": [{"port": 8080, "protocol": "TCP"}],
+        },
+    ]
+
+    # Add CIDR-based entries as direct NetworkPolicy rules
+    for entry in policy.get("allowedEgress", []):
+        cidr = entry.get("cidr")
+        if not cidr:
+            continue  # domain-based rules are enforced by egress-proxy only
+        rule: dict = {"to": [{"ipBlock": {"cidr": cidr}}]}
+        if entry.get("ports"):
+            rule["ports"] = [
+                {"port": p["port"], "protocol": p.get("protocol", "TCP")}
+                for p in entry["ports"]
+            ]
+        rules.append(rule)
+
+    return rules
+
+
+def _network_policy_manifest(namespace: str, egress_rules: list[dict]) -> dict:
+    """Build the full NetworkPolicy manifest."""
+    return {
+        "apiVersion": "networking.k8s.io/v1",
+        "kind": "NetworkPolicy",
+        "metadata": {"name": "session-egress", "namespace": namespace},
+        "spec": {
+            "podSelector": {"matchLabels": {"aviary/role": "agent-runtime"}},
+            "policyTypes": ["Egress", "Ingress"],
+            "ingress": [],
+            "egress": egress_rules,
+        },
+    }
+
+
+async def _apply_network_policy(namespace: str, policy: dict) -> None:
+    """Create or replace the session-egress NetworkPolicy for an agent namespace."""
+    egress_rules = _build_egress_rules(policy)
+    manifest = _network_policy_manifest(namespace, egress_rules)
+    path = f"/apis/networking.k8s.io/v1/namespaces/{namespace}/networkpolicies"
+    result = await _k8s_apply("POST", path, manifest)
+    # POST returns 409 if already exists — replace with PUT
+    if result.get("code") == 409 or result.get("reason") == "AlreadyExists":
+        await _k8s_apply("PUT", f"{path}/session-egress", manifest)
+
+
+async def update_network_policy(namespace: str, policy: dict) -> None:
+    """Update the NetworkPolicy for an agent namespace. Changes take effect immediately."""
+    await _apply_network_policy(namespace, policy)
+    logger.info("Updated NetworkPolicy in namespace %s", namespace)
+
+
 async def create_agent_namespace(
     agent_id: str,
     owner_id: str,
@@ -150,37 +220,8 @@ async def create_agent_namespace(
         },
     })
 
-    # 3. NetworkPolicy — session Pods can only reach DNS, credential-proxy,
-    #    and inference-router. All external traffic (Ollama, vLLM, Claude API,
-    #    Bedrock, etc.) is routed through the inference-router in the platform NS.
-    egress_rules = [
-        {  # DNS
-            "to": [{"namespaceSelector": {}, "podSelector": {"matchLabels": {"k8s-app": "kube-dns"}}}],
-            "ports": [{"port": 53, "protocol": "UDP"}],
-        },
-        {  # Platform services: credential-proxy + inference-router
-            "to": [{
-                "namespaceSelector": {"matchLabels": {"aviary/namespace": "platform"}},
-            }],
-            "ports": [{"port": 8080, "protocol": "TCP"}],
-        },
-    ]
-
-    await _k8s_apply(
-        "POST",
-        f"/apis/networking.k8s.io/v1/namespaces/{ns_name}/networkpolicies",
-        {
-            "apiVersion": "networking.k8s.io/v1",
-            "kind": "NetworkPolicy",
-            "metadata": {"name": "session-egress", "namespace": ns_name},
-            "spec": {
-                "podSelector": {"matchLabels": {"aviary/role": "agent-runtime"}},
-                "policyTypes": ["Egress", "Ingress"],
-                "ingress": [],
-                "egress": egress_rules,
-            },
-        },
-    )
+    # 3. NetworkPolicy
+    await _apply_network_policy(ns_name, policy)
 
     # 4. ResourceQuota — based on max_pods for agent-per-pod architecture
     max_pods = policy.get("maxPods", 3)

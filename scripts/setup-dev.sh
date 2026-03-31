@@ -38,16 +38,18 @@ sed -i 's|127.0.0.1|k3s|g' ./api/kubeconfig.yaml
 echo "  kubeconfig saved to api/kubeconfig.yaml"
 
 # 5. Build ALL K3s images and load them in one pass
-echo "[5/7] Building K3s images (runtime, inference-router, credential-proxy)..."
+echo "[5/7] Building K3s images (runtime, inference-router, credential-proxy, egress-proxy)..."
 docker build -t aviary-runtime:latest          ./runtime/
 docker build -t aviary-inference-router:latest  ./inference-router/
 docker build -t aviary-credential-proxy:latest  ./credential-proxy/
+docker build -t aviary-egress-proxy:latest      ./egress-proxy/
 
 echo "  Loading images into K3s..."
 docker save \
   aviary-runtime:latest \
   aviary-inference-router:latest \
   aviary-credential-proxy:latest \
+  aviary-egress-proxy:latest \
   | docker compose exec -T k3s ctr images import -
 echo "  All images loaded."
 
@@ -103,5 +105,6 @@ echo "    docker compose up -d --build web"
 echo "  To rebuild K3s images:"
 echo "    docker build -t aviary-runtime:latest ./runtime/"
 echo "    docker build -t aviary-inference-router:latest ./inference-router/"
-echo "    docker save aviary-runtime:latest aviary-inference-router:latest | docker compose exec -T k3s ctr images import -"
+echo "    docker build -t aviary-egress-proxy:latest ./egress-proxy/"
+echo "    docker save aviary-runtime:latest aviary-inference-router:latest aviary-egress-proxy:latest | docker compose exec -T k3s ctr images import -"
 echo "    docker compose exec -T k3s kubectl rollout restart deployment -n platform"

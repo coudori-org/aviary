@@ -1,6 +1,7 @@
+import ipaddress
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class ModelConfig(BaseModel):
@@ -10,13 +11,43 @@ class ModelConfig(BaseModel):
     maxTokens: int = 8192
 
 
+class EgressPort(BaseModel):
+    port: int = Field(..., ge=1, le=65535)
+    protocol: str = Field("TCP", pattern="^(TCP|UDP)$")
+
+
+class EgressRule(BaseModel):
+    """Egress allowlist entry. Exactly one of `cidr` or `domain` must be set.
+
+    cidr:   IP range, e.g. "140.82.112.0/20"
+    domain: Exact or wildcard hostname, e.g. "api.github.com", "*.example.com"
+    """
+    name: str = Field(..., min_length=1, max_length=255)
+    cidr: str | None = Field(None, pattern=r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}/\d{1,2}$")
+    domain: str | None = Field(None, min_length=1, max_length=255)
+    ports: list[EgressPort] = []
+
+    @model_validator(mode="after")
+    def _require_cidr_or_domain(self):
+        if not self.cidr and not self.domain:
+            raise ValueError("Either 'cidr' or 'domain' must be set")
+        if self.cidr and self.domain:
+            raise ValueError("Only one of 'cidr' or 'domain' may be set")
+        if self.cidr:
+            try:
+                ipaddress.ip_network(self.cidr, strict=False)
+            except ValueError:
+                raise ValueError(f"Invalid CIDR: {self.cidr}")
+        return self
+
+
 class AgentPolicy(BaseModel):
     maxConcurrentSessions: int = 20
     sessionTimeout: int = 30
     maxTokensPerTurn: int = 100000
     maxMemoryPerSession: str = "512Mi"
     maxCpuPerSession: str = "500m"
-    allowedDomains: list[str] = []
+    allowedEgress: list[EgressRule] = []
     allowShellExec: bool = False
     allowFileWrite: bool = True
     containerImage: str = "aviary-runtime:latest"

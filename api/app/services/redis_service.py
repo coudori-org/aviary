@@ -310,3 +310,39 @@ async def get_bulk_unread(session_ids: list[str], user_id: str) -> dict[str, int
         pipe.get(f"session:{sid}:unread:{user_id}")
     results = await pipe.execute()
     return {sid: int(r) if r else 0 for sid, r in zip(session_ids, results)}
+
+
+# ── Egress policy sync (for egress-proxy) ─────────────────────
+
+async def sync_egress_policy(agent_id: str, policy: dict) -> None:
+    """Write agent egress policy to Redis so the egress-proxy can read it."""
+    client = get_client()
+    if not client:
+        return
+    key = f"egress:{agent_id}"
+    await client.set(key, json.dumps(policy))
+
+
+async def delete_egress_policy(agent_id: str) -> None:
+    """Remove agent egress policy from Redis."""
+    client = get_client()
+    if not client:
+        return
+    await client.delete(f"egress:{agent_id}")
+
+
+async def invalidate_egress_proxy_cache(agent_id: str) -> None:
+    """Notify the egress-proxy to drop its in-memory cache for this agent.
+
+    Uses K8s Service proxy (API server is outside K3s network, so direct
+    service DNS doesn't work). Non-critical — cache has a 30s TTL as fallback.
+    """
+    from app.services.k8s_service import _k8s_apply
+
+    try:
+        await _k8s_apply(
+            "POST",
+            f"/api/v1/namespaces/platform/services/egress-proxy:8081/proxy/invalidate/{agent_id}",
+        )
+    except Exception:
+        logger.debug("Egress proxy cache invalidation failed for agent %s (non-critical)", agent_id)

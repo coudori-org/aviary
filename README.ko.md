@@ -9,43 +9,59 @@ Aviary는 웹 UI를 통해 AI 에이전트를 생성, 설정, 배포, 사용할 
 ## 아키텍처
 
 ```
-┌───────────────────────────────────────────────────────────────┐
-│                       Web UI (Next.js 15)                      │
-│     에이전트 카탈로그 · 생성/편집 · 채팅 세션 · ACL 설정        │
-└──────────────┬────────────────────────────────────────────────┘
-               │ REST + WebSocket
-┌──────────────▼────────────────────────────────────────────────┐
-│                    API 서버 (FastAPI)                           │
-│   OIDC 인증 · Agent CRUD · 세션 관리 · ACL · Vault 클라이언트   │
-└───┬──────────┬───────────────────────────────────────────────┘
-    │          │ K8s API Proxy
-    │  ┌───────▼───────────────────────────────────────────────┐
-    │  │              Kubernetes 클러스터                         │
-    │  │                                                        │
-    │  │  NS: platform                                          │
-    │  │  ┌────────────────┐ ┌──────────────┐ ┌──────────────┐ │
-    │  │  │Inference Router│ │ Credential   │ │ Image Warmer │ │
-    │  │  │(LLM 게이트웨이)│ │ Proxy (Vault)│ │ (DaemonSet)  │ │
-    │  │  └───────┬────────┘ └──────────────┘ └──────────────┘ │
-    │  │          │                                              │
-    │  │    ┌─────┴──────────────────────┐                      │
-    │  │    ▼              ▼             ▼                      │
-    │  │ Claude API    Ollama/vLLM    Bedrock                   │
-    │  │                                                        │
-    │  │  NS: agent-{id}           NS: agent-{id}              │
-    │  │  ┌─────────────────┐     ┌─────────────────┐          │
-    │  │  │ Agent Pod (1-N)  │     │ Agent Pod (1-N)  │          │
-    │  │  │ claude-agent-sdk │     │ claude-agent-sdk │          │
-    │  │  │ + Claude Code CLI│     │ + Claude Code CLI│          │
-    │  │  │ + bwrap 샌드박스  │     │ + bwrap 샌드박스  │          │
-    │  │  │ PVC: /workspace  │     │ PVC: /workspace  │          │
-    │  │  └─────────────────┘     └─────────────────┘          │
-    │  └───────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────┐
+│                        Web UI (Next.js 15)                     │
+│      에이전트 카탈로그 · 생성/편집 · 채팅 세션 · ACL 설정       │
+└───────────────┬────────────────────────────────────────────────┘
+                │ REST + WebSocket
+┌───────────────▼────────────────────────────────────────────────┐
+│                      API 서버 (FastAPI)                         │
+│    OIDC 인증 · Agent CRUD · 세션 관리 · ACL · Vault 클라이언트   │
+└───┬───────────┬────────────────────────────────────────────────┘
+    │           │ K8s API Proxy
+    │   ┌───────▼────────────────────────────────────────────────┐
+    │   │               Kubernetes 클러스터                        │
+    │   │                                                        │
+    │   │  ┌─── NS: platform ──────────────────────────────────┐ │
+    │   │  │                                                    │ │
+    │   │  │  ┌─────────────────┐  ┌──────────────────┐        │ │
+    │   │  │  │ Inference Router │  │ Credential Proxy │        │ │
+    │   │  │  │ (LLM 게이트웨이) │  │ (Vault 시크릿)   │        │ │
+    │   │  │  └────────┬────────┘  └──────────────────┘        │ │
+    │   │  │           │                                        │ │
+    │   │  │     ┌─────┴───────────────────┐                    │ │
+    │   │  │     ▼            ▼            ▼                    │ │
+    │   │  │  Claude API   Ollama/vLLM   Bedrock                │ │
+    │   │  │                                                    │ │
+    │   │  │  ┌─────────────────┐  ┌──────────────────┐        │ │
+    │   │  │  │  Egress Proxy   │  │  Image Warmer    │        │ │
+    │   │  │  │  (HTTP/HTTPS    │  │  (DaemonSet)     │        │ │
+    │   │  │  │   포워드 프록시  │  └──────────────────┘        │ │
+    │   │  │  │   + 정책 적용)   │                               │ │
+    │   │  │  └────────┬────────┘                               │ │
+    │   │  │           │ 에이전트별 허용 목록                      │ │
+    │   │  │           ▼                                        │ │
+    │   │  │     외부 API (GitHub, S3, ...)                      │ │
+    │   │  └────────────────────────────────────────────────────┘ │
+    │   │                                                        │
+    │   │  ┌─── NS: agent-{id} ──────┐  ┌── NS: agent-{id} ──┐ │
+    │   │  │  Agent Pod (1-N)         │  │  Agent Pod (1-N)    │ │
+    │   │  │  claude-agent-sdk        │  │  claude-agent-sdk   │ │
+    │   │  │  + Claude Code CLI       │  │  + Claude Code CLI  │ │
+    │   │  │  + bwrap 샌드박스         │  │  + bwrap 샌드박스    │ │
+    │   │  │  PVC: /workspace         │  │  PVC: /workspace    │ │
+    │   │  │                          │  │                     │ │
+    │   │  │  HTTP_PROXY ─────────────┼──┼──▶ Egress Proxy     │ │
+    │   │  │  NetworkPolicy:          │  │  NetworkPolicy:     │ │
+    │   │  │    platform NS +         │  │    platform NS +    │ │
+    │   │  │    허용 CIDR만 통과       │  │    허용 CIDR만 통과  │ │
+    │   │  └──────────────────────────┘  └─────────────────────┘ │
+    │   └────────────────────────────────────────────────────────┘
     │
     │  ┌───────────────┐  ┌──────────────┐  ┌────────────────┐
     └─▶│  PostgreSQL    │  │    Redis      │  │   Keycloak     │
        │  DB, 세션,     │  │  pub/sub,     │  │   OIDC 인증,   │
-       │  ACL, 에이전트  │  │  스트림 릴레이  │  │   팀 동기화     │
+       │  ACL, 에이전트  │  │  egress 규칙  │  │   팀 동기화     │
        └───────────────┘  └──────────────┘  └────────────────┘
 ```
 
@@ -54,6 +70,7 @@ Aviary는 웹 UI를 통해 AI 에이전트를 생성, 설정, 배포, 사용할 
 - **에이전트별 Pod (멀티 세션)** — 각 에이전트가 장기 실행 Deployment(1-N 레플리카)로 여러 세션을 동시 처리, 세션 부하 기반 자동 스케일링
 - **bubblewrap 세션 격리** — 각 세션이 bwrap 마운트 네임스페이스 내에서 실행되어 다른 세션의 파일이 커널 수준에서 비가시
 - **에이전트별 네임스페이스** — NetworkPolicy, ResourceQuota, ServiceAccount가 에이전트 단위로 격리
+- **Egress Proxy** — 에이전트 Pod의 모든 아웃바운드 HTTP/HTTPS가 중앙 프록시를 통해 라우팅되며, 에이전트별 허용 목록(CIDR, 정확한 도메인, 와일드카드 `*.example.com`)으로 제어; 기본값은 모두 차단, 정책 변경 시 Pod 재시작 없이 즉시 적용
 - **claude-agent-sdk 기반** — `ClaudeSDKClient`를 통한 [Claude Code](https://docs.anthropic.com/en/docs/claude-code) 하네스의 전체 기능: 도구, 서브 에이전트, MCP 서버, 파일 I/O, 셸 실행
 - **Inference Router** — 중앙 집중식 LLM 게이트웨이; 모델명으로 백엔드가 투명하게 라우팅
 - **멀티 백엔드 추론** — Claude API, Ollama, vLLM, AWS Bedrock; 새 백엔드 추가 시 NetworkPolicy 변경 불필요
@@ -71,6 +88,7 @@ Aviary는 웹 UI를 통해 AI 에이전트를 생성, 설정, 배포, 사용할 
 | API 서버 | Python 3.12, FastAPI, SQLAlchemy 2.0 (async), Pydantic v2 |
 | 에이전트 런타임 | Python 3.12, claude-agent-sdk, Claude Code CLI, Node.js 22 |
 | Inference Router | Python 3.12, FastAPI — Anthropic Messages API 프록시 |
+| Egress Proxy | Python 3.12, asyncio — HTTP/HTTPS 포워드 프록시 + 정책 적용 |
 | 데이터베이스 | PostgreSQL 16 |
 | 캐시 / PubSub | Redis 7 |
 | 인증 | Keycloak 25 (개발) / Okta (운영) — OIDC |
@@ -101,6 +119,8 @@ aviary/
 │   └── app/                 # Anthropic API 프록시, 백엔드 라우팅
 ├── credential-proxy/        # 시크릿 주입 프록시 (platform 네임스페이스)
 │   └── app/                 # Vault 클라이언트, 세션 리졸버
+├── egress-proxy/            # HTTP/HTTPS 이그레스 프록시 (platform 네임스페이스)
+│   └── app/                 # 포워드 프록시, 에이전트별 정책 체커
 ├── config/                  # Keycloak realm, K3s 설정
 ├── k8s/platform/            # K8s 매니페스트
 ├── scripts/                 # 개발 환경 설정, DB 초기화, 시딩
@@ -156,9 +176,10 @@ docker compose logs -f api    # 로그 확인
 docker compose up -d --build api
 docker compose up -d --build web
 
-# 런타임 이미지 리빌드 (K3s 내부에서 실행)
+# K3s 이미지 리빌드 (K3s 내부에서 실행)
 docker build -t aviary-runtime:latest ./runtime/
-docker save aviary-runtime:latest | docker compose exec -T k3s ctr images import -
+docker build -t aviary-egress-proxy:latest ./egress-proxy/
+docker save aviary-runtime:latest aviary-egress-proxy:latest | docker compose exec -T k3s ctr images import -
 ```
 
 ## 테스트
@@ -205,6 +226,9 @@ docker compose exec api pytest tests/ -v
 
 ### Inference Router
 세션 Pod는 LLM 백엔드를 직접 호출하지 않습니다. 모든 추론은 platform 네임스페이스의 중앙 라우터를 통하며, 모델명으로 백엔드를 결정합니다 (예: `claude-*` → Claude API, `qwen:*` → Ollama). NetworkPolicy를 단순하게 유지하고, API 자격증명을 중앙 관리하며, Anthropic Messages API를 그대로 사용하기 때문에 claude-agent-sdk의 모든 기능이 보존됩니다.
+
+### Egress Proxy
+에이전트 Pod의 모든 아웃바운드 HTTP/HTTPS 트래픽은 platform 네임스페이스의 중앙 이그레스 프록시를 통해 라우팅됩니다 (`HTTP_PROXY`/`HTTPS_PROXY` 환경변수). 프록시는 소스 Pod IP를 K8s 네임스페이스로 변환하여 에이전트를 식별하고, Redis에 저장된 에이전트별 정책을 적용합니다. 지원하는 규칙: CIDR 범위(`10.0.0.0/8`), 정확한 도메인(`api.github.com`), 와일드카드 도메인(`*.example.com`), 전체 허용(`*`). 기본값은 모두 차단이며, 정책 변경 시 Redis 업데이트 + 프록시 캐시 무효화로 Pod 재시작 없이 즉시 적용됩니다. CIDR 규칙은 비-HTTP 트래픽을 위해 K8s NetworkPolicy 레벨에서도 추가 적용됩니다.
 
 ### 실시간 Agent 설정 반영
 에이전트 설정(instruction, tools, policy)은 매 메시지 턴마다 DB에서 런타임으로 전달됩니다. 편집 내용이 Pod 재시작 없이 다음 메시지부터 즉시 적용되며, 다른 사용자의 세션에 영향을 주지 않습니다.

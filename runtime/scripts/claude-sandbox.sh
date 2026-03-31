@@ -29,6 +29,14 @@ fi
 CLAUDE_DATA_DIR="$SESSION_WORKSPACE/.claude"
 mkdir -p "$CLAUDE_DATA_DIR"
 
+# Ensure Node.js fetch() respects proxy env vars inside the sandbox.
+# NODE_OPTIONS with --require is set here (not just in pod env) to guarantee
+# it reaches the CLI process regardless of how the SDK passes environment.
+# Requires `undici` npm package (installed in Dockerfile).
+if [ -f /app/scripts/proxy-bootstrap.js ] && [ -n "${HTTP_PROXY:-}" ]; then
+    export NODE_OPTIONS="--require /app/scripts/proxy-bootstrap.js ${NODE_OPTIONS:-}"
+fi
+
 exec bwrap \
     --ro-bind / / \
     --dev /dev \

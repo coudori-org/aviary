@@ -1,0 +1,99 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: egress-proxy
+  namespace: platform
+---
+# RBAC: egress-proxy needs to list pods across namespaces to resolve source IP → agent
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: aviary-egress-proxy
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: aviary-egress-proxy
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: aviary-egress-proxy
+subjects:
+  - kind: ServiceAccount
+    name: egress-proxy
+    namespace: platform
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: egress-proxy
+  namespace: platform
+  labels:
+    aviary/service: egress-proxy
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      aviary/service: egress-proxy
+  template:
+    metadata:
+      labels:
+        aviary/service: egress-proxy
+    spec:
+      serviceAccountName: egress-proxy
+      hostAliases:
+        - ip: "172.18.0.1"
+          hostnames: ["host.k3s.internal"]
+      containers:
+        - name: egress-proxy
+          image: aviary-egress-proxy:latest
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 8080
+              name: proxy
+            - containerPort: 8081
+              name: admin
+          env:
+            - name: PROXY_PORT
+              value: "8080"
+            - name: ADMIN_PORT
+              value: "8081"
+            - name: REDIS_URL
+              value: "redis://host.k3s.internal:6379/0"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8081
+            initialDelaySeconds: 3
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "1"
+              memory: "512Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: egress-proxy
+  namespace: platform
+  labels:
+    aviary/service: egress-proxy
+spec:
+  selector:
+    aviary/service: egress-proxy
+  ports:
+    - name: proxy
+      port: 8080
+      targetPort: 8080
+      protocol: TCP
+    - name: admin
+      port: 8081
+      targetPort: 8081
+      protocol: TCP

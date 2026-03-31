@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import type { EgressRule } from "@/types";
 
 interface AgentFormData {
   name: string;
@@ -21,6 +22,9 @@ interface AgentFormData {
   tools: string[];
   visibility: string;
   category: string;
+  policy: {
+    allowedEgress: EgressRule[];
+  };
 }
 
 interface AgentFormProps {
@@ -43,6 +47,9 @@ const defaultData: AgentFormData = {
   tools: [],
   visibility: "private",
   category: "",
+  policy: {
+    allowedEgress: [],
+  },
 };
 
 const claudeModels = [
@@ -88,6 +95,41 @@ export function AgentForm({ initialData, onSubmit, submitLabel }: AgentFormProps
         .replace(/^-|-$/g, "");
       updateField("slug", slug);
     }
+  };
+
+  const addEgressRule = () => {
+    setData((prev) => ({
+      ...prev,
+      policy: {
+        ...prev.policy,
+        allowedEgress: [
+          ...prev.policy.allowedEgress,
+          { name: "", domain: "", ports: [] },
+        ],
+      },
+    }));
+  };
+
+  const removeEgressRule = (index: number) => {
+    setData((prev) => ({
+      ...prev,
+      policy: {
+        ...prev.policy,
+        allowedEgress: prev.policy.allowedEgress.filter((_, i) => i !== index),
+      },
+    }));
+  };
+
+  const updateEgressRule = (index: number, field: string, value: any) => {
+    setData((prev) => ({
+      ...prev,
+      policy: {
+        ...prev.policy,
+        allowedEgress: prev.policy.allowedEgress.map((rule, i) =>
+          i === index ? { ...rule, [field]: value } : rule
+        ),
+      },
+    }));
   };
 
   return (
@@ -262,6 +304,118 @@ export function AgentForm({ initialData, onSubmit, submitLabel }: AgentFormProps
             />
           </div>
         </div>
+      </section>
+
+      {/* Network Policy */}
+      <section className="space-y-5">
+        <div className="mb-1">
+          <h2 className="text-sm font-semibold text-foreground">Network Policy</h2>
+          <p className="text-xs text-muted-foreground">
+            Control which external endpoints this agent can access. All outbound traffic is blocked by default.
+          </p>
+        </div>
+
+        <div className="rounded-xl border border-border/60 bg-card p-5 space-y-4">
+          {data.policy.allowedEgress.length === 0 && (
+            <p className="text-xs text-muted-foreground/60 py-2 text-center">
+              No egress rules configured. All external HTTP/HTTPS traffic is blocked.
+            </p>
+          )}
+
+          {data.policy.allowedEgress.map((rule, index) => (
+            <div key={index} className="flex items-start gap-3 rounded-lg border border-border/40 bg-muted/30 p-3">
+              <div className="flex-1 grid gap-3 sm:grid-cols-[1fr_auto_1fr_auto]">
+                <div className="space-y-1">
+                  <Label className="text-[11px]">Name</Label>
+                  <Input
+                    value={rule.name}
+                    onChange={(e) => updateEgressRule(index, "name", e.target.value)}
+                    placeholder="e.g. GitHub API"
+                    className="h-8 text-xs"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-[11px]">Type</Label>
+                  <Select
+                    value={rule.domain !== undefined ? "domain" : "cidr"}
+                    onChange={(e) => {
+                      if (e.target.value === "domain") {
+                        updateEgressRule(index, "domain", rule.cidr || "");
+                        updateEgressRule(index, "cidr", undefined);
+                      } else {
+                        updateEgressRule(index, "cidr", rule.domain || "");
+                        updateEgressRule(index, "domain", undefined);
+                      }
+                    }}
+                    className="h-8 text-xs"
+                  >
+                    <option value="domain">Domain</option>
+                    <option value="cidr">CIDR</option>
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-[11px]">
+                    {rule.domain !== undefined ? "Domain" : "CIDR"}
+                  </Label>
+                  <Input
+                    value={rule.domain !== undefined ? (rule.domain || "") : (rule.cidr || "")}
+                    onChange={(e) => {
+                      if (rule.domain !== undefined) {
+                        updateEgressRule(index, "domain", e.target.value);
+                      } else {
+                        updateEgressRule(index, "cidr", e.target.value);
+                      }
+                    }}
+                    placeholder={rule.domain !== undefined ? "*.example.com" : "10.0.0.0/8"}
+                    className="h-8 text-xs font-mono"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-[11px]">Ports</Label>
+                  <Input
+                    value={rule.ports.map((p) => p.port).join(", ")}
+                    onChange={(e) => {
+                      const ports = e.target.value
+                        .split(",")
+                        .map((s) => s.trim())
+                        .filter((s) => s && !isNaN(Number(s)))
+                        .map((s) => ({ port: Number(s), protocol: "TCP" as const }));
+                      updateEgressRule(index, "ports", ports);
+                    }}
+                    placeholder="All"
+                    className="h-8 text-xs font-mono"
+                  />
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => removeEgressRule(index)}
+                className="mt-5 p-1.5 text-muted-foreground/60 hover:text-destructive transition-colors rounded-md hover:bg-destructive/10"
+                title="Remove rule"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
+            </div>
+          ))}
+
+          <button
+            type="button"
+            onClick={addEgressRule}
+            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors py-1"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
+            </svg>
+            Add egress rule
+          </button>
+        </div>
+
+        <p className="text-[11px] text-muted-foreground/60">
+          Domain patterns: <code className="bg-muted px-1 rounded">api.github.com</code> (exact), <code className="bg-muted px-1 rounded">*.github.com</code> (wildcard), <code className="bg-muted px-1 rounded">*</code> (all).
+          Ports: comma-separated (e.g. <code className="bg-muted px-1 rounded">443, 8080</code>), leave empty to allow all.
+        </p>
       </section>
 
       {/* Submit */}

@@ -116,6 +116,22 @@ def _build_options(agent_config: dict, model_config: dict, workspace: Path, sess
             "ANTHROPIC_BASE_URL": INFERENCE_ROUTER_URL,
             "ANTHROPIC_API_KEY": "routed-via-inference-router",
             "SESSION_WORKSPACE": str(workspace),
+            # Prevent CLI from calling api.anthropic.com directly for
+            # telemetry, error reporting, auto-updates, or feature flags.
+            "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+            # Remap all built-in model tiers to the agent's configured model
+            # so CLI internal tasks (WebFetch summarization, subagents, etc.)
+            # route through inference router instead of api.anthropic.com.
+            **{k: model for k in (
+                "ANTHROPIC_MODEL", "ANTHROPIC_SMALL_FAST_MODEL",
+                "ANTHROPIC_DEFAULT_HAIKU_MODEL", "ANTHROPIC_DEFAULT_SONNET_MODEL",
+                "ANTHROPIC_DEFAULT_OPUS_MODEL", "CLAUDE_CODE_SUBAGENT_MODEL",
+            )},
+            # Proxy env vars for egress proxy — must be explicit because SDK
+            # env dict replaces (not merges with) the parent environment.
+            **{k: os.environ[k] for k in (
+                "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "NODE_OPTIONS",
+            ) if k in os.environ},
         },
     )
 
