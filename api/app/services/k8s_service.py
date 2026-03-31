@@ -117,7 +117,9 @@ def _build_egress_rules(policy: dict) -> list[dict]:
 
     Always includes:
       - DNS (kube-dns, UDP/53)
-      - Platform services (credential-proxy, inference-router, egress-proxy — TCP/8080)
+      - Platform services (egress-proxy, inference-router, credential-proxy — TCP/8080)
+        inference-router and credential-proxy are K8s Service+Endpoints backed by
+        the docker host (see k8s/platform/external-services.yaml).
 
     CIDR-based allowedEgress entries are also added as direct NetworkPolicy rules
     so non-HTTP traffic (e.g. raw TCP) can reach those IPs without the proxy.
@@ -128,7 +130,7 @@ def _build_egress_rules(policy: dict) -> list[dict]:
             "to": [{"namespaceSelector": {}, "podSelector": {"matchLabels": {"k8s-app": "kube-dns"}}}],
             "ports": [{"port": 53, "protocol": "UDP"}],
         },
-        {  # Platform services: credential-proxy, inference-router, egress-proxy
+        {  # Platform services (egress-proxy + external-services backed by host)
             "to": [{"namespaceSelector": {"matchLabels": {"aviary/namespace": "platform"}}}],
             "ports": [{"port": 8080, "protocol": "TCP"}],
         },

@@ -1,0 +1,62 @@
+# Proxy services for platform components running outside K8s (docker compose).
+# These create K8s Service + Endpoints that map internal DNS names to the
+# docker host IP, so agent pods can use standard K8s DNS (e.g.,
+# inference-router.platform.svc:8080) and existing NetworkPolicy rules
+# (allow platform namespace) apply without any IP-based exceptions.
+#
+# The Endpoints IP must match the host gateway IP (HOST_GATEWAY_IP env var).
+# setup-dev.sh patches this automatically.
+
+---
+# Inference Router — LLM gateway
+apiVersion: v1
+kind: Service
+metadata:
+  name: inference-router
+  namespace: platform
+  labels:
+    aviary/service: inference-router
+spec:
+  ports:
+    - port: 8080
+      targetPort: 8090
+      protocol: TCP
+---
+apiVersion: v1
+kind: Endpoints
+metadata:
+  name: inference-router
+  namespace: platform
+subsets:
+  - addresses:
+      - ip: "${HOST_GATEWAY_IP}"
+    ports:
+      - port: 8090
+        protocol: TCP
+
+---
+# Credential Proxy — Vault secret injection
+apiVersion: v1
+kind: Service
+metadata:
+  name: credential-proxy
+  namespace: platform
+  labels:
+    aviary/service: credential-proxy
+spec:
+  ports:
+    - port: 8080
+      targetPort: 8091
+      protocol: TCP
+---
+apiVersion: v1
+kind: Endpoints
+metadata:
+  name: credential-proxy
+  namespace: platform
+subsets:
+  - addresses:
+      - ip: "${HOST_GATEWAY_IP}"
+    ports:
+      - port: 8091
+        protocol: TCP

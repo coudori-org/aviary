@@ -37,6 +37,10 @@ docker compose cp k3s:/etc/rancher/k3s/k3s.yaml ./api/kubeconfig.yaml
 sed -i 's|127.0.0.1|k3s|g' ./api/kubeconfig.yaml
 echo "  kubeconfig saved to api/kubeconfig.yaml"
 
+# Resolve host gateway IP (docker host as seen from K3s)
+HOST_GATEWAY_IP=$(docker compose exec -T k3s ip route | awk '/default/ {print $3}' | head -1)
+echo "  Host gateway IP: $HOST_GATEWAY_IP"
+
 # 5. Build K3s images and load them (runtime + egress-proxy only)
 echo "[5/7] Building K3s images (runtime, egress-proxy)..."
 docker build -t aviary-runtime:latest      ./runtime/
@@ -54,7 +58,8 @@ echo "[6/7] Applying K8s platform resources..."
 docker compose exec -T k3s kubectl apply -f - < ./k8s/platform/namespace.yaml
 for f in ./k8s/platform/*.yaml; do
   [ "$(basename "$f")" = "namespace.yaml" ] && continue
-  docker compose exec -T k3s kubectl apply -f - < "$f"
+  HOST_GATEWAY_IP="$HOST_GATEWAY_IP" envsubst '${HOST_GATEWAY_IP}' < "$f" \
+    | docker compose exec -T k3s kubectl apply -f -
 done
 # Restart platform pods to pick up freshly loaded images
 docker compose exec -T k3s kubectl rollout restart deployment -n platform 2>/dev/null || true

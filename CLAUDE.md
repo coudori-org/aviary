@@ -157,10 +157,10 @@ docker compose up -d --build inference-router credential-proxy
 |----------|---------|
 | `AGENT_ID` | Agent UUID |
 | `MAX_CONCURRENT_SESSIONS` | Max sessions per pod (default: 10) |
-| `CREDENTIAL_PROXY_URL` | Credential proxy URL (host gateway, port 8091) |
-| `INFERENCE_ROUTER_URL` | Inference router URL (host gateway, port 8090) |
+| `CREDENTIAL_PROXY_URL` | Credential proxy URL (`http://credential-proxy.platform.svc:8080`) |
+| `INFERENCE_ROUTER_URL` | Inference router URL (`http://inference-router.platform.svc:8080`) |
 | `HTTP_PROXY` / `HTTPS_PROXY` | Egress proxy URL (`http://egress-proxy.platform.svc:8080`) |
-| `NO_PROXY` | Bypass proxy for internal services (host gateway, platform SVCs, localhost) |
+| `NO_PROXY` | Bypass proxy for internal services (platform SVCs, localhost) |
 
 ## Key Environment Variables (Egress Proxy)
 

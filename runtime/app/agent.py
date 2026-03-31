@@ -1,8 +1,8 @@
 """Agent runner using the official claude-agent-sdk package.
 
-All inference is routed through the Inference Router (host gateway):
+All inference is routed through the Inference Router:
   claude-agent-sdk -> Claude Code CLI -> Anthropic SDK
-    -> POST http://host.k3s.internal:8090/v1/messages
+    -> POST http://inference-router.platform.svc:8080/v1/messages
     -> Router inspects model name -> proxies to correct backend
 
 Multi-turn conversation is maintained via the SDK's session management:
@@ -37,10 +37,10 @@ from claude_agent_sdk import (
 CONFIG_DIR = Path("/agent/config")
 WORKSPACE_ROOT = Path("/workspace/sessions")
 
-# Inference Router URL (reachable from Pod via host gateway)
+# Inference Router URL (K8s Service proxied to docker host)
 INFERENCE_ROUTER_URL = os.environ.get(
     "INFERENCE_ROUTER_URL",
-    "http://host.k3s.internal:8090",
+    "http://inference-router.platform.svc:8080",
 )
 
 # Force SDK to use our bwrap wrapper instead of its bundled binary
