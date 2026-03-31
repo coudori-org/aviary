@@ -18,12 +18,12 @@ from app.services import k8s_service
 
 logger = logging.getLogger(__name__)
 
-# Platform service URLs (K8s internal DNS)
-_CREDENTIAL_PROXY_URL = "http://credential-proxy.platform.svc:8080"
+# Platform service URLs
+# Credential proxy and inference router run outside K8s (docker compose),
+# reachable from pods via host gateway. Egress proxy stays in K8s.
 _EGRESS_PROXY_URL = "http://egress-proxy.platform.svc:8080"
 _NO_PROXY = (
-    "credential-proxy.platform.svc,"
-    "inference-router.platform.svc,"
+    "host.k3s.internal,"
     "egress-proxy.platform.svc,"
     ".svc,.svc.cluster.local,"
     "localhost,127.0.0.1"
@@ -195,9 +195,8 @@ async def _create_agent_deployment(namespace: str, agent: Agent) -> None:
                                 "env": [
                                     {"name": "AGENT_ID", "value": str(agent.id)},
                                     {"name": "MAX_CONCURRENT_SESSIONS", "value": str(max_sessions_per_pod)},
-                                    {"name": "CREDENTIAL_PROXY_URL", "value": _CREDENTIAL_PROXY_URL},
-                                    {"name": "INFERENCE_OLLAMA_URL", "value": settings.inference_ollama_url},
-                                    {"name": "INFERENCE_VLLM_URL", "value": settings.inference_vllm_url},
+                                    {"name": "CREDENTIAL_PROXY_URL", "value": "http://host.k3s.internal:8091"},
+                                    {"name": "INFERENCE_ROUTER_URL", "value": "http://host.k3s.internal:8090"},
                                     {"name": "HOME", "value": "/tmp"},
                                     {"name": "HTTP_PROXY", "value": _EGRESS_PROXY_URL},
                                     {"name": "HTTPS_PROXY", "value": _EGRESS_PROXY_URL},

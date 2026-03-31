@@ -1,8 +1,8 @@
 """Agent runner using the official claude-agent-sdk package.
 
-All inference is routed through the Inference Router (platform namespace):
+All inference is routed through the Inference Router (host gateway):
   claude-agent-sdk -> Claude Code CLI -> Anthropic SDK
-    -> POST http://inference-router.platform.svc:8080/v1/messages
+    -> POST http://host.k3s.internal:8090/v1/messages
     -> Router inspects model name -> proxies to correct backend
 
 Multi-turn conversation is maintained via the SDK's session management:
@@ -37,10 +37,10 @@ from claude_agent_sdk import (
 CONFIG_DIR = Path("/agent/config")
 WORKSPACE_ROOT = Path("/workspace/sessions")
 
-# Inference Router URL (K8s Service in platform namespace)
+# Inference Router URL (reachable from Pod via host gateway)
 INFERENCE_ROUTER_URL = os.environ.get(
     "INFERENCE_ROUTER_URL",
-    "http://inference-router.platform.svc:8080",
+    "http://host.k3s.internal:8090",
 )
 
 # Force SDK to use our bwrap wrapper instead of its bundled binary
@@ -98,7 +98,7 @@ def _build_options(agent_config: dict, model_config: dict, workspace: Path, sess
     Uses the Aviary session_id directly as CLI session_id, so both layers
     share the same ID. Resume is enabled when a prior session history exists.
     """
-    model = model_config.get("model", "claude-sonnet-4-20250514")
+    model = model_config.get("model", "default")
     can_resume = _has_session_history(workspace, session_id)
 
     opts = ClaudeAgentOptions(
@@ -166,7 +166,7 @@ async def process_message(
 
     agent_config = agent_config_from_api if agent_config_from_api else load_agent_config()
 
-    mc = model_config or {"backend": "claude", "model": "claude-sonnet-4-20250514"}
+    mc = model_config or {"backend": "claude", "model": "default"}
     options = _build_options(agent_config, mc, workspace, session_id)
 
     full_response = ""

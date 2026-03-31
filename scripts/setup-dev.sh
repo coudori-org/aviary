@@ -37,18 +37,14 @@ docker compose cp k3s:/etc/rancher/k3s/k3s.yaml ./api/kubeconfig.yaml
 sed -i 's|127.0.0.1|k3s|g' ./api/kubeconfig.yaml
 echo "  kubeconfig saved to api/kubeconfig.yaml"
 
-# 5. Build ALL K3s images and load them in one pass
-echo "[5/7] Building K3s images (runtime, inference-router, credential-proxy, egress-proxy)..."
-docker build -t aviary-runtime:latest          ./runtime/
-docker build -t aviary-inference-router:latest  ./inference-router/
-docker build -t aviary-credential-proxy:latest  ./credential-proxy/
-docker build -t aviary-egress-proxy:latest      ./egress-proxy/
+# 5. Build K3s images and load them (runtime + egress-proxy only)
+echo "[5/7] Building K3s images (runtime, egress-proxy)..."
+docker build -t aviary-runtime:latest      ./runtime/
+docker build -t aviary-egress-proxy:latest ./egress-proxy/
 
 echo "  Loading images into K3s..."
 docker save \
   aviary-runtime:latest \
-  aviary-inference-router:latest \
-  aviary-credential-proxy:latest \
   aviary-egress-proxy:latest \
   | docker compose exec -T k3s ctr images import -
 echo "  All images loaded."
@@ -66,6 +62,16 @@ echo "  Platform namespace ready."
 
 # 7. Wait for application services
 echo "[7/7] Waiting for application services..."
+echo -n "  Inference router..."
+until curl -sf http://localhost:8090/health > /dev/null 2>&1; do
+  sleep 2
+done
+echo " ready."
+echo -n "  Credential proxy..."
+until curl -sf http://localhost:8091/health > /dev/null 2>&1; do
+  sleep 2
+done
+echo " ready."
 echo -n "  API server..."
 until curl -sf http://localhost:8000/api/health > /dev/null 2>&1; do
   sleep 2
@@ -81,9 +87,13 @@ echo ""
 echo "=== Dev environment is ready! ==="
 echo ""
 echo "Application:"
-echo "  Web UI:      http://localhost:3000"
-echo "  API Server:  http://localhost:8000"
-echo "  API Health:  http://localhost:8000/api/health"
+echo "  Web UI:            http://localhost:3000"
+echo "  API Server:        http://localhost:8000"
+echo "  API Health:        http://localhost:8000/api/health"
+echo ""
+echo "Platform Services:"
+echo "  Inference Router:  http://localhost:8090"
+echo "  Credential Proxy:  http://localhost:8091"
 echo ""
 echo "Infrastructure:"
 echo "  PostgreSQL:  localhost:5432  (aviary/aviary)"
@@ -98,13 +108,12 @@ echo "  user1@test.com / password  (regular_user,   team: engineering, product)"
 echo "  user2@test.com / password  (regular_user,   team: data-science)"
 echo ""
 echo "Hot reload:"
-echo "  Edit files in api/ or web/ — changes apply automatically."
-echo "  If you change dependencies (pyproject.toml / package.json):"
-echo "    docker compose up -d --build api"
-echo "    docker compose up -d --build web"
-echo "  To rebuild K3s images:"
+echo "  Edit files in api/, web/, inference-router/, or credential-proxy/"
+echo "  — changes apply automatically via bind-mount."
+echo "  If you change dependencies:"
+echo "    docker compose up -d --build <service>"
+echo "  To rebuild K3s images (runtime, egress-proxy):"
 echo "    docker build -t aviary-runtime:latest ./runtime/"
-echo "    docker build -t aviary-inference-router:latest ./inference-router/"
 echo "    docker build -t aviary-egress-proxy:latest ./egress-proxy/"
-echo "    docker save aviary-runtime:latest aviary-inference-router:latest aviary-egress-proxy:latest | docker compose exec -T k3s ctr images import -"
+echo "    docker save aviary-runtime:latest aviary-egress-proxy:latest | docker compose exec -T k3s ctr images import -"
 echo "    docker compose exec -T k3s kubectl rollout restart deployment -n platform"

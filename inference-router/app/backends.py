@@ -17,15 +17,25 @@ so requests are proxied as-is. vLLM requires translation to OpenAI format.
 import os
 import re
 
-OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://host.k3s.internal:11434")
-VLLM_URL = os.environ.get("VLLM_URL", "http://host.k3s.internal:8001")
+OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
+VLLM_URL = os.environ.get("VLLM_URL", "http://localhost:8001")
 CLAUDE_API_URL = os.environ.get("CLAUDE_API_URL", "https://api.anthropic.com")
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 BEDROCK_REGION = os.environ.get("BEDROCK_REGION", "us-east-1")
 
+# Default model per backend — resolved when model is "default"
+DEFAULT_MODELS: dict[str, str] = {
+    "claude": os.environ.get("DEFAULT_MODEL_CLAUDE", "claude-sonnet-4-20250514"),
+    "ollama": os.environ.get("DEFAULT_MODEL_OLLAMA", "qwen3:8b"),
+    "vllm": os.environ.get("DEFAULT_MODEL_VLLM", "meta-llama/Llama-3.3-70B-Instruct"),
+    "bedrock": os.environ.get("DEFAULT_MODEL_BEDROCK", "anthropic.claude-sonnet-4-20250514-v1:0"),
+}
+
 
 def resolve_backend(model: str) -> str:
     """Determine which backend to use based on model name pattern."""
+    if model == "default":
+        return "claude"
     if model.startswith("claude-"):
         return "claude"
     if model.startswith("anthropic."):
@@ -38,6 +48,13 @@ def resolve_backend(model: str) -> str:
         return "vllm"
     # Default to Claude
     return "claude"
+
+
+def resolve_model(model: str, backend: str) -> str:
+    """Resolve 'default' to the configured default model for the backend."""
+    if model == "default":
+        return DEFAULT_MODELS.get(backend, DEFAULT_MODELS["claude"])
+    return model
 
 
 def get_proxy_url(backend: str) -> str:

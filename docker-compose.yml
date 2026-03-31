@@ -93,6 +93,53 @@ services:
       - k3sdata:/var/lib/rancher/k3s
       - ./config/k3s/registries.yaml:/etc/rancher/k3s/registries.yaml
 
+  # ── Platform Services ───────────────────────────────────────
+
+  inference-router:
+    build:
+      context: ./inference-router
+    command: python -m uvicorn app.main:app --host 0.0.0.0 --port 8080 --reload
+    ports:
+      - "8090:8080"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./inference-router/app:/app/app
+    environment:
+      OLLAMA_URL: http://host.docker.internal:11434
+      VLLM_URL: http://host.docker.internal:8001
+      CLAUDE_API_URL: https://api.anthropic.com
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8080/health')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+  credential-proxy:
+    build:
+      context: ./credential-proxy
+    command: python -m uvicorn app.main:app --host 0.0.0.0 --port 8080 --reload
+    ports:
+      - "8091:8080"
+    volumes:
+      - ./credential-proxy/app:/app/app
+    environment:
+      DATABASE_URL: postgresql://aviary:aviary@postgres:5432/aviary
+      VAULT_ADDR: http://vault:8200
+      VAULT_TOKEN: dev-root-token
+    depends_on:
+      postgres:
+        condition: service_healthy
+      vault:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8080/health')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
   # ── Application ─────────────────────────────────────────────
 
   api:
@@ -117,8 +164,8 @@ services:
       VAULT_ADDR: http://vault:8200
       VAULT_TOKEN: dev-root-token
       KUBECONFIG: /app/kubeconfig.yaml
-      INFERENCE_OLLAMA_URL: http://host.k3s.internal:11434
-      INFERENCE_VLLM_URL: http://host.k3s.internal:8001
+      INFERENCE_ROUTER_URL: http://inference-router:8080
+      CREDENTIAL_PROXY_URL: http://credential-proxy:8080
       HOST_GATEWAY_IP: 172.18.0.1
       CORS_ORIGINS: '["http://localhost:3000"]'
     depends_on:
