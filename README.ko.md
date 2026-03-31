@@ -185,7 +185,7 @@ docker compose up -d --build web
 # K8s 이미지 리빌드 (runtime, egress-proxy)
 docker build -t aviary-runtime:latest ./runtime/
 docker build -t aviary-egress-proxy:latest ./egress-proxy/
-docker save aviary-runtime:latest aviary-egress-proxy:latest | docker compose exec -T k3s ctr images import -
+docker save aviary-runtime:latest aviary-egress-proxy:latest | docker compose exec -T k8s ctr images import -
 ```
 
 ## 테스트
@@ -260,7 +260,7 @@ PATH의 `claude` CLI 바이너리는 실제 바이너리를 bubblewrap 마운트
 | `redis` | 6379 | 캐시, pub/sub, 프레즌스 |
 | `keycloak` | 8080 | OIDC 프로바이더 |
 | `vault` | 8200 | 시크릿 관리 |
-| `k3s` | 6443 | Kubernetes 클러스터 |
+| `k8s` | 6443 | Kubernetes 클러스터 |
 
 ## 라이선스
 

@@ -46,8 +46,8 @@ spec:
     spec:
       serviceAccountName: egress-proxy
       hostAliases:
-        - ip: "172.18.0.1"
-          hostnames: ["host.k3s.internal"]
+        - ip: "${HOST_GATEWAY_IP}"
+          hostnames: ["host.k8s.internal"]
       containers:
         - name: egress-proxy
           image: aviary-egress-proxy:latest
@@ -63,7 +63,7 @@ spec:
             - name: ADMIN_PORT
               value: "8081"
             - name: REDIS_URL
-              value: "redis://host.k3s.internal:6379/0"
+              value: "redis://host.k8s.internal:6379/0"
           livenessProbe:
             httpGet:
               path: /health

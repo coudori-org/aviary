@@ -185,7 +185,7 @@ docker compose up -d --build web
 # Rebuild K8s images (runtime, egress-proxy)
 docker build -t aviary-runtime:latest ./runtime/
 docker build -t aviary-egress-proxy:latest ./egress-proxy/
-docker save aviary-runtime:latest aviary-egress-proxy:latest | docker compose exec -T k3s ctr images import -
+docker save aviary-runtime:latest aviary-egress-proxy:latest | docker compose exec -T k8s ctr images import -
 ```
 
 ## Testing
@@ -260,7 +260,7 @@ The `claude` CLI binary in PATH is a wrapper script that runs the real binary in
 | `redis` | 6379 | Cache, pub/sub, presence |
 | `keycloak` | 8080 | OIDC provider |
 | `vault` | 8200 | Secret management |
-| `k3s` | 6443 | Kubernetes cluster |
+| `k8s` | 6443 | Kubernetes cluster |
 
 ## License
 

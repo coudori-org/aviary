@@ -5,7 +5,7 @@ Multi-tenant AI agent platform. Users create/configure agents via Web UI, each r
 ## Quick Start
 
 ```bash
-./scripts/setup-dev.sh   # First time: builds everything, loads K3s images
+./scripts/setup-dev.sh   # First time: builds everything, loads K8s images
 docker compose up -d      # Subsequent: just start services
 ```
 
@@ -60,7 +60,7 @@ Keycloak tokens have `iss=http://localhost:8080/...` (browser URL), but API cont
 Uses `ClaudeSDKClient` (NOT the `query()` function). Aviary session_id is passed directly as CLI session_id via `session_id=` option (first message) or `resume=` option (subsequent messages). No `.session_id` file needed — resume is determined by checking for existing JSONL in `<workspace>/.claude/projects/`. CLI session data is persisted to PVC via bwrap bind-mount of `<workspace>/.claude/` to `/tmp/.claude`, enabling conversation resume across Pod restarts.
 
 ### K8s Service Proxy for Pod Communication
-API container is outside K3s network. Communicates with agent Pods via K8s Service proxy: `POST /api/v1/namespaces/{ns}/services/agent-runtime-svc:3000/proxy/message`. K8s load-balances across replicas. See `stream_manager.py` and `deployment_service.py`.
+API container is outside the K8s network. Communicates with agent Pods via K8s Service proxy: `POST /api/v1/namespaces/{ns}/services/agent-runtime-svc:3000/proxy/message`. K8s load-balances across replicas. See `stream_manager.py` and `deployment_service.py`.
 
 ### Agent Deployment Lifecycle
 `ensure_agent_deployment()` in `deployment_service.py` creates Deployment + Service + PVC if not exists. The runtime Pod handles multiple sessions concurrently with per-session asyncio locks and directory isolation. Idle agents (7 days) are scaled to 0, not deleted — re-activated on next message.
@@ -83,14 +83,14 @@ Two-layer enforcement: (1) K8s NetworkPolicy blocks all egress except DNS, platf
 ### Claude Code Managed Settings
 `runtime/config/managed-settings.json` is installed to `/etc/claude-code/managed-settings.json` (the hardcoded path Claude Code CLI reads on Linux). Currently sets `skipWebFetchPreflight: true` to prevent CLI from calling `api.anthropic.com/api/web/domain_info` before each WebFetch — this endpoint is unreachable in air-gapped/fintech environments where all external traffic must go through the egress proxy. All model tiers (`ANTHROPIC_MODEL`, `ANTHROPIC_SMALL_FAST_MODEL`, `ANTHROPIC_DEFAULT_HAIKU_MODEL`, etc.) are remapped to the agent's configured model in `agent.py` so that CLI internal tasks (WebFetch summarization, subagents) route through the inference router.
 
-### K3s Image Loading
-All K8s custom images use `imagePullPolicy: Never`. Loaded via `docker save | docker compose exec -T k3s ctr images import -`. The `setup-dev.sh` handles this for runtime and egress-proxy images. Inference router and credential proxy run outside K8s (docker compose) and don't need K3s image loading.
+### K8s Image Loading
+All K8s custom images use `imagePullPolicy: Never`. Loaded via `docker save | docker compose exec -T k8s ctr images import -`. The `setup-dev.sh` handles this for runtime and egress-proxy images. Inference router and credential proxy run outside K8s and don't need image loading.
 
-### K3s Fixed Node Name
+### K8s Fixed Node Name
 `--node-name=aviary-node` in docker-compose.yml prevents stale node accumulation on container restart. Without it, PVCs bind to old node names causing scheduling failures.
 
 ### PVC Strategy
-Single `agent-workspace` PVC (5Gi) per agent, shared by all replicas. Session data at `/workspace/sessions/{session_id}/`. `ReadWriteOnce` works for K3s single-node; multi-node requires `ReadWriteMany` or StatefulSet migration.
+Single `agent-workspace` PVC (5Gi) per agent, shared by all replicas. Session data at `/workspace/sessions/{session_id}/`. `ReadWriteOnce` works for single-node; multi-node requires `ReadWriteMany` or StatefulSet migration.
 
 ### React Strict Mode
 Use `useRef` guards for WebSocket connections and OIDC callbacks to prevent duplicate execution in dev mode.
@@ -124,7 +124,7 @@ docker compose exec api pytest tests/ -v
 
 ```bash
 docker build -t aviary-runtime:latest ./runtime/
-docker save aviary-runtime:latest | docker compose exec -T k3s ctr images import -
+docker save aviary-runtime:latest | docker compose exec -T k8s ctr images import -
 # Repeat for egress-proxy if changed
 ```
 
@@ -143,9 +143,9 @@ docker compose up -d --build inference-router credential-proxy
 | `DATABASE_URL` | PostgreSQL async connection |
 | `REDIS_URL` | Redis for pub/sub, caching, presence |
 | `VAULT_ADDR` / `VAULT_TOKEN` | Vault connection |
-| `KUBECONFIG` | K3s kubeconfig path |
+| `KUBECONFIG` | K8s kubeconfig path |
 | `AGENT_RUNTIME_IMAGE` | Container image for agent Pods |
-| `HOST_GATEWAY_IP` | Host IP for K3s Pods to reach host services |
+| `K8S_GATEWAY_IP` | Host IP for K8s Pods to reach host services |
 | `INFERENCE_ROUTER_URL` | Inference router URL (default: `http://inference-router:8080`) |
 | `CREDENTIAL_PROXY_URL` | Credential proxy URL (default: `http://credential-proxy:8080`) |
 | `DEFAULT_AGENT_IDLE_TIMEOUT` | Agent idle timeout in seconds (default: 604800 = 7 days) |

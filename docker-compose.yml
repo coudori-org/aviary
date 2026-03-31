@@ -80,7 +80,7 @@ services:
         echo 'Vault initialized with test secrets'
       "
 
-  k3s:
+  k8s:
     image: rancher/k3s:v1.31.4-k3s1
     command: server --disable=traefik --write-kubeconfig-mode=644 --node-name=aviary-node
     hostname: aviary-node
@@ -90,7 +90,7 @@ services:
     ports:
       - "6443:6443"
     volumes:
-      - k3sdata:/var/lib/rancher/k3s
+      - k8sdata:/var/lib/rancher/k3s
       - ./config/k3s/registries.yaml:/etc/rancher/k3s/registries.yaml
 
   # ── Platform Services ───────────────────────────────────────
@@ -166,7 +166,7 @@ services:
       KUBECONFIG: /app/kubeconfig.yaml
       INFERENCE_ROUTER_URL: http://inference-router:8080
       CREDENTIAL_PROXY_URL: http://credential-proxy:8080
-      HOST_GATEWAY_IP: 172.18.0.1
+      K8S_GATEWAY_IP: 172.18.0.1
       CORS_ORIGINS: '["http://localhost:3000"]'
     depends_on:
       postgres:
@@ -209,4 +209,4 @@ services:
 
 volumes:
   pgdata:
-  k3sdata:
+  k8sdata:

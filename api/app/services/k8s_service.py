@@ -42,14 +42,14 @@ def _load_kubeconfig() -> None:
 
     user = config["users"][0]["user"]
 
-    # K3s uses client-certificate-data (base64 PEM in kubeconfig)
+    # K8s uses client-certificate-data (base64 PEM in kubeconfig)
     cert_data = user.get("client-certificate-data")
     key_data = user.get("client-key-data")
 
     if cert_data and key_data:
         # Write decoded PEM to temp files for httpx SSL
-        cert_path = Path(tempfile.gettempdir()) / "k3s-client.crt"
-        key_path = Path(tempfile.gettempdir()) / "k3s-client.key"
+        cert_path = Path(tempfile.gettempdir()) / "k8s-client.crt"
+        key_path = Path(tempfile.gettempdir()) / "k8s-client.key"
         cert_path.write_bytes(base64.b64decode(cert_data))
         key_path.write_bytes(base64.b64decode(key_data))
         key_path.chmod(0o600)
@@ -76,7 +76,7 @@ def _get_k8s_client() -> httpx.AsyncClient:
         base_url=_k8s_base_url,
         headers=_k8s_headers,
         cert=_k8s_cert,
-        verify=False,  # K3s uses self-signed CA
+        verify=False,  # K8s uses self-signed CA
         timeout=30,
     )
 

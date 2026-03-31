@@ -24,14 +24,14 @@ echo "=== K8s Agent Reset ==="
 
 # 1. Delete all agent Deployments and Services (not PVCs)
 echo "[1/5] Cleaning agent namespaces..."
-AGENT_NS=$(docker compose exec -T k3s kubectl get ns -l aviary/managed=true -o jsonpath='{.items[*].metadata.name}' 2>/dev/null || echo "")
+AGENT_NS=$(docker compose exec -T k8s kubectl get ns -l aviary/managed=true -o jsonpath='{.items[*].metadata.name}' 2>/dev/null || echo "")
 for ns in $AGENT_NS; do
     echo "  $ns: deleting Deployment + Service..."
-    docker compose exec -T k3s kubectl delete deployment --all -n "$ns" --ignore-not-found 2>/dev/null || true
-    docker compose exec -T k3s kubectl delete service agent-runtime-svc -n "$ns" --ignore-not-found 2>/dev/null || true
+    docker compose exec -T k8s kubectl delete deployment --all -n "$ns" --ignore-not-found 2>/dev/null || true
+    docker compose exec -T k8s kubectl delete service agent-runtime-svc -n "$ns" --ignore-not-found 2>/dev/null || true
     if $HARD; then
         echo "  $ns: deleting PVCs (--hard)..."
-        docker compose exec -T k3s kubectl delete pvc --all -n "$ns" --ignore-not-found 2>/dev/null || true
+        docker compose exec -T k8s kubectl delete pvc --all -n "$ns" --ignore-not-found 2>/dev/null || true
     fi
 done
 echo "  Done. $(echo "$AGENT_NS" | wc -w) namespace(s) cleaned."
@@ -41,24 +41,20 @@ echo "[2/5] Resetting deployment_active flags in database..."
 docker compose exec -T postgres psql -U aviary -d aviary -c \
     "UPDATE agents SET deployment_active = false WHERE deployment_active = true;" 2>/dev/null || true
 
-# 3. Rebuild and reload K8s images
+# 3. Rebuild and reload K8s images (runtime + egress-proxy only)
 echo "[3/5] Building K8s images..."
-docker build -t aviary-runtime:latest          ./runtime/
-docker build -t aviary-inference-router:latest  ./inference-router/
-docker build -t aviary-credential-proxy:latest  ./credential-proxy/
-docker build -t aviary-egress-proxy:latest      ./egress-proxy/
+docker build -t aviary-runtime:latest      ./runtime/
+docker build -t aviary-egress-proxy:latest ./egress-proxy/
 
-echo "[4/5] Loading images into K3s..."
+echo "[4/5] Loading images into K8s..."
 docker save \
   aviary-runtime:latest \
-  aviary-inference-router:latest \
-  aviary-credential-proxy:latest \
   aviary-egress-proxy:latest \
-  | docker compose exec -T k3s ctr images import -
+  | docker compose exec -T k8s ctr images import -
 
 # 5. Restart platform deployments to pick up new images
 echo "[5/5] Restarting platform services..."
-docker compose exec -T k3s kubectl rollout restart deployment -n platform 2>/dev/null || true
+docker compose exec -T k8s kubectl rollout restart deployment -n platform 2>/dev/null || true
 
 echo ""
 echo "=== Reset complete ==="

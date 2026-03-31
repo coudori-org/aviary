@@ -334,7 +334,7 @@ async def delete_egress_policy(agent_id: str) -> None:
 async def invalidate_egress_proxy_cache(agent_id: str) -> None:
     """Notify the egress-proxy to drop its in-memory cache for this agent.
 
-    Uses K8s Service proxy (API server is outside K3s network, so direct
+    Uses K8s Service proxy (API server is outside K8s network, so direct
     service DNS doesn't work). Non-critical — cache has a 30s TTL as fallback.
     """
     from app.services.k8s_service import _k8s_apply

@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 async def _reconcile_deployment_state():
     """Startup task: reset deployment_active for agents whose K8s Deployment is gone.
 
-    After a K3s reset or volume wipe, the DB may still have deployment_active=True
+    After a K8s reset or volume wipe, the DB may still have deployment_active=True
     for agents whose Deployments no longer exist. This causes the system to skip
     re-creation. Resetting the flag ensures ensure_agent_deployment() will
     recreate resources on next message.
@@ -79,7 +79,7 @@ async def lifespan(app: FastAPI):
     await init_redis()
     cleanup_task = asyncio.create_task(_idle_agent_cleanup_loop())
 
-    # Reconcile stale deployment states (K3s may have been reset)
+    # Reconcile stale deployment states (K8s may have been reset)
     await _reconcile_deployment_state()
 
     # Auto-scaling loop

@@ -34,10 +34,10 @@ _NODE_OPTIONS = "--require /app/scripts/proxy-bootstrap.js"
 
 @lru_cache(maxsize=1)
 def _get_host_gateway_ip() -> str:
-    """Get the Docker/K3s host gateway IP for Pod -> host communication."""
-    gateway = os.environ.get("HOST_GATEWAY_IP")
+    """Get the Docker/K8s host gateway IP for Pod -> host communication."""
+    gateway = os.environ.get("K8S_GATEWAY_IP")
     if not gateway:
-        raise RuntimeError("HOST_GATEWAY_IP environment variable is required")
+        raise RuntimeError("K8S_GATEWAY_IP environment variable is required")
     return gateway
 
 
@@ -78,7 +78,7 @@ async def ensure_agent_deployment(db: AsyncSession, agent: Agent) -> str:
             # Deployment gone but DB says active — recreate
             logger.warning("Deployment not found for agent %s despite deployment_active=True, recreating", agent.id)
 
-    # Ensure namespace exists (may have been lost on K3s reset)
+    # Ensure namespace exists (may have been lost on K8s reset)
     await _ensure_namespace(namespace, agent)
 
     # Create resources (idempotent — 409 Conflict is handled gracefully)
@@ -97,7 +97,7 @@ async def ensure_agent_deployment(db: AsyncSession, agent: Agent) -> str:
 async def _ensure_namespace(namespace: str, agent: Agent) -> None:
     """Ensure the agent namespace and its base resources exist.
 
-    After a K3s reset, the namespace may be gone while the DB still references it.
+    After a K8s reset, the namespace may be gone while the DB still references it.
     Re-provisions Namespace + NetworkPolicy + ResourceQuota + ServiceAccount.
     Uses POST which returns 409 if already exists (handled by _k8s_apply).
     """
@@ -184,7 +184,7 @@ async def _create_agent_deployment(namespace: str, agent: Agent) -> None:
                         "hostAliases": [
                             {
                                 "ip": _get_host_gateway_ip(),
-                                "hostnames": ["host.k3s.internal"],
+                                "hostnames": ["host.k8s.internal"],
                             }
                         ],
                         "containers": [
