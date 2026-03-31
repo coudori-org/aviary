@@ -13,6 +13,48 @@ from app.services.redis_service import close_redis, get_client, init_redis
 logger = logging.getLogger(__name__)
 
 
+async def _reconcile_deployment_state():
+    """Startup task: reset deployment_active for agents whose K8s Deployment is gone.
+
+    After a K3s reset or volume wipe, the DB may still have deployment_active=True
+    for agents whose Deployments no longer exist. This causes the system to skip
+    re-creation. Resetting the flag ensures ensure_agent_deployment() will
+    recreate resources on next message.
+    """
+    from app.db.session import async_session_factory
+    from app.db.models import Agent
+    from app.services import k8s_service
+    from sqlalchemy import select
+
+    try:
+        async with async_session_factory() as db:
+            result = await db.execute(
+                select(Agent).where(Agent.deployment_active == True, Agent.status != "deleted")
+            )
+            active_agents = list(result.scalars().all())
+            if not active_agents:
+                return
+
+            reset_count = 0
+            for agent in active_agents:
+                if not agent.namespace:
+                    continue
+                try:
+                    await k8s_service._k8s_apply(
+                        "GET",
+                        f"/apis/apps/v1/namespaces/{agent.namespace}/deployments/agent-runtime",
+                    )
+                except Exception:
+                    agent.deployment_active = False
+                    reset_count += 1
+
+            if reset_count:
+                await db.commit()
+                logger.info("Reconciled %d stale deployment_active flags (%d agents checked)", reset_count, len(active_agents))
+    except Exception:
+        logger.warning("Deployment state reconciliation failed (K8s may not be ready yet)", exc_info=True)
+
+
 async def _idle_agent_cleanup_loop():
     """Background task: scale down idle agent Deployments every 5 minutes."""
     from app.db.session import async_session_factory
@@ -36,6 +78,9 @@ async def lifespan(app: FastAPI):
     await init_oidc()
     await init_redis()
     cleanup_task = asyncio.create_task(_idle_agent_cleanup_loop())
+
+    # Reconcile stale deployment states (K3s may have been reset)
+    await _reconcile_deployment_state()
 
     # Auto-scaling loop
     from app.services import scaling_service
