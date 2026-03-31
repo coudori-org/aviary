@@ -1,0 +1,32 @@
+# Base egress rules applied to all agent namespaces via ConfigMap.
+# Per-agent CIDR rules from agent policy are appended at runtime.
+# Domain-based rules are enforced by the egress proxy, not here.
+#
+# ${HOST_GATEWAY_IP} is substituted by setup-dev.sh at apply time.
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: network-policy-base
+  namespace: platform
+  labels:
+    aviary/service: network-policy
+data:
+  rules.json: |
+    [
+      {
+        "to": [{"namespaceSelector": {}, "podSelector": {"matchLabels": {"k8s-app": "kube-dns"}}}],
+        "ports": [{"port": 53, "protocol": "UDP"}]
+      },
+      {
+        "to": [{"namespaceSelector": {"matchLabels": {"aviary/namespace": "platform"}}}],
+        "ports": [{"port": 8080, "protocol": "TCP"}]
+      },
+      {
+        "to": [{"ipBlock": {"cidr": "${HOST_GATEWAY_IP}/32"}}],
+        "ports": [
+          {"port": 8090, "protocol": "TCP"},
+          {"port": 8091, "protocol": "TCP"}
+        ]
+      }
+    ]

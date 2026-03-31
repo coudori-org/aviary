@@ -112,29 +112,32 @@ async def _k8s_apply(method: str, path: str, body: dict | None = None) -> dict:
         return resp.json() if resp.content else {}
 
 
-def _build_egress_rules(policy: dict) -> list[dict]:
+_base_egress_rules: list[dict] | None = None
+
+
+async def _get_base_egress_rules() -> list[dict]:
+    """Read base egress rules from the network-policy-base ConfigMap in platform namespace."""
+    global _base_egress_rules
+    if _base_egress_rules is not None:
+        return _base_egress_rules
+
+    data = await _k8s_apply("GET", "/api/v1/namespaces/platform/configmaps/network-policy-base")
+    raw = data.get("data", {}).get("rules.json")
+    if not raw:
+        raise RuntimeError("network-policy-base ConfigMap missing or empty in platform namespace")
+    _base_egress_rules = json.loads(raw)
+    logger.info("Loaded %d base egress rules from ConfigMap", len(_base_egress_rules))
+    return _base_egress_rules
+
+
+async def _build_egress_rules(policy: dict) -> list[dict]:
     """Build K8s NetworkPolicy egress rules from agent policy.
 
-    Always includes:
-      - DNS (kube-dns, UDP/53)
-      - Platform services (egress-proxy, inference-router, credential-proxy — TCP/8080)
-        inference-router and credential-proxy are K8s Service+Endpoints backed by
-        the docker host (see k8s/platform/external-services.yaml).
-
-    CIDR-based allowedEgress entries are also added as direct NetworkPolicy rules
-    so non-HTTP traffic (e.g. raw TCP) can reach those IPs without the proxy.
+    Base rules are read from the network-policy-base ConfigMap (platform namespace).
+    CIDR-based allowedEgress entries are appended as direct NetworkPolicy rules.
     Domain-based entries are enforced exclusively by the egress-proxy.
     """
-    rules = [
-        {  # DNS
-            "to": [{"namespaceSelector": {}, "podSelector": {"matchLabels": {"k8s-app": "kube-dns"}}}],
-            "ports": [{"port": 53, "protocol": "UDP"}],
-        },
-        {  # Platform services (egress-proxy + external-services backed by host)
-            "to": [{"namespaceSelector": {"matchLabels": {"aviary/namespace": "platform"}}}],
-            "ports": [{"port": 8080, "protocol": "TCP"}],
-        },
-    ]
+    rules = list(await _get_base_egress_rules())
 
     # Add CIDR-based entries as direct NetworkPolicy rules
     for entry in policy.get("allowedEgress", []):
@@ -169,7 +172,7 @@ def _network_policy_manifest(namespace: str, egress_rules: list[dict]) -> dict:
 
 async def _apply_network_policy(namespace: str, policy: dict) -> None:
     """Create or replace the session-egress NetworkPolicy for an agent namespace."""
-    egress_rules = _build_egress_rules(policy)
+    egress_rules = await _build_egress_rules(policy)
     manifest = _network_policy_manifest(namespace, egress_rules)
     path = f"/apis/networking.k8s.io/v1/namespaces/{namespace}/networkpolicies"
     result = await _k8s_apply("POST", path, manifest)

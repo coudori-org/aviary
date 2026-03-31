@@ -36,9 +36,9 @@ _NODE_OPTIONS = "--require /app/scripts/proxy-bootstrap.js"
 def _get_host_gateway_ip() -> str:
     """Get the Docker/K3s host gateway IP for Pod -> host communication."""
     gateway = os.environ.get("HOST_GATEWAY_IP")
-    if gateway:
-        return gateway
-    return "172.17.0.1"
+    if not gateway:
+        raise RuntimeError("HOST_GATEWAY_IP environment variable is required")
+    return gateway
 
 
 def _service_proxy_path(namespace: str) -> str:
