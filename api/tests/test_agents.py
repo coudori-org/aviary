@@ -11,7 +11,7 @@ async def test_create_agent(admin_client: AsyncClient):
         "instruction": "You are a helpful assistant.",
         "model_config": {
             "backend": "claude",
-            "model": "claude-sonnet-4-20250514",
+            "model": "default",
             "temperature": 0.7,
             "maxTokens": 8192,
         },

@@ -76,7 +76,7 @@ async def main():
             "A helpful coding assistant",
             admin_id,
             "You are a helpful coding assistant. Help users write, debug, and review code.",
-            '{"backend": "claude", "model": "claude-sonnet-4-20250514", "temperature": 0.7, "maxTokens": 8192}',
+            '{"backend": "claude", "model": "default", "temperature": 0.7, "maxTokens": 8192}',
             '["read_file", "write_file", "run_command"]',
             '{"maxConcurrentSessions": 20, "sessionTimeout": 30, "allowShellExec": true}',
             "public",

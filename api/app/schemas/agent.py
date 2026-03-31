@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field, model_validator
 
 class ModelConfig(BaseModel):
     backend: str = Field("claude", pattern="^(claude|ollama|vllm)$")
-    model: str = "claude-sonnet-4-20250514"
+    model: str = "default"
     temperature: float = 0.7
     maxTokens: int = 8192
 

@@ -7,7 +7,7 @@ including tools, tool_use, streaming, etc.
 
 Architecture:
   claude-agent-sdk → Claude Code CLI → Anthropic SDK
-    → POST http://inference-router.platform.svc:8080/v1/messages
+    → POST http://inference-router:8080/v1/messages
     → Router inspects model name → routes to correct backend
     → Response streamed back in Anthropic SSE format
 """
@@ -27,6 +27,7 @@ from app.backends import (
     VLLM_URL,
     get_proxy_url,
     resolve_backend,
+    resolve_model,
 )
 
 logger = logging.getLogger(__name__)
@@ -43,8 +44,11 @@ async def proxy_messages(request: Request):
     """
     body_bytes = await request.body()
     body = json.loads(body_bytes)
-    model = body.get("model", "")
+    model = body.get("model", "default")
     backend = resolve_backend(model)
+    model = resolve_model(model, backend)
+    body["model"] = model
+    body_bytes = json.dumps(body).encode()
     is_stream = body.get("stream", False)
 
     logger.info("Routing model=%s → backend=%s stream=%s", model, backend, is_stream)
@@ -202,26 +206,33 @@ async def list_backends():
 
 @app.get("/v1/backends/{backend}/models")
 async def list_models(backend: str):
+    # TODO: Add RBAC filtering based on user claims (forwarded via headers)
+    # once key management and tier-based access control are implemented.
     if backend == "claude":
+        # TODO: Fetch dynamically from Anthropic API (GET /v1/models)
+        # once API key management (platform key / per-tenant key from Vault) is in place.
         return {"models": [
-            {"id": "claude-opus-4-20250514"}, {"id": "claude-sonnet-4-20250514"},
+            {"id": "claude-opus-4-20250514", "name": "claude-opus-4-20250514"},
+            {"id": "claude-sonnet-4-20250514", "name": "claude-sonnet-4-20250514"},
         ]}
     elif backend == "ollama":
         try:
             async with httpx.AsyncClient(timeout=5) as client:
                 resp = await client.get(f"{OLLAMA_URL}/api/tags")
-                models = [{"id": m["name"]} for m in resp.json().get("models", [])]
+                resp.raise_for_status()
+                models = [
+                    {"id": m["name"], "name": m["name"], "size": m.get("size")}
+                    for m in resp.json().get("models", [])
+                ]
                 return {"models": models}
-        except Exception:
+        except Exception as e:
+            logger.warning("Ollama not reachable: %s", e)
             return {"models": [], "error": "Ollama not reachable"}
     elif backend == "vllm":
-        try:
-            async with httpx.AsyncClient(timeout=5) as client:
-                resp = await client.get(f"{VLLM_URL}/v1/models")
-                models = [{"id": m["id"]} for m in resp.json().get("data", [])]
-                return {"models": models}
-        except Exception:
-            return {"models": [], "error": "vLLM not reachable"}
+        # TODO: Fetch from vLLM API (GET /v1/models) when a serving engine is available.
+        return {"models": [
+            {"id": "meta-llama/Llama-3.3-70B-Instruct", "name": "meta-llama/Llama-3.3-70B-Instruct"},
+        ]}
     return {"models": []}
 
 
