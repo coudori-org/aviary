@@ -3,12 +3,14 @@
 import importlib.util
 from pathlib import Path
 
-# Load egress-proxy's policy module directly to avoid name collision with api's `app` package
-_policy_path = Path(__file__).resolve().parent.parent.parent.parent / "egress-proxy" / "app" / "policy.py"
-_spec = importlib.util.spec_from_file_location("egress_proxy_policy", _policy_path)
-_module = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(_module)
-PolicyChecker = _module.PolicyChecker
+# Load from egress-proxy directly (avoids name collision with api's `app` package)
+_spec = importlib.util.spec_from_file_location(
+    "egress_policy",
+    Path(__file__).resolve().parents[3] / "egress-proxy" / "app" / "policy.py",
+)
+_mod = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_mod)
+PolicyChecker = _mod.PolicyChecker
 
 
 def test_empty_policy_denies_all():

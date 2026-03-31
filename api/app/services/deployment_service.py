@@ -18,6 +18,18 @@ from app.services import k8s_service
 
 logger = logging.getLogger(__name__)
 
+# Platform service URLs (K8s internal DNS)
+_CREDENTIAL_PROXY_URL = "http://credential-proxy.platform.svc:8080"
+_EGRESS_PROXY_URL = "http://egress-proxy.platform.svc:8080"
+_NO_PROXY = (
+    "credential-proxy.platform.svc,"
+    "inference-router.platform.svc,"
+    "egress-proxy.platform.svc,"
+    ".svc,.svc.cluster.local,"
+    "localhost,127.0.0.1"
+)
+_NODE_OPTIONS = "--require /app/scripts/proxy-bootstrap.js"
+
 
 @lru_cache(maxsize=1)
 def _get_host_gateway_ip() -> str:
@@ -183,37 +195,14 @@ async def _create_agent_deployment(namespace: str, agent: Agent) -> None:
                                 "env": [
                                     {"name": "AGENT_ID", "value": str(agent.id)},
                                     {"name": "MAX_CONCURRENT_SESSIONS", "value": str(max_sessions_per_pod)},
-                                    {
-                                        "name": "CREDENTIAL_PROXY_URL",
-                                        "value": "http://credential-proxy.platform.svc:8080",
-                                    },
+                                    {"name": "CREDENTIAL_PROXY_URL", "value": _CREDENTIAL_PROXY_URL},
                                     {"name": "INFERENCE_OLLAMA_URL", "value": settings.inference_ollama_url},
                                     {"name": "INFERENCE_VLLM_URL", "value": settings.inference_vllm_url},
                                     {"name": "HOME", "value": "/tmp"},
-                                    # Egress proxy — all external HTTP(S) routed through platform proxy
-                                    {
-                                        "name": "HTTP_PROXY",
-                                        "value": "http://egress-proxy.platform.svc:8080",
-                                    },
-                                    {
-                                        "name": "HTTPS_PROXY",
-                                        "value": "http://egress-proxy.platform.svc:8080",
-                                    },
-                                    {
-                                        "name": "NO_PROXY",
-                                        "value": (
-                                            "credential-proxy.platform.svc,"
-                                            "inference-router.platform.svc,"
-                                            "egress-proxy.platform.svc,"
-                                            ".svc,.svc.cluster.local,"
-                                            "localhost,127.0.0.1"
-                                        ),
-                                    },
-                                    # Make Node.js fetch() respect HTTP_PROXY (undici doesn't by default)
-                                    {
-                                        "name": "NODE_OPTIONS",
-                                        "value": "--require /app/scripts/proxy-bootstrap.js",
-                                    },
+                                    {"name": "HTTP_PROXY", "value": _EGRESS_PROXY_URL},
+                                    {"name": "HTTPS_PROXY", "value": _EGRESS_PROXY_URL},
+                                    {"name": "NO_PROXY", "value": _NO_PROXY},
+                                    {"name": "NODE_OPTIONS", "value": _NODE_OPTIONS},
                                 ],
                                 "volumeMounts": [
                                     {"name": "agent-workspace", "mountPath": "/workspace"},

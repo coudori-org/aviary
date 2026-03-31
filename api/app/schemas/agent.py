@@ -1,3 +1,4 @@
+import ipaddress
 from datetime import datetime
 
 from pydantic import BaseModel, Field, model_validator
@@ -32,6 +33,11 @@ class EgressRule(BaseModel):
             raise ValueError("Either 'cidr' or 'domain' must be set")
         if self.cidr and self.domain:
             raise ValueError("Only one of 'cidr' or 'domain' may be set")
+        if self.cidr:
+            try:
+                ipaddress.ip_network(self.cidr, strict=False)
+            except ValueError:
+                raise ValueError(f"Invalid CIDR: {self.cidr}")
         return self
 
 
@@ -41,7 +47,6 @@ class AgentPolicy(BaseModel):
     maxTokensPerTurn: int = 100000
     maxMemoryPerSession: str = "512Mi"
     maxCpuPerSession: str = "500m"
-    allowedDomains: list[str] = []
     allowedEgress: list[EgressRule] = []
     allowShellExec: bool = False
     allowFileWrite: bool = True

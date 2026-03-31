@@ -169,22 +169,11 @@ async def _apply_network_policy(namespace: str, policy: dict) -> None:
     """Create or replace the session-egress NetworkPolicy for an agent namespace."""
     egress_rules = _build_egress_rules(policy)
     manifest = _network_policy_manifest(namespace, egress_rules)
-    # Try PUT (replace); fall back to POST (create) on 404.
-    try:
-        await _k8s_apply(
-            "PUT",
-            f"/apis/networking.k8s.io/v1/namespaces/{namespace}/networkpolicies/session-egress",
-            manifest,
-        )
-    except httpx.HTTPStatusError as exc:
-        if exc.response.status_code == 404:
-            await _k8s_apply(
-                "POST",
-                f"/apis/networking.k8s.io/v1/namespaces/{namespace}/networkpolicies",
-                manifest,
-            )
-        else:
-            raise
+    path = f"/apis/networking.k8s.io/v1/namespaces/{namespace}/networkpolicies"
+    result = await _k8s_apply("POST", path, manifest)
+    # POST returns 409 if already exists — replace with PUT
+    if result.get("code") == 409 or result.get("reason") == "AlreadyExists":
+        await _k8s_apply("PUT", f"{path}/session-egress", manifest)
 
 
 async def update_network_policy(namespace: str, policy: dict) -> None:

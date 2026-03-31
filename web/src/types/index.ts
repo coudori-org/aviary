@@ -67,7 +67,6 @@ export interface AgentPolicy {
   maxTokensPerTurn: number;
   maxMemoryPerSession: string;
   maxCpuPerSession: string;
-  allowedDomains: string[];
   allowedEgress: EgressRule[];
   allowShellExec: boolean;
   allowFileWrite: boolean;

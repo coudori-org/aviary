@@ -76,6 +76,9 @@ Two-layer enforcement: (1) K8s NetworkPolicy blocks all egress except DNS, platf
 ### Egress Rule Schema
 `EgressRule` in `schemas/agent.py` requires exactly one of `cidr` or `domain` (validated by `model_validator`). Domain patterns: `"example.com"` (exact), `"*.example.com"` (wildcard subdomain), `".example.com"` (same as `*`), `"*"` (all). Both types can be mixed in the same `allowedEgress` list. Optional `ports` field restricts to specific ports; empty means all ports allowed.
 
+### Claude Code Managed Settings
+`runtime/config/managed-settings.json` is installed to `/etc/claude-code/managed-settings.json` (the hardcoded path Claude Code CLI reads on Linux). Currently sets `skipWebFetchPreflight: true` to prevent CLI from calling `api.anthropic.com/api/web/domain_info` before each WebFetch — this endpoint is unreachable in air-gapped/fintech environments where all external traffic must go through the egress proxy. All model tiers (`ANTHROPIC_MODEL`, `ANTHROPIC_SMALL_FAST_MODEL`, `ANTHROPIC_DEFAULT_HAIKU_MODEL`, etc.) are remapped to the agent's configured model in `agent.py` so that CLI internal tasks (WebFetch summarization, subagents) route through the inference router.
+
 ### K3s Image Loading
 All custom images use `imagePullPolicy: Never`. Loaded via `docker save | docker compose exec -T k3s ctr images import -`. The `setup-dev.sh` handles this for runtime, inference-router, credential-proxy, and egress-proxy images.
 

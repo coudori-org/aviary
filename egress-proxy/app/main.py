@@ -11,6 +11,8 @@ import asyncio
 import json
 import logging
 import os
+import time
+from pathlib import Path
 from urllib.parse import urlparse
 
 import httpx
@@ -27,7 +29,8 @@ ADMIN_PORT = int(os.environ.get("ADMIN_PORT", "8081"))
 
 # ── Caches ──────────────────────────────────────────────────────
 _redis: aioredis.Redis | None = None
-_ip_to_agent: dict[str, str] = {}  # pod IP → agent_id
+_ip_to_agent: dict[str, tuple[float, str]] = {}  # pod IP → (timestamp, agent_id)
+_IP_CACHE_TTL = 300  # seconds — pod IPs can be reassigned
 _policy_cache: dict[str, tuple[float, PolicyChecker]] = {}  # agent_id → (timestamp, checker)
 _POLICY_CACHE_TTL = 30  # seconds — re-read from Redis after this
 
@@ -48,8 +51,6 @@ async def _get_redis() -> aioredis.Redis:
 
 async def _get_policy(agent_id: str) -> PolicyChecker:
     """Load per-agent policy from Redis, with TTL-based local cache."""
-    import time
-
     now = time.monotonic()
     if agent_id in _policy_cache:
         ts, checker = _policy_cache[agent_id]
@@ -76,12 +77,14 @@ async def invalidate_policy(agent_id: str) -> None:
 async def _resolve_agent_id(source_ip: str) -> str | None:
     """Resolve a pod's IP to an agent ID via K8s API."""
     if source_ip in _ip_to_agent:
-        return _ip_to_agent[source_ip]
+        ts, agent_id = _ip_to_agent[source_ip]
+        if time.monotonic() - ts < _IP_CACHE_TTL:
+            return agent_id
 
     try:
-        token = open(_K8S_TOKEN_PATH).read().strip()
-    except FileNotFoundError:
-        logger.warning("K8s token not found — cannot resolve pod IPs")
+        token = Path(_K8S_TOKEN_PATH).read_text().strip()
+    except (FileNotFoundError, PermissionError):
+        logger.warning("K8s token not available — cannot resolve pod IPs")
         return None
 
     url = f"https://{_K8S_HOST}:{_K8S_PORT}/api/v1/pods?fieldSelector=status.podIP={source_ip}"
@@ -97,7 +100,7 @@ async def _resolve_agent_id(source_ip: str) -> str | None:
         # agent namespace format: agent-{uuid}
         if ns.startswith("agent-"):
             agent_id = ns[len("agent-"):]
-            _ip_to_agent[source_ip] = agent_id
+            _ip_to_agent[source_ip] = (time.monotonic(), agent_id)
             return agent_id
     return None
 
@@ -137,10 +140,6 @@ async def _handle_connect(reader: asyncio.StreamReader, writer: asyncio.StreamWr
 # ── HTTP forward proxy ─────────────────────────────────────────
 async def _handle_http(writer: asyncio.StreamWriter, method: str, url: str, http_version: str, headers: list[tuple[str, str]], body: bytes):
     """Forward a plain HTTP request."""
-    parsed = urlparse(url)
-    target_host = parsed.hostname
-    target_port = parsed.port or 80
-
     async with httpx.AsyncClient(timeout=30) as client:
         try:
             req_headers = {k: v for k, v in headers if k.lower() not in ("host", "proxy-connection", "proxy-authorization")}
