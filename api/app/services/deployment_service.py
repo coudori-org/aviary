@@ -65,7 +65,10 @@ async def ensure_agent_deployment(db: AsyncSession, agent: Agent) -> str:
             # Deployment gone but DB says active — recreate
             logger.warning("Deployment not found for agent %s despite deployment_active=True, recreating", agent.id)
 
-    # Create resources
+    # Ensure namespace exists (may have been lost on K3s reset)
+    await _ensure_namespace(namespace, agent)
+
+    # Create resources (idempotent — 409 Conflict is handled gracefully)
     await _create_agent_pvc(namespace, agent)
     await _create_agent_deployment(namespace, agent)
     await _create_agent_service(namespace)
@@ -76,6 +79,29 @@ async def ensure_agent_deployment(db: AsyncSession, agent: Agent) -> str:
 
     logger.info("Created Deployment for agent %s in namespace %s", agent.id, namespace)
     return namespace
+
+
+async def _ensure_namespace(namespace: str, agent: Agent) -> None:
+    """Ensure the agent namespace and its base resources exist.
+
+    After a K3s reset, the namespace may be gone while the DB still references it.
+    Re-provisions Namespace + NetworkPolicy + ResourceQuota + ServiceAccount.
+    Uses POST which returns 409 if already exists (handled by _k8s_apply).
+    """
+    try:
+        await k8s_service._k8s_apply("GET", f"/api/v1/namespaces/{namespace}")
+        return  # namespace exists
+    except Exception:
+        logger.info("Namespace %s not found, re-provisioning K8s resources for agent %s", namespace, agent.id)
+
+    await k8s_service.create_agent_namespace(
+        agent_id=str(agent.id),
+        owner_id=str(agent.owner_id),
+        instruction=agent.instruction,
+        tools=agent.tools,
+        policy=agent.policy or {},
+        mcp_servers=agent.mcp_servers or [],
+    )
 
 
 async def _create_agent_pvc(namespace: str, agent: Agent) -> None:
@@ -164,6 +190,30 @@ async def _create_agent_deployment(namespace: str, agent: Agent) -> None:
                                     {"name": "INFERENCE_OLLAMA_URL", "value": settings.inference_ollama_url},
                                     {"name": "INFERENCE_VLLM_URL", "value": settings.inference_vllm_url},
                                     {"name": "HOME", "value": "/tmp"},
+                                    # Egress proxy — all external HTTP(S) routed through platform proxy
+                                    {
+                                        "name": "HTTP_PROXY",
+                                        "value": "http://egress-proxy.platform.svc:8080",
+                                    },
+                                    {
+                                        "name": "HTTPS_PROXY",
+                                        "value": "http://egress-proxy.platform.svc:8080",
+                                    },
+                                    {
+                                        "name": "NO_PROXY",
+                                        "value": (
+                                            "credential-proxy.platform.svc,"
+                                            "inference-router.platform.svc,"
+                                            "egress-proxy.platform.svc,"
+                                            ".svc,.svc.cluster.local,"
+                                            "localhost,127.0.0.1"
+                                        ),
+                                    },
+                                    # Make Node.js fetch() respect HTTP_PROXY (undici doesn't by default)
+                                    {
+                                        "name": "NODE_OPTIONS",
+                                        "value": "--require /app/scripts/proxy-bootstrap.js",
+                                    },
                                 ],
                                 "volumeMounts": [
                                     {"name": "agent-workspace", "mountPath": "/workspace"},

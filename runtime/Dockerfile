@@ -9,8 +9,11 @@ RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Claude Code CLI globally
-RUN npm install -g @anthropic-ai/claude-code
+# Install Claude Code CLI globally + undici for proxy support
+# Node 22's built-in fetch() ignores HTTP_PROXY. Installing undici as a
+# standalone package allows proxy-bootstrap.js to set EnvHttpProxyAgent
+# as the global dispatcher via require('undici'). (Node 24+ has NODE_USE_ENV_PROXY.)
+RUN npm install -g @anthropic-ai/claude-code undici
 
 # Replace `claude` binary with bubblewrap sandbox wrapper.
 # SDK invokes `claude` → wrapper → bwrap namespace → `claude-real`.
@@ -26,6 +29,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app/ /app/app/
 COPY scripts/ /app/scripts/
+COPY config/managed-settings.json /etc/claude-code/managed-settings.json
 
 # Install the sandbox wrapper as the `claude` command
 RUN CLAUDE_BIN=$(which claude-real) && \
