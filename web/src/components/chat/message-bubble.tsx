@@ -44,9 +44,9 @@ export function MessageBubble({ message, currentUserId }: MessageBubbleProps) {
         </div>
 
         {/* Tool calls */}
-        {message.metadata && Object.keys(message.metadata).length > 0 && message.metadata.tool_calls && (
+        {message.metadata && Object.keys(message.metadata).length > 0 && Array.isArray(message.metadata.tool_calls) && (
           <div className="space-y-1 px-1">
-            {(message.metadata.tool_calls as any[]).map((tool: any, i: number) => (
+            {(message.metadata.tool_calls as Array<Record<string, unknown>>).map((tool, i) => (
               <div
                 key={i}
                 className="flex items-center gap-2 rounded-lg border border-border/30 bg-secondary/50 px-3 py-1.5 text-xs"
@@ -55,7 +55,7 @@ export function MessageBubble({ message, currentUserId }: MessageBubbleProps) {
                   <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
                 </svg>
                 <span className="font-mono text-muted-foreground">
-                  {tool.name}
+                  {String(tool.name)}
                 </span>
                 <span className="truncate text-muted-foreground/60">
                   {JSON.stringify(tool.input).slice(0, 80)}
