@@ -130,6 +130,23 @@ export default function ChatPage() {
           case "replay_end":
             // Replay complete, now receiving live chunks via pub/sub
             break;
+          case "cancelled": {
+            const partialContent = streamingRef.current;
+            streamingRef.current = "";
+            setStreamingContent("");
+            if (partialContent) {
+              const cancelledId = msg.messageId || crypto.randomUUID();
+              setMessages((msgs) => {
+                if (msgs.some((m) => m.id === cancelledId)) return msgs;
+                return [...msgs, {
+                  id: cancelledId, session_id: session.id, sender_type: "agent",
+                  content: partialContent, metadata: {}, created_at: new Date().toISOString(),
+                }];
+              });
+            }
+            setIsStreaming(false);
+            break;
+          }
           case "stream_complete":
             // Agent finished responding while we were on another page
             setMessages((msgs) => {
@@ -166,6 +183,11 @@ export default function ChatPage() {
     },
     [session, user, isReady]
   );
+
+  const handleCancel = useCallback(() => {
+    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+    wsRef.current.send(JSON.stringify({ type: "cancel" }));
+  }, []);
 
   if (loading) {
     return (
@@ -287,7 +309,9 @@ export default function ChatPage() {
         <div className="mx-auto max-w-4xl">
           <ChatInput
             onSend={handleSend}
+            onCancel={handleCancel}
             disabled={isInputDisabled}
+            isStreaming={isStreaming}
             placeholder={!isReady ? "Waiting for agent..." : isStreaming ? "Agent is responding..." : undefined}
           />
         </div>

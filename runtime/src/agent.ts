@@ -131,6 +131,7 @@ export async function* processMessage(
   content: string,
   modelConfig?: ModelConfig | null,
   agentConfigFromApi?: AgentConfig | null,
+  abortController?: AbortController,
 ): AsyncGenerator<SSEChunk> {
   const workspace = sessionWorkspace(sessionId);
   fs.mkdirSync(workspace, { recursive: true });
@@ -166,6 +167,7 @@ export async function* processMessage(
     // Use extraArgs to inject it on first message, resume on subsequent messages.
     ...(canResume ? {} : { extraArgs: { "session-id": sessionId } }),
     ...(canResume ? { resume: sessionId } : {}),
+    ...(abortController ? { abortController } : {}),
   };
 
   let fullResponse = "";
@@ -210,6 +212,10 @@ export async function* processMessage(
       }
     }
   } catch (e) {
+    if (abortController?.signal.aborted) {
+      yield { type: "chunk", content: "[Cancelled by user]" };
+      return;
+    }
     const errorMsg = `[${backend}/${model}] Error: ${e}`;
     yield { type: "chunk", content: errorMsg };
   }

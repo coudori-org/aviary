@@ -19,7 +19,8 @@ export type WSMessage =
   | { type: "error"; message: string }
   | { type: "replay_start" }
   | { type: "replay_end" }
-  | { type: "stream_complete"; content: string; messageId: string };
+  | { type: "stream_complete"; content: string; messageId: string }
+  | { type: "cancelled"; messageId?: string };
 
 export async function createSessionWebSocket(
   sessionId: string,

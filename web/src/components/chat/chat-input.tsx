@@ -5,11 +5,13 @@ import { Button } from "@/components/ui/button";
 
 interface ChatInputProps {
   onSend: (content: string) => void;
+  onCancel?: () => void;
   disabled?: boolean;
+  isStreaming?: boolean;
   placeholder?: string;
 }
 
-export function ChatInput({ onSend, disabled, placeholder }: ChatInputProps) {
+export function ChatInput({ onSend, onCancel, disabled, isStreaming, placeholder }: ChatInputProps) {
   const [value, setValue] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -49,17 +51,31 @@ export function ChatInput({ onSend, disabled, placeholder }: ChatInputProps) {
           rows={1}
           disabled={disabled}
         />
-        <Button
-          type="submit"
-          disabled={disabled || !value.trim()}
-          size="icon"
-          className="h-10 w-10 shrink-0 rounded-xl"
-        >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <line x1="22" y1="2" x2="11" y2="13" />
-            <polygon points="22 2 15 22 11 13 2 9 22 2" />
-          </svg>
-        </Button>
+        {isStreaming ? (
+          <Button
+            type="button"
+            onClick={onCancel}
+            size="icon"
+            variant="destructive"
+            className="h-10 w-10 shrink-0 rounded-xl"
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="6" y="6" width="12" height="12" rx="2" />
+            </svg>
+          </Button>
+        ) : (
+          <Button
+            type="submit"
+            disabled={disabled || !value.trim()}
+            size="icon"
+            className="h-10 w-10 shrink-0 rounded-xl"
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="22" y1="2" x2="11" y2="13" />
+              <polygon points="22 2 15 22 11 13 2 9 22 2" />
+            </svg>
+          </Button>
+        )}
       </div>
       <p className="mt-1.5 px-2 text-[10px] text-muted-foreground/40">
         Press Enter to send, Shift+Enter for new line

@@ -19,6 +19,9 @@ app.use(healthRouter);
 
 const manager = new SessionManager();
 
+// Track active AbortControllers per session for cancellation support
+const activeAbortControllers = new Map<string, AbortController>();
+
 // Startup
 fs.mkdirSync(WORKSPACE_ROOT, { recursive: true });
 setManager(manager);
@@ -58,21 +61,48 @@ app.post("/message", async (req, res) => {
   entry.state = SessionState.STREAMING;
   entry.lastActiveAt = Date.now() / 1000;
 
+  const abortController = new AbortController();
+  activeAbortControllers.set(body.session_id, abortController);
+
+  // Abort on client disconnect
+  req.on("close", () => {
+    if (!abortController.signal.aborted) {
+      abortController.abort();
+    }
+  });
+
   try {
     for await (const chunk of processMessage(
       body.session_id,
       body.content,
       body.model_config_data as any,
       body.agent_config as any,
+      abortController,
     )) {
+      if (res.writableEnded || abortController.signal.aborted) break;
       res.write(`data: ${JSON.stringify(chunk)}\n\n`);
     }
   } finally {
+    activeAbortControllers.delete(body.session_id);
     entry.state = SessionState.IDLE;
     release();
   }
 
-  res.end();
+  if (!res.writableEnded) {
+    res.end();
+  }
+});
+
+app.post("/abort/:sessionId", (req, res) => {
+  const { sessionId } = req.params;
+  const controller = activeAbortControllers.get(sessionId);
+  if (!controller) {
+    res.status(404).json({ error: "No active stream for this session" });
+    return;
+  }
+  controller.abort();
+  activeAbortControllers.delete(sessionId);
+  res.json({ status: "aborted", session_id: sessionId });
 });
 
 app.get("/sessions", (_req, res) => {

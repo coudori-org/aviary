@@ -1,0 +1,109 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: agent-controller
+  namespace: platform
+---
+# RBAC: agent-controller needs broad permissions to manage agent namespaces
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: aviary-agent-controller
+rules:
+  - apiGroups: [""]
+    resources: [namespaces, configmaps, services, serviceaccounts, persistentvolumeclaims, resourcequotas, pods]
+    verbs: [get, list, create, update, patch, delete]
+  - apiGroups: [""]
+    resources: [pods/proxy, services/proxy]
+    verbs: [get, create]
+  - apiGroups: ["apps"]
+    resources: [deployments]
+    verbs: [get, list, create, update, patch, delete]
+  - apiGroups: ["networking.k8s.io"]
+    resources: [networkpolicies]
+    verbs: [get, list, create, update, patch, delete]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: aviary-agent-controller
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: aviary-agent-controller
+subjects:
+  - kind: ServiceAccount
+    name: agent-controller
+    namespace: platform
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent-controller
+  namespace: platform
+  labels:
+    aviary/service: agent-controller
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      aviary/service: agent-controller
+  template:
+    metadata:
+      labels:
+        aviary/service: agent-controller
+    spec:
+      serviceAccountName: agent-controller
+      hostAliases:
+        - ip: "${HOST_GATEWAY_IP}"
+          hostnames: ["host.k8s.internal"]
+      containers:
+        - name: agent-controller
+          image: aviary-agent-controller:latest
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 9000
+              name: http
+          env:
+            - name: AGENT_RUNTIME_IMAGE
+              value: "aviary-runtime:latest"
+            - name: HOST_GATEWAY_IP
+              value: "${HOST_GATEWAY_IP}"
+            - name: MAX_CONCURRENT_SESSIONS_PER_POD
+              value: "10"
+          livenessProbe:
+            httpGet:
+              path: /v1/health
+              port: 9000
+            initialDelaySeconds: 5
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /v1/health
+              port: 9000
+            initialDelaySeconds: 3
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: agent-controller
+  namespace: platform
+  labels:
+    aviary/service: agent-controller
+spec:
+  type: NodePort
+  selector:
+    aviary/service: agent-controller
+  ports:
+    - name: http
+      port: 9000
+      targetPort: 9000
+      nodePort: 30900
+      protocol: TCP

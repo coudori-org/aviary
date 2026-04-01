@@ -47,13 +47,9 @@ async def get_agents_status(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Batch check agent readiness (has ready pods) for sidebar display.
-
-    Results are cached in Redis (10s TTL) per agent to avoid hitting the
-    K8s API on every poll from every connected user.
-    """
+    """Batch check agent readiness (has ready pods) for sidebar display."""
     import asyncio
-    from app.services import deployment_service, redis_service
+    from app.services import controller_client, redis_service
 
     agent_ids = [s.strip() for s in ids.split(",") if s.strip()]
     if not agent_ids:
@@ -65,7 +61,6 @@ async def get_agents_status(
     async def check_one(aid: str) -> tuple[str, str]:
         cache_key = f"agent_readiness:{aid}"
 
-        # Try cache first
         if rc:
             try:
                 cached = await rc.get(cache_key)
@@ -74,19 +69,17 @@ async def get_agents_status(
             except Exception:
                 pass
 
-        # Cache miss — query K8s
         try:
             agent = await agent_service.get_agent(db, uuid.UUID(aid))
-            if not agent or not agent.deployment_active:
+            if not agent or not agent.deployment_active or not agent.namespace:
                 result = "offline"
             else:
-                status_info = await deployment_service.get_deployment_status(agent)
+                status_info = await controller_client.get_deployment_status(agent.namespace)
                 ready = status_info.get("ready_replicas", 0)
                 result = "ready" if ready and ready >= 1 else "offline"
         except Exception:
             result = "offline"
 
-        # Write cache
         if rc:
             try:
                 await rc.set(cache_key, result, ex=cache_ttl)
@@ -207,7 +200,7 @@ async def get_deployment_status(
     db: AsyncSession = Depends(get_db),
 ):
     """Get Deployment status for an agent."""
-    from app.services import deployment_service
+    from app.services import controller_client
 
     agent = await agent_service.get_agent(db, agent_id)
     if not agent:
@@ -217,7 +210,11 @@ async def get_deployment_status(
     except PermissionError as e:
         raise HTTPException(status_code=403, detail=str(e)) from e
 
-    status_info = await deployment_service.get_deployment_status(agent)
+    if agent.namespace:
+        status_info = await controller_client.get_deployment_status(agent.namespace)
+    else:
+        status_info = {"replicas": 0, "ready_replicas": 0, "updated_replicas": 0}
+
     return {
         "deployment_active": agent.deployment_active,
         "pod_strategy": agent.pod_strategy,

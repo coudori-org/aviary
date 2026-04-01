@@ -2,9 +2,7 @@
 
 Runs as a background task in the API server. Periodically checks active
 agent deployments and adjusts replica counts based on session load.
-
-Scaling metrics come from the runtime Pod's GET /metrics endpoint,
-queried via K8s API proxy to individual Pods.
+Queries pod metrics and scales deployments via the Agent Controller.
 """
 
 import asyncio
@@ -14,7 +12,7 @@ from sqlalchemy import select
 
 from app.config import settings
 from app.db.models import Agent
-from app.services import deployment_service, k8s_service
+from app.services import controller_client
 
 logger = logging.getLogger(__name__)
 
@@ -56,62 +54,37 @@ async def _scale_agent(agent: Agent):
     if not agent.namespace:
         return
 
-    # Get current deployment status
-    dep_status = await deployment_service.get_deployment_status(agent)
+    # Get current deployment status via Controller
+    dep_status = await controller_client.get_deployment_status(agent.namespace)
     current_replicas = dep_status.get("replicas", 0)
-    ready_replicas = dep_status.get("ready_replicas", 0)
 
     if current_replicas == 0:
         return  # Scaled to zero (idle), don't auto-scale
 
-    # Query metrics from pods via K8s API
-    total_active = 0
-    total_streaming = 0
-    pods_queried = 0
-
-    try:
-        pod_list = await k8s_service._k8s_apply(
-            "GET",
-            f"/api/v1/namespaces/{agent.namespace}/pods?labelSelector=aviary/role=agent-runtime",
-        )
-        pods = pod_list.get("items", [])
-
-        for pod in pods:
-            pod_name = pod.get("metadata", {}).get("name")
-            phase = pod.get("status", {}).get("phase")
-            if not pod_name or phase != "Running":
-                continue
-
-            try:
-                metrics = await k8s_service._k8s_apply(
-                    "GET",
-                    f"/api/v1/namespaces/{agent.namespace}/pods/{pod_name}:3000/proxy/metrics",
-                )
-                total_active += metrics.get("sessions_active", 0)
-                total_streaming += metrics.get("sessions_streaming", 0)
-                pods_queried += 1
-            except Exception:
-                pass  # Pod might not be ready yet
-    except Exception:
-        return
+    # Query pod metrics via Controller
+    metrics = await controller_client.get_pod_metrics(agent.namespace)
+    total_active = metrics.get("total_active", 0)
+    total_streaming = metrics.get("total_streaming", 0)
+    pods_queried = metrics.get("pods_queried", 0)
 
     if pods_queried == 0:
         return
 
     sessions_per_pod = total_active / pods_queried
 
-    # Scale up: if average sessions per pod exceeds threshold
+    # Scale up
     if sessions_per_pod > settings.sessions_per_pod_scale_up and current_replicas < agent.max_pods:
         new_replicas = min(current_replicas + 1, agent.max_pods)
         logger.info(
             "Scaling UP agent %s: %d -> %d replicas (%.1f sessions/pod)",
             agent.id, current_replicas, new_replicas, sessions_per_pod,
         )
-        await deployment_service.scale_agent_deployment(agent, new_replicas)
+        await controller_client.scale_deployment(
+            agent.namespace, new_replicas, agent.min_pods, agent.max_pods
+        )
 
-    # Scale down: if average sessions per pod is below threshold
+    # Scale down
     elif sessions_per_pod < settings.sessions_per_pod_scale_down and current_replicas > agent.min_pods:
-        # Don't scale down if any pod is actively streaming
         if total_streaming > 0:
             return
         new_replicas = max(current_replicas - 1, agent.min_pods)
@@ -119,4 +92,6 @@ async def _scale_agent(agent: Agent):
             "Scaling DOWN agent %s: %d -> %d replicas (%.1f sessions/pod)",
             agent.id, current_replicas, new_replicas, sessions_per_pod,
         )
-        await deployment_service.scale_agent_deployment(agent, new_replicas)
+        await controller_client.scale_deployment(
+            agent.namespace, new_replicas, agent.min_pods, agent.max_pods
+        )
