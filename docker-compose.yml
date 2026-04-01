@@ -107,6 +107,7 @@ services:
       - ./inference-router/app:/app/app
     environment:
       OLLAMA_URL: http://host.docker.internal:11434
+      DEFAULT_MODEL_OLLAMA: qwen3.5:35b
       VLLM_URL: http://host.docker.internal:8001
       CLAUDE_API_URL: https://api.anthropic.com
     healthcheck:

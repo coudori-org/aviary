@@ -99,6 +99,7 @@ def _build_options(agent_config: dict, model_config: dict, workspace: Path, sess
     share the same ID. Resume is enabled when a prior session history exists.
     """
     model = model_config.get("model", "default")
+    backend = model_config.get("backend", "claude")
     can_resume = _has_session_history(workspace, session_id)
 
     opts = ClaudeAgentOptions(
@@ -115,6 +116,7 @@ def _build_options(agent_config: dict, model_config: dict, workspace: Path, sess
         env={
             "ANTHROPIC_BASE_URL": INFERENCE_ROUTER_URL,
             "ANTHROPIC_API_KEY": "routed-via-inference-router",
+            "ANTHROPIC_CUSTOM_HEADERS": f"X-Backend: {backend}",
             "SESSION_WORKSPACE": str(workspace),
             # Prevent CLI from calling api.anthropic.com directly for
             # telemetry, error reporting, auto-updates, or feature flags.

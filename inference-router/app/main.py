@@ -1,14 +1,13 @@
 """Inference Router — Anthropic Messages API compatible proxy.
 
 Exposes /v1/messages so that claude-agent-sdk (via ANTHROPIC_BASE_URL) can
-send requests here transparently. The router determines the backend from the
-model name and proxies the request, preserving the full Anthropic API format
-including tools, tool_use, streaming, etc.
+send requests here transparently. The backend is determined by the required
+X-Backend header, injected by the runtime Pod via ANTHROPIC_CUSTOM_HEADERS.
 
 Architecture:
   claude-agent-sdk → Claude Code CLI → Anthropic SDK
     → POST http://inference-router:8080/v1/messages
-    → Router inspects model name → routes to correct backend
+    → Router reads X-Backend header → routes to correct backend
     → Response streamed back in Anthropic SSE format
 """
 
@@ -17,19 +16,20 @@ import logging
 import os
 
 import httpx
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import StreamingResponse
 
 from app.backends import (
     ANTHROPIC_API_KEY,
     CLAUDE_API_URL,
     OLLAMA_URL,
+    VALID_BACKENDS,
     VLLM_URL,
     get_proxy_url,
-    resolve_backend,
     resolve_model,
 )
 
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Aviary Inference Router", version="0.1.0")
@@ -42,10 +42,16 @@ async def proxy_messages(request: Request):
     Reads the model name from the request body, determines the backend,
     and proxies the entire request (including tools, system, etc.) as-is.
     """
+    backend = request.headers.get("x-backend")
+    if not backend or backend not in VALID_BACKENDS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Missing or invalid X-Backend header. Must be one of: {', '.join(sorted(VALID_BACKENDS))}",
+        )
+
     body_bytes = await request.body()
     body = json.loads(body_bytes)
     model = body.get("model", "default")
-    backend = resolve_backend(model)
     model = resolve_model(model, backend)
     body["model"] = model
     body_bytes = json.dumps(body).encode()
@@ -212,8 +218,8 @@ async def list_models(backend: str):
         # TODO: Fetch dynamically from Anthropic API (GET /v1/models)
         # once API key management (platform key / per-tenant key from Vault) is in place.
         return {"models": [
-            {"id": "claude-opus-4-20250514", "name": "claude-opus-4-20250514"},
-            {"id": "claude-sonnet-4-20250514", "name": "claude-sonnet-4-20250514"},
+            {"id": "claude-sonnet-4-6", "name": "claude-sonnet-4-6"},
+            {"id": "claude-opus-4-6", "name": "claude-opus-4-6"},
         ]}
     elif backend == "ollama":
         try:
