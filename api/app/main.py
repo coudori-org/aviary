@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.auth.oidc import init_oidc
 from app.config import settings
 from app.routers import acl, agents, auth, catalog, credentials, inference, sessions
+from app.services import controller_client
 from app.services.redis_service import close_redis, get_client, init_redis
 
 logger = logging.getLogger(__name__)
@@ -23,7 +24,6 @@ async def _reconcile_deployment_state():
     """
     from app.db.session import async_session_factory
     from app.db.models import Agent
-    from app.services import k8s_service
     from sqlalchemy import select
 
     try:
@@ -40,10 +40,10 @@ async def _reconcile_deployment_state():
                 if not agent.namespace:
                     continue
                 try:
-                    await k8s_service._k8s_apply(
-                        "GET",
-                        f"/apis/apps/v1/namespaces/{agent.namespace}/deployments/agent-runtime",
-                    )
+                    status = await controller_client.get_deployment_status(agent.namespace)
+                    if status.get("replicas", 0) == 0 and status.get("ready_replicas", 0) == 0:
+                        agent.deployment_active = False
+                        reset_count += 1
                 except Exception:
                     agent.deployment_active = False
                     reset_count += 1
@@ -52,7 +52,7 @@ async def _reconcile_deployment_state():
                 await db.commit()
                 logger.info("Reconciled %d stale deployment_active flags (%d agents checked)", reset_count, len(active_agents))
     except Exception:
-        logger.warning("Deployment state reconciliation failed (K8s may not be ready yet)", exc_info=True)
+        logger.warning("Deployment state reconciliation failed (Controller may not be ready yet)", exc_info=True)
 
 
 async def _idle_agent_cleanup_loop():
@@ -77,9 +77,11 @@ async def lifespan(app: FastAPI):
     # Startup
     await init_oidc()
     await init_redis()
+    await controller_client.init_client()
+
     cleanup_task = asyncio.create_task(_idle_agent_cleanup_loop())
 
-    # Reconcile stale deployment states (K8s may have been reset)
+    # Reconcile stale deployment states
     await _reconcile_deployment_state()
 
     # Auto-scaling loop
@@ -99,6 +101,7 @@ async def lifespan(app: FastAPI):
         await scaling_task
     except asyncio.CancelledError:
         pass
+    await controller_client.close_client()
     await close_redis()
 
 
@@ -134,4 +137,18 @@ async def health():
             redis_ok = await client.ping()
         except Exception:
             pass
-    return {"status": "ok", "redis": "connected" if redis_ok else "unavailable"}
+
+    controller_ok = False
+    try:
+        cc = controller_client._client
+        if cc:
+            resp = await cc.get("/v1/health")
+            controller_ok = resp.status_code == 200
+    except Exception:
+        pass
+
+    return {
+        "status": "ok",
+        "redis": "connected" if redis_ok else "unavailable",
+        "controller": "connected" if controller_ok else "unavailable",
+    }

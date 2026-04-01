@@ -19,7 +19,7 @@ from app.schemas.session import (
     SessionListResponse,
     SessionResponse,
 )
-from app.services import acl_service, redis_service, session_service, stream_manager
+from app.services import acl_service, controller_client, redis_service, session_service, stream_manager
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +51,6 @@ async def create_session(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    # Verify agent exists and user has chat permission
     result = await db.execute(select(Agent).where(Agent.id == agent_id))
     agent = result.scalar_one_or_none()
     if not agent:
@@ -68,15 +67,12 @@ async def create_session(
 
 
 # -- Session status polling (for sidebar) ---------------------------
-# IMPORTANT: must be registered BEFORE /sessions/{session_id} to avoid
-# FastAPI matching "status" as a UUID path parameter.
 
 @router.get("/sessions/status")
 async def get_sessions_status(
     ids: str = Query(..., description="Comma-separated session IDs"),
     user: User = Depends(get_current_user),
 ):
-    """Batch get session statuses and unread counts for sidebar polling."""
     session_ids = [s.strip() for s in ids.split(",") if s.strip()]
     if not session_ids:
         return {"statuses": {}, "unread": {}}
@@ -136,7 +132,6 @@ async def invite_to_session(
     if session.created_by != user.id and not user.is_platform_admin:
         raise HTTPException(status_code=403, detail="Only session creator can invite")
 
-    # Look up invitee by email
     result = await db.execute(select(User).where(User.email == body.email))
     invitee = result.scalar_one_or_none()
     if not invitee:
@@ -150,7 +145,6 @@ async def invite_to_session(
 
 @router.websocket("/sessions/{session_id}/ws")
 async def websocket_chat(websocket: WebSocket, session_id: uuid.UUID):
-    # Authenticate via query param token
     token = websocket.query_params.get("token")
     if not token:
         await websocket.close(code=4001, reason="Missing token")
@@ -170,7 +164,6 @@ async def websocket_chat(websocket: WebSocket, session_id: uuid.UUID):
 
     try:
         async with async_session_factory() as db:
-            # Verify session and participation
             session = await session_service.get_session(db, session_id)
             if not session or session.status != "active":
                 await websocket.send_json({"type": "error", "message": "Session not found or inactive"})
@@ -189,25 +182,23 @@ async def websocket_chat(websocket: WebSocket, session_id: uuid.UUID):
                 await websocket.send_json({"type": "error", "message": "Not a session participant"})
                 return
 
-            # Get agent for deployment routing
             result = await db.execute(select(Agent).where(Agent.id == session.agent_id))
             agent = result.scalar_one_or_none()
             if not agent:
                 await websocket.send_json({"type": "error", "message": "Agent not found"})
                 return
 
-            # Lazy-create K8s namespace if agent was created before K8s was available
+            # Lazy-create K8s namespace via Controller if needed
             if not agent.namespace:
                 await websocket.send_json({"type": "status", "status": "provisioning"})
                 try:
-                    from app.services import k8s_service
-                    ns_name = await k8s_service.create_agent_namespace(
+                    ns_name = await controller_client.create_namespace(
                         agent_id=str(agent.id),
                         owner_id=str(agent.owner_id),
                         instruction=agent.instruction,
                         tools=agent.tools,
-                        policy=agent.policy,
-                        mcp_servers=agent.mcp_servers,
+                        policy=agent.policy or {},
+                        mcp_servers=agent.mcp_servers or [],
                     )
                     agent.namespace = ns_name
                 except Exception:
@@ -224,9 +215,9 @@ async def websocket_chat(websocket: WebSocket, session_id: uuid.UUID):
 
             await db.commit()
 
-        # Wait for Deployment readiness
+        # Wait for Deployment readiness via Controller
         await websocket.send_json({"type": "status", "status": "waiting"})
-        ready = await _wait_for_deployment_ready(namespace, timeout=90)
+        ready = await controller_client.wait_for_ready(namespace, timeout=90)
         if not ready:
             await websocket.send_json({"type": "status", "status": "offline", "message": "Agent pods did not become ready in time"})
             return
@@ -237,17 +228,13 @@ async def websocket_chat(websocket: WebSocket, session_id: uuid.UUID):
         await redis_service.add_ws_connection(session_id_str, user_id_str)
         await redis_service.clear_unread(session_id_str, user_id_str)
 
-        # Set session status to idle (if not currently streaming)
         if not stream_manager.is_streaming(session_id_str):
             await redis_service.set_session_status(session_id_str, "idle")
 
-        # Replay buffered stream if reconnecting during/after streaming
         await _replay_stream_if_needed(websocket, session_id_str)
 
-        # Subscribe to Redis pub/sub channel for this session
         pubsub = await redis_service.subscribe(session_id_str)
 
-        # Background task: relay Redis pub/sub messages to this WebSocket client
         async def _relay_from_redis():
             if not pubsub:
                 return
@@ -274,7 +261,6 @@ async def websocket_chat(websocket: WebSocket, session_id: uuid.UUID):
                 data = await websocket.receive_json()
 
                 if data.get("type") == "cancel":
-                    # Cancel active stream for this session
                     agent_ns = None
                     async with async_session_factory() as db:
                         result = await db.execute(select(Agent).where(Agent.id == session.agent_id))
@@ -291,14 +277,12 @@ async def websocket_chat(websocket: WebSocket, session_id: uuid.UUID):
                 if not content:
                     continue
 
-                # Save user message to DB
                 async with async_session_factory() as db:
                     await session_service.save_message(
                         db, session_id, "user", content, sender_id=user.id
                     )
                     await db.commit()
 
-                # Broadcast user message to other participants via Redis
                 await redis_service.publish_message(session_id_str, {
                     "type": "user_message",
                     "sender_id": user_id_str,
@@ -306,12 +290,10 @@ async def websocket_chat(websocket: WebSocket, session_id: uuid.UUID):
                     "_sender": user_id_str,
                 })
 
-                # Re-read agent to get latest namespace
                 async with async_session_factory() as db:
                     result = await db.execute(select(Agent).where(Agent.id == session.agent_id))
                     agent = result.scalar_one()
 
-                # Start background stream (non-blocking) — routes via Service
                 await stream_manager.start_stream(
                     session_id=session_id_str,
                     namespace=agent.namespace,
@@ -339,7 +321,6 @@ async def websocket_chat(websocket: WebSocket, session_id: uuid.UUID):
         except Exception:
             pass
     finally:
-        # Cleanup: remove presence and unsubscribe
         if user_id_str:
             await redis_service.remove_ws_connection(session_id_str, user_id_str)
         if pubsub:
@@ -352,7 +333,6 @@ async def _replay_stream_if_needed(websocket: WebSocket, session_id: str) -> Non
     stream_status = await redis_service.get_stream_status(session_id)
 
     if stream_status == "streaming":
-        # Active stream — replay buffered chunks, then live chunks continue via pub/sub
         await websocket.send_json({"type": "replay_start"})
         chunks = await redis_service.get_stream_chunks(session_id)
         for chunk in chunks:
@@ -360,7 +340,6 @@ async def _replay_stream_if_needed(websocket: WebSocket, session_id: str) -> Non
         await websocket.send_json({"type": "replay_end"})
 
     elif stream_status == "complete":
-        # Stream finished while user was away — send completed response
         result = await redis_service.get_stream_result(session_id)
         if result:
             await websocket.send_json({
@@ -369,39 +348,3 @@ async def _replay_stream_if_needed(websocket: WebSocket, session_id: str) -> Non
                 "messageId": result["messageId"],
             })
         await redis_service.clear_stream_buffer(session_id)
-
-
-async def _wait_for_deployment_ready(namespace: str, timeout: int = 120) -> bool:
-    """Poll the agent Deployment until at least one Pod is ready or timeout."""
-    import time
-    from app.services.k8s_service import _get_k8s_client, _k8s_initialized, _load_kubeconfig
-
-    if not _k8s_initialized:
-        _load_kubeconfig()
-
-    deadline = time.time() + timeout
-
-    while time.time() < deadline:
-        try:
-            async with _get_k8s_client() as client:
-                resp = await client.get(
-                    f"/apis/apps/v1/namespaces/{namespace}/deployments/agent-runtime"
-                )
-                if resp.status_code == 200:
-                    dep = resp.json()
-                    status_info = dep.get("status", {})
-                    ready_replicas = status_info.get("readyReplicas", 0)
-                    if ready_replicas and ready_replicas >= 1:
-                        return True
-
-                    # Check for image pull errors via pod conditions
-                    conditions = status_info.get("conditions", [])
-                    for cond in conditions:
-                        if cond.get("type") == "Available" and cond.get("status") == "True":
-                            return True
-        except Exception:
-            pass
-
-        await asyncio.sleep(2)
-
-    return False

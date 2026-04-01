@@ -32,16 +32,16 @@ Aviary is an enterprise platform where users can create, configure, deploy, and 
     │           │   │  Claude API   Ollama/vLLM   Bedrock        │
     │           │   └────────────────────────────────────────────┘
     │           │
-    │           │ K8s API
+    │           │ HTTP (:9000)
     │   ┌───────▼────────────────────────────────────────────────┐
     │   │                   Kubernetes Cluster                    │
     │   │                                                        │
     │   │  ┌─── NS: platform ──────────────────────────────────┐ │
-    │   │  │  ┌─────────────────┐                               │ │
-    │   │  │  │  Egress Proxy   │  Pod IP → agent identification │ │
-    │   │  │  │  (forward proxy │  + per-agent policy enforcement│ │
-    │   │  │  │   + allowlist)  │                               │ │
-    │   │  │  └────────┬────────┘                               │ │
+    │   │  │  ┌─────────────────┐  ┌────────────────────────┐  │ │
+    │   │  │  │  Egress Proxy   │  │   Agent Controller     │  │ │
+    │   │  │  │  (forward proxy │  │   (K8s gateway,         │  │ │
+    │   │  │  │   + allowlist)  │  │    NodePort 30900)      │  │ │
+    │   │  │  └────────┬────────┘  └────────────────────────┘  │ │
     │   │  │           │                                        │ │
     │   │  │           ▼                                        │ │
     │   │  │     External APIs (GitHub, S3, ...)                │ │
@@ -67,7 +67,7 @@ Aviary is an enterprise platform where users can create, configure, deploy, and 
        └───────────────┘  └──────────────┘  └────────────────┘
 ```
 
-**Platform Services** (Inference Router, Credential Proxy) are stateless HTTP proxies that run outside K8s. The API server and agent Pods both access them directly. **Egress Proxy** runs inside K8s because it relies on pod IP resolution to identify source agents and on NetworkPolicy for deny-by-default enforcement.
+**Platform Services** (Inference Router, Credential Proxy) are stateless HTTP proxies that run outside K8s. **Agent Controller** runs inside K8s (platform namespace) and serves as the single gateway for all K8s operations — the API server has no direct K8s dependency (no kubeconfig). It handles namespace/deployment CRUD, SSE streaming proxy to agent Pods, and egress cache invalidation. **Egress Proxy** runs inside K8s because it relies on pod IP resolution to identify source agents and on NetworkPolicy for deny-by-default enforcement.
 
 ## Key Features
 

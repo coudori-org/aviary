@@ -32,16 +32,16 @@ Aviary는 웹 UI를 통해 AI 에이전트를 생성, 설정, 배포, 사용할 
     │           │   │  Claude API   Ollama/vLLM   Bedrock        │
     │           │   └────────────────────────────────────────────┘
     │           │
-    │           │ K8s API
+    │           │ HTTP (:9000)
     │   ┌───────▼────────────────────────────────────────────────┐
     │   │                  Kubernetes 클러스터                      │
     │   │                                                        │
     │   │  ┌─── NS: platform ──────────────────────────────────┐ │
-    │   │  │  ┌─────────────────┐                               │ │
-    │   │  │  │  Egress Proxy   │  Pod IP → 에이전트 식별         │ │
-    │   │  │  │  (포워드 프록시  │  + 에이전트별 정책 적용         │ │
-    │   │  │  │   + 허용 목록)   │                               │ │
-    │   │  │  └────────┬────────┘                               │ │
+    │   │  │  ┌─────────────────┐  ┌────────────────────────┐  │ │
+    │   │  │  │  Egress Proxy   │  │   Agent Controller     │  │ │
+    │   │  │  │  (포워드 프록시  │  │   (K8s 게이트웨이,      │  │ │
+    │   │  │  │   + 허용 목록)   │  │    NodePort 30900)     │  │ │
+    │   │  │  └────────┬────────┘  └────────────────────────┘  │ │
     │   │  │           │                                        │ │
     │   │  │           ▼                                        │ │
     │   │  │     외부 API (GitHub, S3, ...)                      │ │
@@ -67,7 +67,7 @@ Aviary는 웹 UI를 통해 AI 에이전트를 생성, 설정, 배포, 사용할 
        └───────────────┘  └──────────────┘  └────────────────┘
 ```
 
-**플랫폼 서비스** (Inference Router, Credential Proxy)는 상태 없는 HTTP 프록시로 K8s 외부에서 실행됩니다. API 서버와 에이전트 Pod 모두 직접 접근합니다. **Egress Proxy**는 Pod IP로 에이전트를 식별하고 NetworkPolicy로 deny-by-default를 강제하므로 K8s 안에서 실행됩니다.
+**플랫폼 서비스** (Inference Router, Credential Proxy)는 상태 없는 HTTP 프록시로 K8s 외부에서 실행됩니다. **Agent Controller**는 K8s 내부(platform namespace)에서 실행되며, API 서버의 모든 K8s 작업(네임스페이스/배포/Pod 통신)을 대행하는 게이트웨이입니다. API 서버는 kubeconfig 없이 Controller HTTP 엔드포인트만 호출합니다. **Egress Proxy**는 Pod IP로 에이전트를 식별하고 NetworkPolicy로 deny-by-default를 강제하므로 K8s 안에서 실행됩니다.
 
 ## 주요 기능
 

@@ -2,13 +2,14 @@
 
 import uuid
 import logging
+from datetime import datetime, timezone
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Agent, User
 from app.schemas.agent import AgentCreate, AgentUpdate
-from app.services import acl_service, deployment_service, k8s_service, redis_service
+from app.services import acl_service, controller_client, redis_service
 
 logger = logging.getLogger(__name__)
 
@@ -45,9 +46,9 @@ async def create_agent(db: AsyncSession, user: User, data: AgentCreate) -> Agent
     db.add(agent)
     await db.flush()
 
-    # Provision K8s namespace
+    # Provision K8s namespace via Controller
     try:
-        ns_name = await k8s_service.create_agent_namespace(
+        ns_name = await controller_client.create_namespace(
             agent_id=str(agent.id),
             owner_id=str(user.id),
             instruction=data.instruction,
@@ -68,7 +69,20 @@ async def create_agent(db: AsyncSession, user: User, data: AgentCreate) -> Agent
     # Eager strategy: spawn deployment immediately after namespace creation
     if pod_strategy == "eager" and agent.namespace:
         try:
-            await deployment_service.ensure_agent_deployment(db, agent)
+            await controller_client.ensure_deployment(
+                namespace=agent.namespace,
+                agent_id=str(agent.id),
+                owner_id=str(user.id),
+                instruction=agent.instruction,
+                tools=agent.tools,
+                policy=agent.policy or {},
+                mcp_servers=agent.mcp_servers or [],
+                min_pods=agent.min_pods,
+                max_pods=agent.max_pods,
+            )
+            agent.deployment_active = True
+            agent.last_activity_at = datetime.now(timezone.utc)
+            await db.flush()
         except Exception:
             logger.warning("Eager deployment failed for agent %s — will retry on first message", agent.id, exc_info=True)
 
@@ -94,7 +108,6 @@ async def list_agents_for_user(
     from app.db.models import AgentACL, TeamMember
 
     if user.is_platform_admin:
-        # Admin sees all non-deleted agents
         count_result = await db.execute(
             select(func.count()).select_from(Agent).where(Agent.status != "deleted")
         )
@@ -108,18 +121,11 @@ async def list_agents_for_user(
         )
         return list(result.scalars().all()), total
 
-    # Get user's team IDs
     team_ids_result = await db.execute(
         select(TeamMember.team_id).where(TeamMember.user_id == user.id)
     )
     user_team_ids = [row[0] for row in team_ids_result.all()]
 
-    # Build OR conditions for visibility
-    # 1. User owns the agent
-    # 2. Direct ACL entry for user
-    # 3. Team ACL entry for user's teams
-    # 4. Public agents
-    # 5. Team visibility + shared team with owner
     from sqlalchemy import or_, exists
 
     conditions = [
@@ -127,7 +133,6 @@ async def list_agents_for_user(
         Agent.visibility == "public",
     ]
 
-    # Direct user ACL
     conditions.append(
         exists(
             select(AgentACL.id).where(
@@ -138,7 +143,6 @@ async def list_agents_for_user(
     )
 
     if user_team_ids:
-        # Team ACL
         conditions.append(
             exists(
                 select(AgentACL.id).where(
@@ -147,7 +151,6 @@ async def list_agents_for_user(
                 )
             )
         )
-        # Team visibility — agent owner shares a team with user
         conditions.append(
             Agent.visibility == "team",
         )
@@ -192,10 +195,10 @@ async def update_agent(
 
     await db.flush()
 
-    # Sync K8s resources
+    # Sync K8s resources via Controller
     if agent.namespace:
         try:
-            await k8s_service.update_agent_config(
+            await controller_client.update_namespace_config(
                 namespace=agent.namespace,
                 instruction=agent.instruction,
                 tools=agent.tools,
@@ -205,10 +208,9 @@ async def update_agent(
         except Exception:
             logger.warning("K8s config update failed for agent %s", agent.id, exc_info=True)
 
-        # Update NetworkPolicy and egress-proxy policy when policy changes
         if data.policy is not None:
             try:
-                await k8s_service.update_network_policy(
+                await controller_client.update_network_policy(
                     namespace=agent.namespace,
                     policy=agent.policy,
                 )
@@ -217,7 +219,7 @@ async def update_agent(
 
             try:
                 await redis_service.sync_egress_policy(str(agent.id), agent.policy)
-                await redis_service.invalidate_egress_proxy_cache(str(agent.id))
+                await controller_client.invalidate_egress_cache(str(agent.id))
             except Exception:
                 logger.warning("Egress policy sync failed for agent %s", agent.id, exc_info=True)
 
@@ -225,14 +227,10 @@ async def update_agent(
 
 
 async def deploy_agent(db: AsyncSession, agent: Agent) -> None:
-    """Apply config changes by triggering a rolling restart of the agent Deployment.
-
-    The SDK session (conversation history) is preserved via PVC,
-    and the new config is applied on resume since it's passed in the request body.
-    """
+    """Apply config changes by triggering a rolling restart."""
     if agent.deployment_active:
         try:
-            await deployment_service.rolling_restart(agent)
+            await controller_client.rolling_restart(agent.namespace)
         except Exception:
             logger.warning("Rolling restart failed for agent %s", agent.id, exc_info=True)
     logger.info("Deployed agent %s: triggered rolling restart", agent.id)
@@ -242,12 +240,31 @@ async def activate_agent(db: AsyncSession, agent: Agent) -> None:
     """Manually activate an agent's Deployment (for manual pod strategy)."""
     if not agent.namespace:
         raise RuntimeError(f"Agent {agent.id} has no K8s namespace")
-    await deployment_service.ensure_agent_deployment(db, agent)
+    await controller_client.ensure_deployment(
+        namespace=agent.namespace,
+        agent_id=str(agent.id),
+        owner_id=str(agent.owner_id),
+        instruction=agent.instruction,
+        tools=agent.tools,
+        policy=agent.policy or {},
+        mcp_servers=agent.mcp_servers or [],
+        min_pods=agent.min_pods,
+        max_pods=agent.max_pods,
+    )
+    agent.deployment_active = True
+    agent.last_activity_at = datetime.now(timezone.utc)
+    await db.flush()
 
 
 async def deactivate_agent(db: AsyncSession, agent: Agent) -> None:
     """Manually deactivate an agent's Deployment (scale to 0)."""
-    await deployment_service.scale_to_zero(db, agent)
+    if agent.namespace:
+        try:
+            await controller_client.scale_to_zero(agent.namespace)
+        except Exception:
+            logger.warning("Failed to scale down agent %s", agent.id, exc_info=True)
+    agent.deployment_active = False
+    await db.flush()
 
 
 async def delete_agent(db: AsyncSession, agent: Agent) -> None:
@@ -255,21 +272,18 @@ async def delete_agent(db: AsyncSession, agent: Agent) -> None:
     agent.status = "deleted"
     await db.flush()
 
-    # Delete deployment resources first
-    if agent.deployment_active:
+    if agent.deployment_active and agent.namespace:
         try:
-            await deployment_service.delete_agent_deployment(agent)
+            await controller_client.delete_deployment(agent.namespace)
         except Exception:
             logger.warning("Deployment deletion failed for agent %s", agent.id, exc_info=True)
 
-    # Delete the entire namespace (cascades all remaining resources)
     if agent.namespace:
         try:
-            await k8s_service.delete_agent_namespace(str(agent.id))
+            await controller_client.delete_namespace(str(agent.id))
         except Exception:
             logger.warning("K8s namespace deletion failed for agent %s", agent.id, exc_info=True)
 
-    # Clean up egress policy from Redis
     try:
         await redis_service.delete_egress_policy(str(agent.id))
     except Exception:

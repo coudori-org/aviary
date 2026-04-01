@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.db.models import Agent, Message, Session, SessionParticipant, User
-from app.services import deployment_service, k8s_service
+from app.services import controller_client
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +32,6 @@ async def create_session(
     db.add(session)
     await db.flush()
 
-    # Add creator as participant
     participant = SessionParticipant(
         session_id=session.id,
         user_id=user.id,
@@ -95,12 +94,10 @@ async def save_message(
     )
     db.add(msg)
 
-    # Update last_message_at
     result = await db.execute(select(Session).where(Session.id == session_id))
     session = result.scalar_one()
     session.last_message_at = datetime.now(timezone.utc)
 
-    # Auto-set title from first message
     if session.title is None and sender_type == "user":
         session.title = content[:100]
 
@@ -138,19 +135,31 @@ async def is_session_participant(
 
 
 async def ensure_agent_ready(db: AsyncSession, agent: Agent) -> str:
-    """Ensure agent Deployment is running and return namespace for routing.
-
-    Handles lazy namespace provisioning and respects pod_strategy.
-    """
+    """Ensure agent Deployment is running and return namespace for routing."""
     if not agent.namespace:
         raise RuntimeError(f"Agent {agent.id} has no K8s namespace")
 
-    # Check pod strategy for manual mode
     if agent.pod_strategy == "manual" and not agent.deployment_active:
         raise RuntimeError("Agent pods not activated. Admin must activate manually.")
 
-    namespace = await deployment_service.ensure_agent_deployment(db, agent)
-    return namespace
+    result = await controller_client.ensure_deployment(
+        namespace=agent.namespace,
+        agent_id=str(agent.id),
+        owner_id=str(agent.owner_id),
+        instruction=agent.instruction,
+        tools=agent.tools,
+        policy=agent.policy or {},
+        mcp_servers=agent.mcp_servers or [],
+        min_pods=agent.min_pods,
+        max_pods=agent.max_pods,
+    )
+
+    if not agent.deployment_active or result.get("created"):
+        agent.deployment_active = True
+        agent.last_activity_at = datetime.now(timezone.utc)
+        await db.flush()
+
+    return agent.namespace
 
 
 async def cleanup_idle_agents(db: AsyncSession) -> int:
@@ -169,7 +178,12 @@ async def cleanup_idle_agents(db: AsyncSession) -> int:
     cleaned = 0
     for agent in agents:
         if agent.last_activity_at and agent.last_activity_at.timestamp() < cutoff:
-            await deployment_service.scale_to_zero(db, agent)
+            if agent.namespace:
+                try:
+                    await controller_client.scale_to_zero(agent.namespace)
+                except Exception:
+                    logger.warning("Failed to scale down agent %s", agent.id, exc_info=True)
+            agent.deployment_active = False
             cleaned += 1
 
     if cleaned:

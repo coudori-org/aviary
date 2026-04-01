@@ -331,18 +331,3 @@ async def delete_egress_policy(agent_id: str) -> None:
     await client.delete(f"egress:{agent_id}")
 
 
-async def invalidate_egress_proxy_cache(agent_id: str) -> None:
-    """Notify the egress-proxy to drop its in-memory cache for this agent.
-
-    Uses K8s Service proxy (API server is outside K8s network, so direct
-    service DNS doesn't work). Non-critical — cache has a 30s TTL as fallback.
-    """
-    from app.services.k8s_service import _k8s_apply
-
-    try:
-        await _k8s_apply(
-            "POST",
-            f"/api/v1/namespaces/platform/services/egress-proxy:8081/proxy/invalidate/{agent_id}",
-        )
-    except Exception:
-        logger.debug("Egress proxy cache invalidation failed for agent %s (non-critical)", agent_id)

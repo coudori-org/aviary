@@ -5,8 +5,7 @@ Decouples Pod-forwarding from WebSocket lifecycle so that:
 - Chunks are buffered in Redis for replay on reconnect
 - Agent response is always saved to DB on completion
 
-Routes to agent Pods via K8s Service (agent-runtime-svc) for load-balanced
-access across multiple agent replicas.
+Routes to agent Pods via the Agent Controller's SSE proxy endpoint.
 """
 
 import asyncio
@@ -14,12 +13,12 @@ import json
 import logging
 import uuid
 
+import httpx
 from sqlalchemy import select
 
 from app.db.models import SessionParticipant
 from app.db.session import async_session_factory
-from app.services import redis_service, session_service
-from app.services.k8s_service import _get_k8s_client
+from app.services import controller_client, redis_service, session_service
 
 logger = logging.getLogger(__name__)
 
@@ -38,12 +37,8 @@ async def start_stream(
     content: str,
     sender_id: str,
 ) -> None:
-    """Launch a background task that streams the Pod response.
-
-    The task survives WebSocket disconnections and ensures the response
-    is persisted to DB and buffered in Redis for client replay.
-    """
-    # Cancel any existing stream for this session (shouldn't happen in normal flow)
+    """Launch a background task that streams the Pod response."""
+    # Cancel any existing stream for this session
     existing = _active_streams.get(session_id)
     if existing and not existing.done():
         logger.warning("Cancelling existing stream for session %s", session_id)
@@ -62,7 +57,6 @@ async def start_stream(
     )
     _active_streams[session_id] = task
 
-    # Auto-cleanup from registry when done
     def _cleanup(t: asyncio.Task) -> None:
         _active_streams.pop(session_id, None)
     task.add_done_callback(_cleanup)
@@ -75,27 +69,19 @@ def is_streaming(session_id: str) -> bool:
 
 
 async def cancel_stream(session_id: str, namespace: str | None = None) -> bool:
-    """Cancel an active stream and abort the runtime Pod's SDK call.
-
-    Returns True if a stream was cancelled, False if none was active.
-    """
+    """Cancel an active stream and abort the runtime Pod's SDK call."""
     task = _active_streams.get(session_id)
     if not task or task.done():
         return False
 
-    # 1. Send abort request to the runtime Pod to trigger AbortController
+    # 1. Send abort request to the runtime Pod via Controller
     if namespace:
-        try:
-            proxy_path = f"/api/v1/namespaces/{namespace}/services/agent-runtime-svc:3000/proxy/abort/{session_id}"
-            async with _get_k8s_client() as client:
-                await client.post(proxy_path, timeout=5)
-        except Exception:
-            logger.warning("Failed to send abort to runtime Pod for session %s", session_id)
+        await controller_client.abort_stream(namespace, session_id)
 
     # 2. Cancel the asyncio background task
     task.cancel()
 
-    # 3. Save partial response and broadcast cancellation with messageId
+    # 3. Save partial response and broadcast cancellation
     message_id: str | None = None
     try:
         partial = await redis_service.get_stream_chunks(session_id)
@@ -138,7 +124,6 @@ async def _run_stream(
     """Execute the Pod-forwarding stream as a background task."""
     session_uuid = uuid.UUID(session_id)
 
-    # Set status to streaming
     await redis_service.set_stream_status(session_id, "streaming")
     await redis_service.set_session_status(session_id, "streaming")
 
@@ -152,13 +137,13 @@ async def _run_stream(
             await redis_service.publish_message(session_id, chunk_event)
             full_response = placeholder
         else:
-            # Route to Pod via K8s Service proxy (load-balanced across replicas)
-            proxy_path = f"/api/v1/namespaces/{namespace}/services/agent-runtime-svc:3000/proxy/message"
+            # Stream via Controller's SSE proxy
+            stream_url = controller_client.get_stream_url(namespace)
 
-            async with _get_k8s_client() as client:
+            async with httpx.AsyncClient() as client:
                 async with client.stream(
                     "POST",
-                    proxy_path,
+                    stream_url,
                     json={
                         "content": content,
                         "session_id": session_id,
@@ -181,7 +166,6 @@ async def _run_stream(
                             chunk_text = chunk_data["content"]
                             full_response += chunk_text
                             chunk_event = {"type": "chunk", "content": chunk_text}
-                            # Buffer for replay + broadcast to ALL connected clients
                             await redis_service.append_stream_chunk(session_id, chunk_event)
                             await redis_service.publish_message(session_id, chunk_event)
                         elif chunk_data.get("type") == "tool_use":
@@ -196,16 +180,14 @@ async def _run_stream(
             await db.commit()
             message_id = str(msg.id)
 
-        # Mark stream as complete
         await redis_service.set_stream_status(session_id, "complete")
         await redis_service.set_stream_result(session_id, full_response, message_id)
         await redis_service.set_session_status(session_id, "idle")
 
-        # Broadcast done event to all connected clients
         done_event = {"type": "done", "messageId": message_id}
         await redis_service.publish_message(session_id, done_event)
 
-        # Increment unread for participants not currently connected
+        # Increment unread for offline participants
         online_users = await redis_service.get_online_users(session_id)
         async with async_session_factory() as db:
             result = await db.execute(
@@ -228,6 +210,5 @@ async def _run_stream(
         await redis_service.set_stream_status(session_id, "error")
         await redis_service.set_session_status(session_id, "idle")
 
-        # Broadcast error
         error_event = {"type": "error", "message": "Agent streaming failed"}
         await redis_service.publish_message(session_id, {**error_event, "_sender": sender_id})

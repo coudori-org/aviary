@@ -23,8 +23,8 @@ class Settings(BaseSettings):
     # CORS
     cors_origins: list[str] = ["http://localhost:3000"]
 
-    # K8s
-    kubeconfig: str | None = None
+    # Agent Controller (K8s gateway)
+    agent_controller_url: str = "http://localhost:9000"
 
     # Agent Runtime
     agent_runtime_image: str = "aviary-runtime:latest"

@@ -25,31 +25,28 @@ until curl -sf http://localhost:8080/realms/aviary/.well-known/openid-configurat
 done
 echo "  Keycloak is ready."
 
-# 4. Wait for K8s + extract kubeconfig
+# 4. Wait for K8s
 echo "[4/7] Waiting for K8s..."
 until docker compose exec -T k8s kubectl get nodes 2>/dev/null | grep -q " Ready"; do
   sleep 2
 done
 echo "  K8s is ready."
 
-echo "  Extracting kubeconfig for API container..."
-docker compose cp k8s:/etc/rancher/k3s/k3s.yaml ./api/kubeconfig.yaml
-sed -i 's|127.0.0.1|k8s|g' ./api/kubeconfig.yaml
-echo "  kubeconfig saved to api/kubeconfig.yaml"
-
 # Resolve K8s gateway IP (docker host as seen from K8s cluster)
 K8S_GATEWAY_IP=$(docker compose exec -T k8s ip route | awk '/default/ {print $3}' | head -1)
 echo "  K8s gateway IP: $K8S_GATEWAY_IP"
 
-# 5. Build K8s images and load them (runtime + egress-proxy only)
-echo "[5/7] Building K8s images (runtime, egress-proxy)..."
-docker build -t aviary-runtime:latest      ./runtime/
-docker build -t aviary-egress-proxy:latest ./egress-proxy/
+# 5. Build K8s images and load them (runtime, egress-proxy, agent-controller)
+echo "[5/7] Building K8s images (runtime, egress-proxy, agent-controller)..."
+docker build -t aviary-runtime:latest          ./runtime/
+docker build -t aviary-egress-proxy:latest     ./egress-proxy/
+docker build -t aviary-agent-controller:latest ./controller/
 
 echo "  Loading images into K8s..."
 docker save \
   aviary-runtime:latest \
   aviary-egress-proxy:latest \
+  aviary-agent-controller:latest \
   | docker compose exec -T k8s ctr images import -
 echo "  All images loaded."
 
@@ -67,6 +64,11 @@ echo "  Platform namespace ready."
 
 # 7. Wait for application services
 echo "[7/7] Waiting for application services..."
+echo -n "  Agent controller..."
+until curl -sf http://localhost:9000/v1/health > /dev/null 2>&1; do
+  sleep 2
+done
+echo " ready."
 echo -n "  Inference router..."
 until curl -sf http://localhost:8090/health > /dev/null 2>&1; do
   sleep 2
@@ -97,6 +99,7 @@ echo "  API Server:        http://localhost:8000"
 echo "  API Health:        http://localhost:8000/api/health"
 echo ""
 echo "Platform Services:"
+echo "  Agent Controller:  http://localhost:9000"
 echo "  Inference Router:  http://localhost:8090"
 echo "  Credential Proxy:  http://localhost:8091"
 echo ""
@@ -117,8 +120,9 @@ echo "  Edit files in api/, web/, inference-router/, or credential-proxy/"
 echo "  — changes apply automatically via bind-mount."
 echo "  If you change dependencies:"
 echo "    docker compose up -d --build <service>"
-echo "  To rebuild K8s images (runtime, egress-proxy):"
+echo "  To rebuild K8s images (runtime, egress-proxy, agent-controller):"
 echo "    docker build -t aviary-runtime:latest ./runtime/"
 echo "    docker build -t aviary-egress-proxy:latest ./egress-proxy/"
-echo "    docker save aviary-runtime:latest aviary-egress-proxy:latest | docker compose exec -T k8s ctr images import -"
+echo "    docker build -t aviary-agent-controller:latest ./controller/"
+echo "    docker save aviary-runtime:latest aviary-egress-proxy:latest aviary-agent-controller:latest | docker compose exec -T k8s ctr images import -"
 echo "    docker compose exec -T k8s kubectl rollout restart deployment -n platform"
