@@ -110,5 +110,5 @@ esac
 if [ "$RUN_SMOKE" = true ]; then
   echo ""
   echo -e "${BOLD}Running smoke test...${NC}"
-  ./scripts/smoke-test.sh --skip-chat --no-cleanup
+  ./scripts/smoke-test.sh --no-cleanup
 fi

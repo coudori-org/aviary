@@ -128,6 +128,9 @@ async def _run_stream(
     await redis_service.set_session_status(session_id, "streaming")
 
     full_response = ""
+    blocks_meta: list[dict] = []  # Ordered blocks (text + tool_call) for UI replay
+    current_text = ""  # Accumulates text chunks between tool calls
+    tool_results: dict[str, str] = {}  # tool_use_id → result content
 
     try:
         if not namespace:
@@ -162,20 +165,55 @@ async def _run_stream(
                             continue
                         chunk_data = json.loads(line[6:])
 
-                        if chunk_data.get("type") == "chunk":
+                        chunk_type = chunk_data.get("type")
+
+                        if chunk_type == "chunk":
                             chunk_text = chunk_data["content"]
                             full_response += chunk_text
+                            current_text += chunk_text
                             chunk_event = {"type": "chunk", "content": chunk_text}
                             await redis_service.append_stream_chunk(session_id, chunk_event)
                             await redis_service.publish_message(session_id, chunk_event)
-                        elif chunk_data.get("type") == "tool_use":
+                        elif chunk_type == "tool_use":
+                            # Flush accumulated text as a block before the tool call
+                            if current_text:
+                                blocks_meta.append({"type": "text", "content": current_text})
+                                current_text = ""
+                            blocks_meta.append({
+                                "type": "tool_call",
+                                "name": chunk_data.get("name"),
+                                "input": chunk_data.get("input"),
+                                "tool_use_id": chunk_data.get("tool_use_id"),
+                            })
                             await redis_service.append_stream_chunk(session_id, chunk_data)
                             await redis_service.publish_message(session_id, chunk_data)
+                        elif chunk_type == "tool_result":
+                            # Store result to attach to the matching tool_call block
+                            tid = chunk_data.get("tool_use_id")
+                            result_content = chunk_data.get("content", "")
+                            if isinstance(result_content, str) and len(result_content) > 10240:
+                                result_content = result_content[:10240] + "\n... (truncated)"
+                            if tid:
+                                tool_results[tid] = result_content
+                            result_data = {**chunk_data, "content": result_content}
+                            await redis_service.append_stream_chunk(session_id, result_data)
+                            await redis_service.publish_message(session_id, result_data)
+                        elif chunk_type == "tool_progress":
+                            # Ephemeral — publish for live clients, don't buffer
+                            await redis_service.publish_message(session_id, chunk_data)
 
-        # Save completed response to DB
+        # Flush remaining text and attach tool results to blocks
+        if current_text:
+            blocks_meta.append({"type": "text", "content": current_text})
+        for block in blocks_meta:
+            if block.get("type") == "tool_call" and block.get("tool_use_id") in tool_results:
+                block["result"] = tool_results[block["tool_use_id"]]
+
+        # Save completed response to DB (with ordered blocks for UI replay)
+        meta = {"blocks": blocks_meta} if blocks_meta else None
         async with async_session_factory() as db:
             msg = await session_service.save_message(
-                db, session_uuid, "agent", full_response
+                db, session_uuid, "agent", full_response, metadata=meta
             )
             await db.commit()
             message_id = str(msg.id)

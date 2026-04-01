@@ -260,8 +260,8 @@ async def _create_pvc(namespace: str, agent_id: str) -> None:
 
 async def _create_deployment(namespace: str, body: EnsureDeploymentRequest) -> None:
     policy = body.policy or {}
-    memory_limit = policy.get("maxMemoryPerSession", "512Mi")
-    cpu_limit = policy.get("maxCpuPerSession", "500m")
+    memory_limit = policy.get("maxMemoryPerSession", "4Gi")
+    cpu_limit = policy.get("maxCpuPerSession", "4")
     container_image = policy.get("containerImage", settings.agent_runtime_image)
     max_sessions = policy.get(
         "maxConcurrentSessionsPerPod", settings.max_concurrent_sessions_per_pod
@@ -326,7 +326,7 @@ async def _create_deployment(namespace: str, body: EnsureDeploymentRequest) -> N
                                     {"name": "agent-config", "mountPath": "/agent/config", "readOnly": True},
                                 ],
                                 "resources": {
-                                    "requests": {"cpu": "500m", "memory": "512Mi"},
+                                    "requests": {"cpu": "1", "memory": "1Gi"},
                                     "limits": {"cpu": cpu_limit, "memory": memory_limit},
                                 },
                                 "livenessProbe": {

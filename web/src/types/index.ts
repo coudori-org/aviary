@@ -95,3 +95,28 @@ export interface Message {
   metadata: Record<string, unknown>;
   created_at: string;
 }
+
+// --- Streaming block types ---
+
+export interface TextBlock {
+  type: "text";
+  id: string;
+  content: string;
+}
+
+export interface ToolCallBlock {
+  type: "tool_call";
+  id: string;
+  name: string;
+  input: Record<string, unknown>;
+  status: "running" | "complete";
+  result?: string;
+  elapsed?: number;
+}
+
+export type StreamBlock = TextBlock | ToolCallBlock;
+
+export interface TodoItem {
+  content: string;
+  status: "pending" | "in_progress" | "completed";
+}

@@ -35,12 +35,12 @@ class Settings(BaseSettings):
     default_agent_idle_timeout: int = 604800  # 7 days in seconds
     default_min_pods: int = 1
     default_max_pods: int = 3
-    max_concurrent_sessions_per_pod: int = 10
+    max_concurrent_sessions_per_pod: int = 5
 
     # Auto-scaling
     scaling_check_interval: int = 30  # seconds between scaling checks
-    sessions_per_pod_scale_up: int = 5  # scale up when sessions/pod exceeds this
-    sessions_per_pod_scale_down: int = 2  # scale down when sessions/pod below this
+    sessions_per_pod_scale_up: int = 3  # scale up when sessions/pod exceeds this
+    sessions_per_pod_scale_down: int = 1  # scale down when sessions/pod below this
 
     # Platform services
     inference_router_url: str = "http://inference-router:8080"

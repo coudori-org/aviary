@@ -3,7 +3,8 @@
 import { useCallback, useState } from "react";
 import { cn } from "@/lib/utils";
 import { MarkdownContent } from "@/components/chat/markdown-content";
-import type { Message } from "@/types";
+import { ToolCallCard } from "@/components/chat/tool-call-card";
+import type { Message, ToolCallBlock } from "@/types";
 
 interface MessageBubbleProps {
   message: Message;
@@ -42,6 +43,8 @@ function MessageCopyButton({ text }: { text: string }) {
 
 export function MessageBubble({ message, currentUserId }: MessageBubbleProps) {
   const isUser = message.sender_type === "user";
+  const savedBlocks = !isUser ? (message.metadata?.blocks as Array<Record<string, unknown>> | undefined) : undefined;
+  const hasBlocks = Array.isArray(savedBlocks) && savedBlocks.length > 0;
 
   return (
     <div
@@ -63,50 +66,49 @@ export function MessageBubble({ message, currentUserId }: MessageBubbleProps) {
       </div>
 
       {/* Message content */}
-      <div className={cn("max-w-[75%] space-y-1", isUser ? "items-end" : "items-start")}>
-        <div
-          className={cn(
-            "rounded-2xl px-4 py-3 text-[14px] leading-[1.7]",
-            isUser
-              ? "bg-chat-user text-chat-user-fg rounded-tr-md"
-              : "bg-chat-agent text-chat-agent-fg rounded-tl-md"
-          )}
-        >
-          {isUser ? (
+      <div className={cn("max-w-[75%] space-y-1.5", isUser ? "items-end" : "items-start")}>
+        {isUser ? (
+          <div className="rounded-2xl rounded-tr-md bg-chat-user px-4 py-3 text-[14px] leading-[1.7] text-chat-user-fg">
             <div className="whitespace-pre-wrap break-words">{message.content}</div>
-          ) : (
+          </div>
+        ) : hasBlocks ? (
+          /* Render saved blocks in original streaming order */
+          <>
+            {savedBlocks!.map((block, i) => {
+              if (block.type === "tool_call") {
+                const toolBlock: ToolCallBlock = {
+                  type: "tool_call",
+                  id: String(block.tool_use_id ?? `saved-${i}`),
+                  name: String(block.name ?? "unknown"),
+                  input: (block.input as Record<string, unknown>) ?? {},
+                  status: "complete",
+                  result: block.result != null ? String(block.result) : undefined,
+                };
+                return <ToolCallCard key={toolBlock.id} block={toolBlock} />;
+              }
+              // text block
+              return (
+                <div key={`text-${i}`} className="rounded-2xl rounded-tl-md bg-chat-agent px-4 py-3 text-[14px] leading-[1.7] text-chat-agent-fg">
+                  <div className="markdown-body break-words">
+                    <MarkdownContent content={String(block.content ?? "")} />
+                  </div>
+                </div>
+              );
+            })}
+          </>
+        ) : (
+          /* Fallback: plain text (old messages without blocks metadata) */
+          <div className="rounded-2xl rounded-tl-md bg-chat-agent px-4 py-3 text-[14px] leading-[1.7] text-chat-agent-fg">
             <div className="markdown-body break-words">
               <MarkdownContent content={message.content} />
             </div>
-          )}
-        </div>
+          </div>
+        )}
 
         {/* Copy button (visible on hover) */}
         {!isUser && (
           <div className="opacity-0 transition-opacity group-hover:opacity-100">
             <MessageCopyButton text={message.content} />
-          </div>
-        )}
-
-        {/* Tool calls */}
-        {message.metadata && Object.keys(message.metadata).length > 0 && Array.isArray(message.metadata.tool_calls) && (
-          <div className="space-y-1 px-1">
-            {(message.metadata.tool_calls as Array<Record<string, unknown>>).map((tool, i) => (
-              <div
-                key={i}
-                className="flex items-center gap-2 rounded-lg border border-border/30 bg-secondary/50 px-3 py-1.5 text-xs"
-              >
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-muted-foreground">
-                  <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
-                </svg>
-                <span className="font-mono text-muted-foreground">
-                  {String(tool.name)}
-                </span>
-                <span className="truncate text-muted-foreground/60">
-                  {JSON.stringify(tool.input).slice(0, 80)}
-                </span>
-              </div>
-            ))}
           </div>
         )}
       </div>

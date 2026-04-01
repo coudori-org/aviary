@@ -18,6 +18,7 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { execSync } from "node:child_process";
 import { query, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 
 const CONFIG_DIR = "/agent/config";
@@ -100,11 +101,15 @@ function hasSessionHistory(workspace: string, sessionId: string): boolean {
 }
 
 export interface SSEChunk {
-  type: "chunk" | "tool_use" | "tool_result" | "result";
+  type: "chunk" | "tool_use" | "tool_result" | "tool_progress" | "result";
   content?: string;
   name?: string;
   input?: unknown;
   tool_use_id?: string;
+  // tool_progress fields
+  tool_name?: string;
+  parent_tool_use_id?: string | null;
+  elapsed_time_seconds?: number;
   // Result metadata (only on type: "result")
   session_id?: string;
   duration_ms?: number;
@@ -122,8 +127,9 @@ export interface SSEChunk {
  *
  * Yields SSE-formatted objects:
  *   {type: "chunk", content: "..."}
- *   {type: "tool_use", name: "...", input: {...}}
+ *   {type: "tool_use", name: "...", input: {...}, tool_use_id: "..."}
  *   {type: "tool_result", tool_use_id: "...", content: "..."}
+ *   {type: "tool_progress", tool_use_id, tool_name, parent_tool_use_id, elapsed_time_seconds}
  *   {type: "result", session_id, duration_ms, num_turns, total_cost_usd, usage}
  */
 export async function* processMessage(
@@ -135,6 +141,26 @@ export async function* processMessage(
 ): AsyncGenerator<SSEChunk> {
   const workspace = sessionWorkspace(sessionId);
   fs.mkdirSync(workspace, { recursive: true });
+
+  // Ensure workspace is a git repo with at least one commit —
+  // required for subagent worktree isolation (git worktree needs a valid HEAD).
+  const gitDir = path.join(workspace, ".git");
+  if (!fs.existsSync(gitDir)) {
+    execSync(
+      'git init -q && git -c user.name=aviary -c user.email=aviary@local commit --allow-empty -q -m "init"',
+      { cwd: workspace },
+    );
+  } else {
+    // .git exists but may lack commits (from a previous incomplete init)
+    try {
+      execSync("git rev-parse HEAD", { cwd: workspace, stdio: "ignore" });
+    } catch {
+      execSync(
+        'git -c user.name=aviary -c user.email=aviary@local commit --allow-empty -q -m "init"',
+        { cwd: workspace },
+      );
+    }
+  }
 
   const agentConfig = agentConfigFromApi ?? loadAgentConfig();
   const mc: ModelConfig = modelConfig ?? { backend: "claude", model: "default" };
@@ -182,18 +208,34 @@ export async function* processMessage(
             fullResponse += block.text;
             yield { type: "chunk", content: block.text };
           } else if (block.type === "tool_use") {
-            yield { type: "tool_use", name: block.name, input: block.input };
-          } else if (block.type === "tool_result") {
-            yield {
-              type: "tool_result",
-              tool_use_id: block.tool_use_id,
-              content:
-                typeof block.content === "string"
-                  ? block.content
-                  : JSON.stringify(block.content),
-            };
+            yield { type: "tool_use", name: block.name, input: block.input, tool_use_id: block.id };
           }
         }
+      } else if (msg.type === "user" && msg.message?.content) {
+        // SDKUserMessage — tool results sent back to the model after execution.
+        const content = msg.message.content;
+        if (Array.isArray(content)) {
+          for (const block of content) {
+            if (block.type === "tool_result") {
+              yield {
+                type: "tool_result",
+                tool_use_id: block.tool_use_id,
+                content:
+                  typeof block.content === "string"
+                    ? block.content
+                    : JSON.stringify(block.content ?? ""),
+              };
+            }
+          }
+        }
+      } else if (msg.type === "tool_progress") {
+        yield {
+          type: "tool_progress",
+          tool_use_id: msg.tool_use_id,
+          tool_name: msg.tool_name,
+          parent_tool_use_id: msg.parent_tool_use_id,
+          elapsed_time_seconds: msg.elapsed_time_seconds,
+        };
       } else if (msg.type === "result") {
         // Emit final text if nothing was streamed
         if (msg.result && !fullResponse) {

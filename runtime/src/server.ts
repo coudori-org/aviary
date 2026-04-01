@@ -9,7 +9,7 @@
 
 import * as fs from "node:fs";
 import express from "express";
-import { SessionManager, SessionState, WORKSPACE_ROOT } from "./session-manager.js";
+import { SessionManager, WORKSPACE_ROOT } from "./session-manager.js";
 import { healthRouter, setManager, setReady } from "./health.js";
 import { processMessage } from "./agent.js";
 
@@ -58,8 +58,6 @@ app.post("/message", async (req, res) => {
   res.flushHeaders();
 
   const release = await entry._lock.acquire();
-  entry.state = SessionState.STREAMING;
-  entry.lastActiveAt = Date.now() / 1000;
 
   const abortController = new AbortController();
   activeAbortControllers.set(body.session_id, abortController);
@@ -84,8 +82,10 @@ app.post("/message", async (req, res) => {
     }
   } finally {
     activeAbortControllers.delete(body.session_id);
-    entry.state = SessionState.IDLE;
     release();
+    // Release slot immediately — PVC files are preserved for resume.
+    // Next message will re-acquire a slot via getOrCreate().
+    manager.remove(body.session_id, false);
   }
 
   if (!res.writableEnded) {
@@ -110,7 +110,6 @@ app.get("/sessions", (_req, res) => {
     sessions: manager.listSessions(),
     capacity: manager.maxSessions,
     active: manager.activeCount,
-    streaming: manager.streamingCount,
   });
 });
 
@@ -126,7 +125,7 @@ app.delete("/sessions/:sessionId", (req, res) => {
 app.get("/metrics", (_req, res) => {
   res.json({
     sessions_active: manager.activeCount,
-    sessions_streaming: manager.streamingCount,
+    sessions_streaming: manager.activeCount,
     sessions_max: manager.maxSessions,
   });
 });
@@ -135,7 +134,7 @@ app.post("/shutdown", (_req, res) => {
   setReady(false);
   res.json({
     status: "shutting_down",
-    streaming_sessions: manager.streamingCount,
+    streaming_sessions: manager.activeCount,
   });
 });
 
