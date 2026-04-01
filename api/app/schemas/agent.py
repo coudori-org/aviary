@@ -45,8 +45,8 @@ class AgentPolicy(BaseModel):
     maxConcurrentSessions: int = 20
     sessionTimeout: int = 30
     maxTokensPerTurn: int = 100000
-    maxMemoryPerSession: str = "512Mi"
-    maxCpuPerSession: str = "500m"
+    maxMemoryPerSession: str = "4Gi"
+    maxCpuPerSession: str = "4"
     allowedEgress: list[EgressRule] = []
     allowShellExec: bool = False
     allowFileWrite: bool = True
