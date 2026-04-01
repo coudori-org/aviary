@@ -122,6 +122,21 @@ app.delete("/sessions/:sessionId", (req, res) => {
   res.json({ status: "removed" });
 });
 
+app.delete("/sessions/:sessionId/workspace", (req, res) => {
+  const { sessionId } = req.params;
+  const workspace = `${WORKSPACE_ROOT}/${sessionId}`;
+
+  // Also remove from manager if tracked (idempotent)
+  manager.remove(sessionId, false);
+
+  if (!fs.existsSync(workspace)) {
+    res.json({ status: "not_found", session_id: sessionId });
+    return;
+  }
+  fs.rmSync(workspace, { recursive: true, force: true });
+  res.json({ status: "cleaned", session_id: sessionId });
+});
+
 app.get("/metrics", (_req, res) => {
   res.json({
     sessions_active: manager.activeCount,

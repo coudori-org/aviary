@@ -194,6 +194,26 @@ async def rolling_restart(namespace: str):
     return {"ok": True}
 
 
+@router.delete("/deployments/{namespace}/sessions/{session_id}")
+async def cleanup_session_workspace(namespace: str, session_id: str):
+    """Delete a session's workspace directory on the PVC via the runtime Pod."""
+    proxy_path = (
+        f"/api/v1/namespaces/{namespace}/services/"
+        f"agent-runtime-svc:3000/proxy/sessions/{session_id}/workspace"
+    )
+    try:
+        result = await k8s_apply("DELETE", proxy_path)
+        return result
+    except Exception:
+        # Pod may be scaled to zero or not running — workspace will be cleaned
+        # up when the PVC is eventually deleted (agent K8s teardown).
+        logger.info(
+            "Session workspace cleanup skipped for %s in %s (pod not reachable)",
+            session_id, namespace,
+        )
+        return {"status": "skipped", "reason": "pod_not_reachable"}
+
+
 @router.get("/pods/{namespace}/metrics")
 async def get_pod_metrics(namespace: str):
     """Query metrics from all running pods in the namespace."""

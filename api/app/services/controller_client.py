@@ -161,6 +161,21 @@ async def delete_deployment(namespace: str) -> None:
     resp.raise_for_status()
 
 
+async def cleanup_session_workspace(namespace: str, session_id: str) -> None:
+    """Delete a session's workspace directory on the PVC. Best-effort — pod may be down."""
+    try:
+        resp = await _get_client().delete(
+            f"/v1/deployments/{namespace}/sessions/{session_id}",
+            timeout=10,
+        )
+        resp.raise_for_status()
+    except Exception:
+        logger.info(
+            "Session workspace cleanup skipped for %s in %s (non-critical)",
+            session_id, namespace,
+        )
+
+
 async def rolling_restart(namespace: str) -> None:
     """Trigger rolling restart."""
     resp = await _get_client().post(f"/v1/deployments/{namespace}/restart")

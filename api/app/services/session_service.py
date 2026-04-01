@@ -181,22 +181,29 @@ async def delete_session(db: AsyncSession, session: Session) -> None:
     await db.delete(session)
     await db.flush()
 
-    # 4. PVC session workspace cleanup
-    # Session workspace lives at /workspace/sessions/{session_id}/ on the shared
-    # agent PVC (agent-workspace). Cleaning individual session directories requires
-    # exec-ing into a running pod or a dedicated K8s Job.
-    # For now, orphaned directories remain on the PVC and are cleaned up when the
-    # PVC is deleted (agent K8s teardown).
-    # TODO: Add controller endpoint POST /v1/deployments/{ns}/cleanup-session/{session_id}
-    #       that execs `rm -rf /workspace/sessions/{session_id}` in a running pod.
-
-    # 5. If owning agent is soft-deleted and this was the last session, clean up K8s
+    # 4–5. Agent-level cleanup: PVC workspace + conditional K8s teardown
     result = await db.execute(select(Agent).where(Agent.id == agent_id))
     agent = result.scalar_one_or_none()
-    if agent and agent.status == "deleted":
-        remaining = await count_active_sessions(db, agent_id)
-        if remaining == 0:
-            await agent_service.cleanup_agent_k8s_resources(db, agent)
+    if agent:
+        # 4. PVC session workspace cleanup
+        # Session workspace lives at /workspace/sessions/{session_id}/ on the shared
+        # agent PVC (agent-workspace). Cleanup is done via the runtime Pod's HTTP API
+        # (DELETE /sessions/{session_id}/workspace), proxied through the Controller.
+        # This is best-effort: if the Pod is scaled to zero or unreachable, the
+        # orphaned directory remains on the PVC and is cleaned up when the PVC is
+        # eventually deleted (agent K8s teardown). To change the cleanup strategy
+        # (e.g. use a K8s Job instead), modify controller_client.cleanup_session_workspace()
+        # and the corresponding Controller endpoint DELETE /v1/deployments/{ns}/sessions/{sid}.
+        if agent.namespace:
+            await controller_client.cleanup_session_workspace(
+                agent.namespace, session_id_str
+            )
+
+        # 5. If owning agent is soft-deleted and this was the last session, clean up K8s
+        if agent.status == "deleted":
+            remaining = await count_active_sessions(db, agent_id)
+            if remaining == 0:
+                await agent_service.cleanup_agent_k8s_resources(db, agent)
 
 
 async def ensure_agent_ready(db: AsyncSession, agent: Agent) -> str:
