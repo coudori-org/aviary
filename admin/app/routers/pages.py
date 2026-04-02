@@ -25,7 +25,7 @@ templates = Jinja2Templates(directory="app/templates")
 async def agent_list(request: Request, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Agent).order_by(Agent.created_at.desc()))
     agents = result.scalars().all()
-    return templates.TemplateResponse("agents.html", {"request": request, "agents": agents})
+    return templates.TemplateResponse(request, "agents.html", {"agents": agents})
 
 
 # ── Agent Detail ──────────────────────────────────────────────
@@ -49,8 +49,7 @@ async def agent_detail(
     if error:
         flash_data = {"type": "error", "message": error}
 
-    return templates.TemplateResponse("agent_detail.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "agent_detail.html", {
         "agent": agent,
         "policy": policy,
         "egress_rules": egress_rules,

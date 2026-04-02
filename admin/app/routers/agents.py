@@ -4,7 +4,7 @@ import uuid
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -75,10 +75,12 @@ class AgentListResponse(BaseModel):
 
 
 class AgentUpdateRequest(BaseModel):
+    model_config = {"populate_by_name": True}
+
     name: str | None = None
     description: str | None = None
     instruction: str | None = None
-    model_config: dict | None = None
+    model_config_data: dict | None = Field(None, alias="model_config")
     tools: list[str] | None = None
     mcp_servers: list | None = None
     visibility: str | None = None
@@ -135,8 +137,8 @@ async def update_agent(
         agent.description = body.description
     if body.instruction is not None:
         agent.instruction = body.instruction
-    if body.model_config is not None:
-        agent.model_config_json = body.model_config
+    if body.model_config_data is not None:
+        agent.model_config_json = body.model_config_data
     if body.tools is not None:
         agent.tools = body.tools
     if body.mcp_servers is not None:
