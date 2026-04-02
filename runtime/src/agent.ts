@@ -106,6 +106,7 @@ export interface SSEChunk {
   name?: string;
   input?: unknown;
   tool_use_id?: string;
+  is_error?: boolean;
   // tool_progress fields
   tool_name?: string;
   parent_tool_use_id?: string | null;
@@ -224,6 +225,7 @@ export async function* processMessage(
                   typeof block.content === "string"
                     ? block.content
                     : JSON.stringify(block.content ?? ""),
+                ...(block.is_error ? { is_error: true } : {}),
               };
             }
           }

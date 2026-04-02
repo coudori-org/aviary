@@ -77,7 +77,7 @@ export function useStreamingBlocks() {
           updateBlocks((prev) =>
             prev.map((b) =>
               b.type === "tool_call" && b.id === msg.tool_use_id
-                ? { ...b, status: "complete" as const, result: msg.content }
+                ? { ...b, status: "complete" as const, result: msg.content, is_error: msg.is_error }
                 : b,
             ),
           );
@@ -137,6 +137,7 @@ export function useStreamingBlocks() {
         input: b.input,
         tool_use_id: b.id,
         result: b.result,
+        ...(b.is_error ? { is_error: true } : {}),
       };
     });
   }, []);

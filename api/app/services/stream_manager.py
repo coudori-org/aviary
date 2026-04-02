@@ -152,7 +152,7 @@ async def _run_stream(
     full_response = ""
     blocks_meta: list[dict] = []  # Ordered blocks (text + tool_call) for UI replay
     current_text = ""  # Accumulates text chunks between tool calls
-    tool_results: dict[str, str] = {}  # tool_use_id → result content
+    tool_results: dict[str, dict] = {}  # tool_use_id → {content, is_error}
 
     try:
         stream_url = agent_controller.get_stream_url(agent_id, session_id)
@@ -216,7 +216,10 @@ async def _run_stream(
                             if isinstance(result_content, str) and len(result_content) > 10240:
                                 result_content = result_content[:10240] + "\n... (truncated)"
                             if tid:
-                                tool_results[tid] = result_content
+                                tool_results[tid] = {
+                                    "content": result_content,
+                                    "is_error": chunk_data.get("is_error", False),
+                                }
                             result_data = {**chunk_data, "content": result_content}
                             await redis_service.append_stream_chunk(session_id, result_data)
                             await redis_service.publish_message(session_id, result_data)
@@ -229,7 +232,10 @@ async def _run_stream(
             blocks_meta.append({"type": "text", "content": current_text})
         for block in blocks_meta:
             if block.get("type") == "tool_call" and block.get("tool_use_id") in tool_results:
-                block["result"] = tool_results[block["tool_use_id"]]
+                tr = tool_results[block["tool_use_id"]]
+                block["result"] = tr["content"]
+                if tr.get("is_error"):
+                    block["is_error"] = True
 
         # Save completed response to DB (with ordered blocks for UI replay)
         meta = {"blocks": blocks_meta} if blocks_meta else None

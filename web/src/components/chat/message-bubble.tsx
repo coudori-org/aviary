@@ -83,6 +83,7 @@ export function MessageBubble({ message, currentUserId }: MessageBubbleProps) {
                   input: (block.input as Record<string, unknown>) ?? {},
                   status: "complete",
                   result: block.result != null ? String(block.result) : undefined,
+                  is_error: block.is_error === true ? true : undefined,
                 };
                 return <ToolCallCard key={toolBlock.id} block={toolBlock} />;
               }

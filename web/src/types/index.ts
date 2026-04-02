@@ -84,6 +84,7 @@ export interface ToolCallBlock {
   input: Record<string, unknown>;
   status: "running" | "complete";
   result?: string;
+  is_error?: boolean;
   elapsed?: number;
 }
 
