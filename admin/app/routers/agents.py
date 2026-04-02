@@ -165,6 +165,7 @@ async def update_agent(
         except Exception:
             logger.warning("K8s config sync failed for agent %s", agent.id, exc_info=True)
 
+    await db.refresh(agent)
     return AgentResponse.from_agent(agent)
 
 
