@@ -40,7 +40,7 @@ echo "  K8s gateway IP: $K8S_GATEWAY_IP"
 echo "[5/7] Building K8s images (runtime, egress-proxy, agent-controller)..."
 docker build -t aviary-runtime:latest          ./runtime/
 docker build -t aviary-egress-proxy:latest     ./egress-proxy/
-docker build -t aviary-agent-controller:latest ./controller/
+docker build -t aviary-agent-controller:latest -f controller/Dockerfile .
 
 echo "  Loading images into K8s..."
 docker save \
@@ -123,6 +123,6 @@ echo "    docker compose up -d --build <service>"
 echo "  To rebuild K8s images (runtime, egress-proxy, agent-controller):"
 echo "    docker build -t aviary-runtime:latest ./runtime/"
 echo "    docker build -t aviary-egress-proxy:latest ./egress-proxy/"
-echo "    docker build -t aviary-agent-controller:latest ./controller/"
+echo "    docker build -t aviary-agent-controller:latest -f controller/Dockerfile ."
 echo "    docker save aviary-runtime:latest aviary-egress-proxy:latest aviary-agent-controller:latest | docker compose exec -T k8s ctr images import -"
 echo "    docker compose exec -T k8s kubectl rollout restart deployment -n platform"

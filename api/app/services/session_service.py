@@ -1,4 +1,4 @@
-"""Session business logic: CRUD, agent readiness, idle timeout."""
+"""Session business logic: CRUD and agent readiness."""
 
 import logging
 import uuid
@@ -95,20 +95,13 @@ async def save_message(
 
     result = await db.execute(select(Session).where(Session.id == session_id))
     session = result.scalar_one()
-    now = datetime.now(timezone.utc)
-    session.last_message_at = now
+    session.last_message_at = datetime.now(timezone.utc)
 
     if session.title is None and sender_type == "user":
         title = content.strip().split("\n")[0]
         if len(title) > 60:
             title = title[:57] + "..."
         session.title = title
-
-    # Update agent activity timestamp for idle tracking
-    agent_result = await db.execute(select(Agent).where(Agent.id == session.agent_id))
-    agent = agent_result.scalar_one_or_none()
-    if agent:
-        agent.last_activity_at = now
 
     await db.flush()
     return msg
@@ -213,5 +206,3 @@ async def ensure_agent_ready(db: AsyncSession, agent: Agent) -> None:
             "mcp_servers": agent.mcp_servers or [],
         },
     )
-    agent.last_activity_at = datetime.now(timezone.utc)
-    await db.flush()

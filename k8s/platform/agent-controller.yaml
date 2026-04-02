@@ -71,6 +71,8 @@ spec:
               value: "${HOST_GATEWAY_IP}"
             - name: MAX_CONCURRENT_SESSIONS_PER_POD
               value: "10"
+            - name: DATABASE_URL
+              value: "postgresql+asyncpg://aviary:aviary@host.k8s.internal:5432/aviary"
           livenessProbe:
             httpGet:
               path: /v1/health

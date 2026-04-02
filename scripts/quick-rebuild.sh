@@ -47,7 +47,7 @@ rebuild_runtime() {
 
 rebuild_controller() {
   echo -e "${BOLD}Rebuilding agent-controller...${NC}"
-  docker build -t aviary-agent-controller:latest ./controller/
+  docker build -t aviary-agent-controller:latest -f controller/Dockerfile .
   load_k8s_image "aviary-agent-controller:latest"
   echo -e "${CYAN}Restarting controller deployment...${NC}"
   docker compose exec -T k8s kubectl rollout restart deployment/agent-controller -n platform

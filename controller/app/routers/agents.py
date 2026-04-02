@@ -10,6 +10,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+from app.scaling import touch_activity
 from app.k8s import _get_k8s_client, k8s_apply
 from app.routers.namespaces import CreateNamespaceRequest, create_namespace
 from app.routers.deployments import (
@@ -42,6 +43,7 @@ class RegisterAgentRequest(BaseModel):
 @router.post("/agents/{agent_id}/register")
 async def register_agent(agent_id: str, body: RegisterAgentRequest):
     """Register a new agent. Provisions resources with secure defaults (all network blocked)."""
+    await touch_activity(agent_id)
     result = await create_namespace(CreateNamespaceRequest(
         agent_id=agent_id,
         owner_id=body.owner_id,
@@ -92,6 +94,7 @@ class RunAgentRequest(BaseModel):
 @router.post("/agents/{agent_id}/run")
 async def run_agent(agent_id: str, body: RunAgentRequest):
     """Ensure agent is running. Lazily creates resources with secure defaults if needed."""
+    await touch_activity(agent_id)
     ns = _namespace(agent_id)
     result = await ensure_deployment(ns, EnsureDeploymentRequest(
         agent_id=agent_id,
@@ -128,6 +131,7 @@ async def wait_agent_ready(agent_id: str, timeout: int = 90):
 @router.post("/agents/{agent_id}/sessions/{session_id}/message")
 async def proxy_session_message(agent_id: str, session_id: str, request: Request):
     """Transparent SSE proxy to agent runtime for a session message."""
+    await touch_activity(agent_id)
     ns = _namespace(agent_id)
     body = await request.json()
     proxy_path = (

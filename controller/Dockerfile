@@ -6,10 +6,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-COPY pyproject.toml /app/
+# Install shared package first
+COPY shared/ /shared/
+RUN pip install --no-cache-dir /shared
+
+COPY controller/pyproject.toml /app/
 RUN pip install --no-cache-dir -e .
 
-COPY . /app/
+COPY controller/ /app/
 
 EXPOSE 9000
 
