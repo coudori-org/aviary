@@ -1,22 +1,34 @@
 FROM python:3.12-slim
 
-WORKDIR /app
+COPY --from=ghcr.io/astral-sh/uv:0.7 /uv /usr/local/bin/uv
+
+WORKDIR /workspace
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Install shared package first (satisfies aviary-shared dependency)
-COPY shared/ /shared/
-RUN pip install --no-cache-dir /shared
+# Copy workspace layout for dependency resolution (cached layer)
+COPY pyproject.toml uv.lock ./
+COPY shared/pyproject.toml ./shared/pyproject.toml
+COPY api/pyproject.toml ./api/pyproject.toml
+COPY admin/pyproject.toml ./admin/pyproject.toml
+COPY controller/pyproject.toml ./controller/pyproject.toml
 
-# Install Python deps
-COPY admin/pyproject.toml /app/
-RUN pip install --no-cache-dir -e .
+# Shared source needed for workspace install
+COPY shared/ ./shared/
 
-# Copy application code (overridden by volume mount in dev)
-COPY admin/ /app/
+# Install deps from lock file
+ARG UV_INDEX_URL
+RUN uv sync --frozen --package aviary-admin --no-dev --no-install-project
+
+# Copy app source
+COPY admin/ ./admin/
+
+RUN uv sync --frozen --package aviary-admin --no-dev
+
+WORKDIR /workspace/admin
 
 EXPOSE 8001
 
-CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8001", "--reload"]
+CMD ["uv", "run", "--frozen", "--no-dev", "--package", "aviary-admin", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8001", "--reload"]

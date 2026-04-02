@@ -1,26 +1,36 @@
 FROM python:3.12-slim
 
-WORKDIR /app
+COPY --from=ghcr.io/astral-sh/uv:0.7 /uv /usr/local/bin/uv
 
-# System deps
+WORKDIR /workspace
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Install shared package first
-COPY shared/ /shared/
-RUN pip install --no-cache-dir /shared
+# Copy workspace layout for dependency resolution (cached layer)
+COPY pyproject.toml uv.lock ./
+COPY shared/pyproject.toml ./shared/pyproject.toml
+COPY api/pyproject.toml ./api/pyproject.toml
+COPY admin/pyproject.toml ./admin/pyproject.toml
+COPY controller/pyproject.toml ./controller/pyproject.toml
 
-# Install Python deps (cached layer — only re-runs when pyproject.toml changes)
-COPY api/pyproject.toml /app/
-RUN pip install --no-cache-dir -e ".[dev]"
+# Shared source needed for workspace install
+COPY shared/ ./shared/
 
-# Copy application code (overridden by volume mount in dev)
-COPY api/ /app/
+# Install deps from lock file (cache-friendly — only reruns on manifest/lock change)
+ARG UV_INDEX_URL
+RUN uv sync --frozen --package aviary-api --no-dev --no-install-project
 
-COPY api/entrypoint.sh /app/
-RUN chmod +x /app/entrypoint.sh
+# Copy app source
+COPY api/ ./api/
+RUN uv sync --frozen --package aviary-api --no-dev
+
+COPY api/entrypoint.sh /workspace/api/entrypoint.sh
+RUN chmod +x /workspace/api/entrypoint.sh
+
+WORKDIR /workspace/api
 
 EXPOSE 8000
 
-CMD ["/app/entrypoint.sh"]
+CMD ["/workspace/api/entrypoint.sh"]

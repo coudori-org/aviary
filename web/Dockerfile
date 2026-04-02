@@ -2,9 +2,9 @@ FROM node:22-slim
 
 WORKDIR /app
 
-# Install deps (cached layer — only re-runs when package.json changes)
-COPY package.json package-lock.json* /app/
-RUN npm install
+# Install deps from lock file (cached layer — only reruns on manifest/lock change)
+COPY package.json package-lock.json /app/
+RUN npm ci
 
 # Copy application code (overridden by volume mount in dev)
 COPY . /app/

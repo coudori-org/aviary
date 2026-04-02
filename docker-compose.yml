@@ -152,11 +152,10 @@ services:
       - "8000:8000"
     volumes:
       # Bind-mount source code → hot reload via uvicorn --reload
-      - ./api:/app
-      - ./shared:/shared
+      - ./api:/workspace/api
+      - ./shared:/workspace/shared
       # Anonymous volume protects container's installed packages from host's .venv
-      - /app/.venv
-      - /app/*.egg-info
+      - /workspace/.venv
     environment:
       DATABASE_URL: postgresql+asyncpg://aviary:aviary@postgres:5432/aviary
       REDIS_URL: redis://redis:6379/0
@@ -217,10 +216,9 @@ services:
     ports:
       - "8001:8001"
     volumes:
-      - ./admin:/app
-      - ./shared:/shared
-      - /app/.venv
-      - /app/*.egg-info
+      - ./admin:/workspace/admin
+      - ./shared:/workspace/shared
+      - /workspace/.venv
     environment:
       DATABASE_URL: postgresql+asyncpg://aviary:aviary@postgres:5432/aviary
       REDIS_URL: redis://redis:6379/0

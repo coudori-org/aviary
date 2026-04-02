@@ -2,8 +2,8 @@
 FROM node:22-slim AS build
 
 WORKDIR /app
-COPY package.json /app/
-RUN npm install
+COPY package.json package-lock.json /app/
+RUN npm ci
 
 COPY tsconfig.json /app/
 COPY src/ /app/src/
@@ -31,8 +31,8 @@ RUN CLAUDE_BIN=$(which claude) && \
 # Actual wrapper content copied below after COPY scripts/
 
 WORKDIR /app
-COPY package.json /app/
-RUN npm install --omit=dev
+COPY package.json package-lock.json /app/
+RUN npm ci --omit=dev
 
 # Copy compiled JS from build stage (no TypeScript needed at runtime)
 COPY --from=build /app/dist/ /app/dist/
