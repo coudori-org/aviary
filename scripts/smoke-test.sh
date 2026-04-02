@@ -228,19 +228,11 @@ for line in sys.stdin:
       ((ERRORS++))
     fi
   else
-    info "Using Python for WebSocket test (install websocat for better output)"
-    python3 -c "
-import asyncio, json, sys
+    info "Using Python for WebSocket test"
+    uv run --with websockets python3 -c "
+import asyncio, json, sys, websockets
 
 async def ws_chat():
-    try:
-        import websockets
-    except ImportError:
-        print('  ! websockets not installed, trying pip install...')
-        import subprocess
-        subprocess.check_call([sys.executable, '-m', 'pip', 'install', 'websockets', '-q'])
-        import websockets
-
     uri = 'ws://localhost:8000/api/sessions/${SESSION_ID}/ws?token=${ACCESS_TOKEN}'
     got_response = False
     types_seen = set()
