@@ -49,6 +49,15 @@ async def ensure_deployment(namespace: str, body: EnsureDeploymentRequest):
             "GET", f"/apis/apps/v1/namespaces/{namespace}/deployments/agent-runtime"
         )
         if result.get("metadata", {}).get("name") == "agent-runtime":
+            # Deployment exists — but if scaled to zero, scale it back up
+            replicas = result.get("spec", {}).get("replicas", 0)
+            if replicas == 0:
+                await k8s_apply(
+                    "PATCH",
+                    f"/apis/apps/v1/namespaces/{namespace}/deployments/agent-runtime",
+                    {"spec": {"replicas": body.min_pods or 1}},
+                )
+                logger.info("Scaled up idle deployment in %s to %d", namespace, body.min_pods or 1)
             return {"namespace": namespace, "created": False}
     except Exception:
         pass
