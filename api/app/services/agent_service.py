@@ -1,8 +1,10 @@
-"""Agent business logic: CRUD with K8s namespace provisioning and ACL checks."""
+"""Agent business logic: CRUD with ACL checks.
+
+Infrastructure provisioning is fully delegated to the agent controller.
+"""
 
 import uuid
 import logging
-from datetime import datetime, timezone
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,22 +13,17 @@ from sqlalchemy import or_, exists
 
 from app.db.models import Agent, Session, User
 from app.schemas.agent import AgentCreate, AgentUpdate
-from app.services import acl_service, controller_client, redis_service
+from app.services import acl_service, agent_controller, redis_service
 
 logger = logging.getLogger(__name__)
 
 
 async def create_agent(db: AsyncSession, user: User, data: AgentCreate) -> Agent:
-    """Create a new agent and provision K8s namespace."""
+    """Create a new agent. Infrastructure provisioning is delegated to the controller."""
     # Check slug uniqueness
     existing = await db.execute(select(Agent).where(Agent.slug == data.slug))
     if existing.scalar_one_or_none():
         raise ValueError(f"Agent slug '{data.slug}' already exists")
-
-    policy_dict = data.policy.model_dump()
-    pod_strategy = policy_dict.get("podStrategy", "lazy")
-    min_pods = policy_dict.get("minPods", 1)
-    max_pods = policy_dict.get("maxPods", 3)
 
     agent = Agent(
         name=data.name,
@@ -37,56 +34,30 @@ async def create_agent(db: AsyncSession, user: User, data: AgentCreate) -> Agent
         model_config_json=data.model_config_data.model_dump(),
         tools=data.tools,
         mcp_servers=[s.model_dump() for s in data.mcp_servers],
-        policy=policy_dict,
+        policy=data.policy.model_dump(),
         visibility=data.visibility,
         category=data.category,
         icon=data.icon,
-        pod_strategy=pod_strategy,
-        min_pods=min_pods,
-        max_pods=max_pods,
     )
     db.add(agent)
     await db.flush()
 
-    # Provision K8s namespace via Controller
+    # Register with agent controller (secure defaults, best-effort)
     try:
-        ns_name = await controller_client.create_namespace(
+        await agent_controller.register_agent(
             agent_id=str(agent.id),
             owner_id=str(user.id),
-            instruction=data.instruction,
-            tools=data.tools,
-            policy=policy_dict,
-            mcp_servers=[s.model_dump() for s in data.mcp_servers],
+            config={
+                "instruction": data.instruction,
+                "tools": data.tools,
+                "mcp_servers": [s.model_dump() for s in data.mcp_servers],
+            },
         )
-        agent.namespace = ns_name
     except Exception:
-        logger.warning("K8s namespace creation failed for agent %s — continuing without K8s", agent.id, exc_info=True)
-
-    # Sync egress policy to Redis for the egress-proxy
-    try:
-        await redis_service.sync_egress_policy(str(agent.id), policy_dict)
-    except Exception:
-        logger.warning("Redis egress policy sync failed for agent %s", agent.id, exc_info=True)
-
-    # Eager strategy: spawn deployment immediately after namespace creation
-    if pod_strategy == "eager" and agent.namespace:
-        try:
-            await controller_client.ensure_deployment(
-                namespace=agent.namespace,
-                agent_id=str(agent.id),
-                owner_id=str(user.id),
-                instruction=agent.instruction,
-                tools=agent.tools,
-                policy=agent.policy or {},
-                mcp_servers=agent.mcp_servers or [],
-                min_pods=agent.min_pods,
-                max_pods=agent.max_pods,
-            )
-            agent.deployment_active = True
-            agent.last_activity_at = datetime.now(timezone.utc)
-            await db.flush()
-        except Exception:
-            logger.warning("Eager deployment failed for agent %s — will retry on first message", agent.id, exc_info=True)
+        logger.warning(
+            "Agent controller registration failed for agent %s — will retry on first message",
+            agent.id, exc_info=True,
+        )
 
     return agent
 
@@ -128,20 +99,6 @@ async def list_agents_for_user(
     from app.db.models import AgentACL, TeamMember
 
     visible = _agent_visible_filter()
-
-    if user.is_platform_admin:
-        count_result = await db.execute(
-            select(func.count()).select_from(Agent).where(visible)
-        )
-        total = count_result.scalar() or 0
-        result = await db.execute(
-            select(Agent)
-            .where(visible)
-            .order_by(Agent.created_at.desc())
-            .offset(offset)
-            .limit(limit)
-        )
-        return list(result.scalars().all()), total
 
     team_ids_result = await db.execute(
         select(TeamMember.team_id).where(TeamMember.user_id == user.id)
@@ -191,7 +148,7 @@ async def list_agents_for_user(
 async def update_agent(
     db: AsyncSession, agent: Agent, data: AgentUpdate
 ) -> Agent:
-    """Update an agent's configuration and sync to K8s."""
+    """Update an agent's configuration. DB only — infrastructure sync is handled by backoffice."""
     if data.name is not None:
         agent.name = data.name
     if data.description is not None:
@@ -214,106 +171,28 @@ async def update_agent(
         agent.icon = data.icon
 
     await db.flush()
-
-    # Sync K8s resources via Controller
-    if agent.namespace:
-        try:
-            await controller_client.update_namespace_config(
-                namespace=agent.namespace,
-                instruction=agent.instruction,
-                tools=agent.tools,
-                policy=agent.policy,
-                mcp_servers=agent.mcp_servers,
-            )
-        except Exception:
-            logger.warning("K8s config update failed for agent %s", agent.id, exc_info=True)
-
-        if data.policy is not None:
-            try:
-                await controller_client.update_network_policy(
-                    namespace=agent.namespace,
-                    policy=agent.policy,
-                )
-            except Exception:
-                logger.warning("NetworkPolicy update failed for agent %s", agent.id, exc_info=True)
-
-            try:
-                await redis_service.sync_egress_policy(str(agent.id), agent.policy)
-                await controller_client.invalidate_egress_cache(str(agent.id))
-            except Exception:
-                logger.warning("Egress policy sync failed for agent %s", agent.id, exc_info=True)
-
     return agent
 
 
-async def deploy_agent(db: AsyncSession, agent: Agent) -> None:
-    """Apply config changes by triggering a rolling restart."""
-    if agent.deployment_active:
-        try:
-            await controller_client.rolling_restart(agent.namespace)
-        except Exception:
-            logger.warning("Rolling restart failed for agent %s", agent.id, exc_info=True)
-    logger.info("Deployed agent %s: triggered rolling restart", agent.id)
-
-
-async def activate_agent(db: AsyncSession, agent: Agent) -> None:
-    """Manually activate an agent's Deployment (for manual pod strategy)."""
-    if not agent.namespace:
-        raise RuntimeError(f"Agent {agent.id} has no K8s namespace")
-    await controller_client.ensure_deployment(
-        namespace=agent.namespace,
-        agent_id=str(agent.id),
-        owner_id=str(agent.owner_id),
-        instruction=agent.instruction,
-        tools=agent.tools,
-        policy=agent.policy or {},
-        mcp_servers=agent.mcp_servers or [],
-        min_pods=agent.min_pods,
-        max_pods=agent.max_pods,
-    )
-    agent.deployment_active = True
-    agent.last_activity_at = datetime.now(timezone.utc)
-    await db.flush()
-
-
-async def deactivate_agent(db: AsyncSession, agent: Agent) -> None:
-    """Manually deactivate an agent's Deployment (scale to 0)."""
-    if agent.namespace:
-        try:
-            await controller_client.scale_to_zero(agent.namespace)
-        except Exception:
-            logger.warning("Failed to scale down agent %s", agent.id, exc_info=True)
-    agent.deployment_active = False
-    await db.flush()
-
-
-async def cleanup_agent_k8s_resources(db: AsyncSession, agent: Agent) -> None:
-    """Destroy all K8s resources and Redis egress policy for an agent.
+async def cleanup_agent_resources(db: AsyncSession, agent: Agent) -> None:
+    """Destroy all agent resources and hard-delete from DB.
 
     Called when a deleted agent has zero remaining sessions, or when an agent
     with no sessions is deleted. Idempotent — safe to call multiple times.
     """
     agent_id_str = str(agent.id)
 
-    if agent.deployment_active and agent.namespace:
-        try:
-            await controller_client.delete_deployment(agent.namespace)
-        except Exception:
-            logger.warning("Deployment deletion failed for agent %s", agent.id, exc_info=True)
+    # Ask controller to remove all agent resources
+    try:
+        await agent_controller.unregister_agent(agent_id_str)
+    except Exception:
+        logger.warning("Agent controller cleanup failed for agent %s", agent.id, exc_info=True)
 
-    if agent.namespace:
-        try:
-            await controller_client.delete_namespace(agent_id_str)
-        except Exception:
-            logger.warning("K8s namespace deletion failed for agent %s", agent.id, exc_info=True)
-
+    # Clean up Redis egress policy
     try:
         await redis_service.delete_egress_policy(agent_id_str)
     except Exception:
         logger.warning("Redis egress policy cleanup failed for agent %s", agent.id, exc_info=True)
-
-    agent.deployment_active = False
-    agent.namespace = None
 
     # Hard-delete the agent row since all sessions are gone
     await db.delete(agent)
@@ -322,7 +201,7 @@ async def cleanup_agent_k8s_resources(db: AsyncSession, agent: Agent) -> None:
 
 async def delete_agent(db: AsyncSession, agent: Agent) -> None:
     """Delete an agent. If active sessions remain, soft-delete (status=deleted)
-    and keep K8s resources alive. Otherwise, clean up everything and hard-delete.
+    and keep resources alive. Otherwise, clean up everything and hard-delete.
 
     Deferred cleanup is triggered by session_service.delete_session when the
     last session of a soft-deleted agent is removed.
@@ -334,4 +213,4 @@ async def delete_agent(db: AsyncSession, agent: Agent) -> None:
 
     remaining = await session_service.count_active_sessions(db, agent.id)
     if remaining == 0:
-        await cleanup_agent_k8s_resources(db, agent)
+        await cleanup_agent_resources(db, agent)

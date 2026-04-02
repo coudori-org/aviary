@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Aviary API Server"
 requires-python = ">=3.12"
 dependencies = [
+    "aviary-shared",
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.34.0",
     "sqlalchemy[asyncio]>=2.0.36",

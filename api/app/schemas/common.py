@@ -10,7 +10,6 @@ class UserResponse(BaseModel):
     email: str
     display_name: str
     avatar_url: str | None = None
-    is_platform_admin: bool = False
     created_at: datetime
 
     model_config = {"from_attributes": True}

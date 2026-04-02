@@ -146,12 +146,14 @@ services:
 
   api:
     build:
-      context: ./api
+      context: .
+      dockerfile: api/Dockerfile
     ports:
       - "8000:8000"
     volumes:
       # Bind-mount source code → hot reload via uvicorn --reload
       - ./api:/app
+      - ./shared:/shared
       # Anonymous volume protects container's installed packages from host's .venv
       - /app/.venv
       - /app/*.egg-info

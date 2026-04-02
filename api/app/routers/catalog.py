@@ -66,13 +66,25 @@ async def search_catalog(
         )
     )
 
-    if user.is_platform_admin:
-        conditions = []  # Admin sees all
+    team_ids_result = await db.execute(
+        select(TeamMember.team_id).where(TeamMember.user_id == user.id)
+    )
+    user_team_ids = [row[0] for row in team_ids_result.all()]
+
+    if user_team_ids:
+        conditions.append(
+            exists(
+                select(AgentACL.id).where(
+                    AgentACL.agent_id == Agent.id,
+                    AgentACL.team_id.in_(user_team_ids),
+                )
+            )
+        )
 
     base_query = select(Agent).where(
         Agent.status != "deleted",
         or_(Agent.name.ilike(search_pattern), Agent.description.ilike(search_pattern)),
-        *([or_(*conditions)] if conditions else []),
+        or_(*conditions),
     )
 
     count_result = await db.execute(select(func.count()).select_from(base_query.subquery()))

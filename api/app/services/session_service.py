@@ -1,4 +1,4 @@
-"""Session business logic: CRUD, agent deployment lifecycle, idle timeout."""
+"""Session business logic: CRUD, agent readiness, idle timeout."""
 
 import logging
 import uuid
@@ -8,9 +8,8 @@ from datetime import datetime, timezone
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import settings
 from app.db.models import Agent, Message, Session, SessionParticipant, User
-from app.services import controller_client, redis_service
+from app.services import agent_controller, redis_service
 
 logger = logging.getLogger(__name__)
 
@@ -160,7 +159,7 @@ async def count_active_sessions(db: AsyncSession, agent_id: uuid.UUID) -> int:
 
 async def delete_session(db: AsyncSession, session: Session) -> None:
     """Full session deletion: cancel stream, clean Redis, hard-delete from DB,
-    and conditionally tear down agent K8s resources if this was the last session
+    and conditionally tear down agent resources if this was the last session
     of a soft-deleted agent."""
     from app.services import agent_service, stream_manager
 
@@ -169,10 +168,7 @@ async def delete_session(db: AsyncSession, session: Session) -> None:
 
     # 1. Cancel any active stream for this session
     if stream_manager.is_streaming(session_id_str):
-        result = await db.execute(select(Agent).where(Agent.id == agent_id))
-        agent = result.scalar_one_or_none()
-        namespace = agent.namespace if agent else None
-        await stream_manager.cancel_stream(session_id_str, namespace)
+        await stream_manager.cancel_stream(session_id_str, str(agent_id))
 
     # 2. Clean up all Redis keys for this session
     await redis_service.delete_all_session_keys(session_id_str)
@@ -181,83 +177,32 @@ async def delete_session(db: AsyncSession, session: Session) -> None:
     await db.delete(session)
     await db.flush()
 
-    # 4–5. Agent-level cleanup: PVC workspace + conditional K8s teardown
+    # 4–5. Agent-level cleanup
     result = await db.execute(select(Agent).where(Agent.id == agent_id))
     agent = result.scalar_one_or_none()
     if agent:
-        # 4. PVC session workspace cleanup
-        # Session workspace lives at /workspace/sessions/{session_id}/ on the shared
-        # agent PVC (agent-workspace). Cleanup is done via the runtime Pod's HTTP API
-        # (DELETE /sessions/{session_id}/workspace), proxied through the Controller.
-        # This is best-effort: if the Pod is scaled to zero or unreachable, the
-        # orphaned directory remains on the PVC and is cleaned up when the PVC is
-        # eventually deleted (agent K8s teardown). To change the cleanup strategy
-        # (e.g. use a K8s Job instead), modify controller_client.cleanup_session_workspace()
-        # and the corresponding Controller endpoint DELETE /v1/deployments/{ns}/sessions/{sid}.
-        if agent.namespace:
-            await controller_client.cleanup_session_workspace(
-                agent.namespace, session_id_str
-            )
+        # 4. Session workspace cleanup (best-effort)
+        await agent_controller.cleanup_session(str(agent_id), session_id_str)
 
-        # 5. If owning agent is soft-deleted and this was the last session, clean up K8s
+        # 5. If owning agent is soft-deleted and this was the last session, clean up
         if agent.status == "deleted":
             remaining = await count_active_sessions(db, agent_id)
             if remaining == 0:
-                await agent_service.cleanup_agent_k8s_resources(db, agent)
+                await agent_service.cleanup_agent_resources(db, agent)
 
 
-async def ensure_agent_ready(db: AsyncSession, agent: Agent) -> str:
-    """Ensure agent Deployment is running and return namespace for routing."""
-    if not agent.namespace:
-        raise RuntimeError(f"Agent {agent.id} has no K8s namespace")
+async def ensure_agent_ready(db: AsyncSession, agent: Agent) -> None:
+    """Ensure agent is running via agent controller.
 
-    if agent.pod_strategy == "manual" and not agent.deployment_active:
-        raise RuntimeError("Agent pods not activated. Admin must activate manually.")
-
-    result = await controller_client.ensure_deployment(
-        namespace=agent.namespace,
+    Fully delegated — the controller handles all resource provisioning
+    with secure defaults if the agent hasn't been set up yet.
+    """
+    await agent_controller.ensure_agent_running(
         agent_id=str(agent.id),
         owner_id=str(agent.owner_id),
-        instruction=agent.instruction,
-        tools=agent.tools,
-        policy=agent.policy or {},
-        mcp_servers=agent.mcp_servers or [],
-        min_pods=agent.min_pods,
-        max_pods=agent.max_pods,
+        config={
+            "instruction": agent.instruction,
+            "tools": agent.tools,
+            "mcp_servers": agent.mcp_servers or [],
+        },
     )
-
-    if not agent.deployment_active or result.get("created"):
-        agent.deployment_active = True
-        agent.last_activity_at = datetime.now(timezone.utc)
-        await db.flush()
-
-    return agent.namespace
-
-
-async def cleanup_idle_agents(db: AsyncSession) -> int:
-    """Scale down Deployments for agents idle longer than the timeout. Returns count."""
-    timeout_seconds = settings.default_agent_idle_timeout
-    cutoff = datetime.now(timezone.utc).timestamp() - timeout_seconds
-
-    result = await db.execute(
-        select(Agent).where(
-            Agent.deployment_active.is_(True),
-            Agent.status == "active",
-        )
-    )
-    agents = result.scalars().all()
-
-    cleaned = 0
-    for agent in agents:
-        if agent.last_activity_at and agent.last_activity_at.timestamp() < cutoff:
-            if agent.namespace:
-                try:
-                    await controller_client.scale_to_zero(agent.namespace)
-                except Exception:
-                    logger.warning("Failed to scale down agent %s", agent.id, exc_info=True)
-            agent.deployment_active = False
-            cleaned += 1
-
-    if cleaned:
-        await db.flush()
-    return cleaned

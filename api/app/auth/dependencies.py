@@ -55,15 +55,3 @@ async def get_current_user(
         ) from e
 
     return await _upsert_user(db, claims)
-
-
-async def require_platform_admin(
-    user: User = Depends(get_current_user),
-) -> User:
-    """Require the user to have platform_admin role."""
-    if not user.is_platform_admin:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Platform admin access required",
-        )
-    return user

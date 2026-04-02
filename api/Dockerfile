@@ -7,14 +7,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
+# Install shared package first
+COPY shared/ /shared/
+RUN pip install --no-cache-dir -e /shared
+
 # Install Python deps (cached layer — only re-runs when pyproject.toml changes)
-COPY pyproject.toml /app/
+COPY api/pyproject.toml /app/
 RUN pip install --no-cache-dir -e ".[dev]"
 
 # Copy application code (overridden by volume mount in dev)
-COPY . /app/
+COPY api/ /app/
 
-COPY entrypoint.sh /app/
+COPY api/entrypoint.sh /app/
 RUN chmod +x /app/entrypoint.sh
 
 EXPOSE 8000

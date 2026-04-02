@@ -20,7 +20,7 @@ from app.schemas.session import (
     SessionResponse,
     SessionTitleUpdate,
 )
-from app.services import acl_service, controller_client, redis_service, session_service, stream_manager
+from app.services import acl_service, agent_controller, redis_service, session_service, stream_manager
 
 logger = logging.getLogger(__name__)
 
@@ -95,10 +95,9 @@ async def get_session(
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    if not user.is_platform_admin:
-        is_participant = await session_service.is_session_participant(db, session_id, user.id)
-        if not is_participant:
-            raise HTTPException(status_code=403, detail="Not a participant of this session")
+    is_participant = await session_service.is_session_participant(db, session_id, user.id)
+    if not is_participant:
+        raise HTTPException(status_code=403, detail="Not a participant of this session")
 
     messages = await session_service.get_session_messages(db, session_id)
     return SessionDetailResponse(
@@ -116,8 +115,8 @@ async def delete_session(
     session = await session_service.get_session(db, session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
-    if session.created_by != user.id and not user.is_platform_admin:
-        raise HTTPException(status_code=403, detail="Only session creator or admin can delete")
+    if session.created_by != user.id:
+        raise HTTPException(status_code=403, detail="Only session creator can delete")
     await session_service.delete_session(db, session)
     return None
 
@@ -132,10 +131,9 @@ async def update_session_title(
     session = await session_service.get_session(db, session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
-    if session.created_by != user.id and not user.is_platform_admin:
-        is_participant = await session_service.is_session_participant(db, session_id, user.id)
-        if not is_participant:
-            raise HTTPException(status_code=403, detail="Not a participant of this session")
+    is_participant = await session_service.is_session_participant(db, session_id, user.id)
+    if not is_participant:
+        raise HTTPException(status_code=403, detail="Not a participant of this session")
     session = await session_service.update_session_title(db, session_id, body.title)
     return SessionResponse.from_orm_session(session)
 
@@ -150,7 +148,7 @@ async def invite_to_session(
     session = await session_service.get_session(db, session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
-    if session.created_by != user.id and not user.is_platform_admin:
+    if session.created_by != user.id:
         raise HTTPException(status_code=403, detail="Only session creator can invite")
 
     result = await db.execute(select(User).where(User.email == body.email))
@@ -181,6 +179,7 @@ async def websocket_chat(websocket: WebSocket, session_id: uuid.UUID):
 
     session_id_str = str(session_id)
     user_id_str: str | None = None
+    agent_id_str: str | None = None
     pubsub = None
 
     try:
@@ -199,7 +198,7 @@ async def websocket_chat(websocket: WebSocket, session_id: uuid.UUID):
             user_id_str = str(user.id)
 
             is_participant = await session_service.is_session_participant(db, session_id, user.id)
-            if not is_participant and not user.is_platform_admin:
+            if not is_participant:
                 await websocket.send_json({"type": "error", "message": "Not a session participant"})
                 return
 
@@ -209,38 +208,23 @@ async def websocket_chat(websocket: WebSocket, session_id: uuid.UUID):
                 await websocket.send_json({"type": "error", "message": "Agent not found"})
                 return
 
-            # Lazy-create K8s namespace via Controller if needed
-            if not agent.namespace:
-                await websocket.send_json({"type": "status", "status": "provisioning"})
-                try:
-                    ns_name = await controller_client.create_namespace(
-                        agent_id=str(agent.id),
-                        owner_id=str(agent.owner_id),
-                        instruction=agent.instruction,
-                        tools=agent.tools,
-                        policy=agent.policy or {},
-                        mcp_servers=agent.mcp_servers or [],
-                    )
-                    agent.namespace = ns_name
-                except Exception:
-                    await websocket.send_json({"type": "status", "status": "offline", "message": "Failed to provision K8s namespace"})
-                    return
+            agent_id_str = str(agent.id)
 
-            # Ensure agent Deployment is running
+            # Ensure agent is running (controller handles all provisioning)
             await websocket.send_json({"type": "status", "status": "spawning"})
             try:
-                namespace = await session_service.ensure_agent_ready(db, agent)
+                await session_service.ensure_agent_ready(db, agent)
             except Exception as e:
                 await websocket.send_json({"type": "status", "status": "offline", "message": f"Failed to start agent: {e}"})
                 return
 
             await db.commit()
 
-        # Wait for Deployment readiness via Controller
+        # Wait for agent readiness via controller
         await websocket.send_json({"type": "status", "status": "waiting"})
-        ready = await controller_client.wait_for_ready(namespace, timeout=90)
+        ready = await agent_controller.wait_for_agent_ready(agent_id_str, timeout=90)
         if not ready:
-            await websocket.send_json({"type": "status", "status": "offline", "message": "Agent pods did not become ready in time"})
+            await websocket.send_json({"type": "status", "status": "offline", "message": "Agent did not become ready in time"})
             return
 
         await websocket.send_json({"type": "status", "status": "ready"})
@@ -282,13 +266,7 @@ async def websocket_chat(websocket: WebSocket, session_id: uuid.UUID):
                 data = await websocket.receive_json()
 
                 if data.get("type") == "cancel":
-                    agent_ns = None
-                    async with async_session_factory() as db:
-                        result = await db.execute(select(Agent).where(Agent.id == session.agent_id))
-                        ag = result.scalar_one_or_none()
-                        if ag:
-                            agent_ns = ag.namespace
-                    await stream_manager.cancel_stream(session_id_str, agent_ns)
+                    await stream_manager.cancel_stream(session_id_str, agent_id_str)
                     continue
 
                 if data.get("type") != "message":
@@ -317,7 +295,7 @@ async def websocket_chat(websocket: WebSocket, session_id: uuid.UUID):
 
                 await stream_manager.start_stream(
                     session_id=session_id_str,
-                    namespace=agent.namespace,
+                    agent_id=str(agent.id),
                     agent_model_config=agent.model_config_json,
                     agent_instruction=agent.instruction,
                     agent_tools=agent.tools,

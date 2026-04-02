@@ -111,11 +111,6 @@ class AgentResponse(BaseModel):
     visibility: str
     category: str | None = None
     icon: str | None = None
-    namespace: str | None = None
-    pod_strategy: str = "lazy"
-    min_pods: int = 1
-    max_pods: int = 3
-    deployment_active: bool = False
     status: str
     created_at: datetime
     updated_at: datetime
@@ -136,11 +131,6 @@ class AgentResponse(BaseModel):
             visibility=agent.visibility,
             category=agent.category,
             icon=agent.icon,
-            namespace=agent.namespace,
-            pod_strategy=agent.pod_strategy,
-            min_pods=agent.min_pods,
-            max_pods=agent.max_pods,
-            deployment_active=agent.deployment_active,
             status=agent.status,
             created_at=agent.created_at,
             updated_at=agent.updated_at,

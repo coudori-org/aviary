@@ -1,13 +1,12 @@
-"""ACL permission resolution following the 7-step order from CLAUDE.md.
+"""ACL permission resolution.
 
 Resolution order:
-1. platform_admin → full access
-2. agent owner → full access
-3. direct user ACL entry
-4. team ACL entries (user's teams)
-5. visibility='public' → implicit 'user' role
-6. visibility='team' → implicit 'user' role for team members
-7. deny
+1. agent owner → full access
+2. direct user ACL entry
+3. team ACL entries (user's teams)
+4. visibility='public' → implicit 'user' role
+5. visibility='team' → implicit 'user' role for team members
+6. deny
 """
 
 import uuid
@@ -32,15 +31,11 @@ async def resolve_agent_role(
     db: AsyncSession, user: User, agent: Agent
 ) -> str | None:
     """Resolve the effective role a user has on an agent. Returns None if no access."""
-    # 1. Platform admin → full access
-    if user.is_platform_admin:
-        return "owner"
-
-    # 2. Agent owner → full access
+    # 1. Agent owner → full access
     if agent.owner_id == user.id:
         return "owner"
 
-    # 3. Direct user ACL entry
+    # 2. Direct user ACL entry
     result = await db.execute(
         select(AgentACL).where(
             AgentACL.agent_id == agent.id,
@@ -51,7 +46,7 @@ async def resolve_agent_role(
     if direct_acl:
         return direct_acl.role
 
-    # 4. Team ACL entries — get user's teams, then check team ACL
+    # 3. Team ACL entries — get user's teams, then check team ACL
     team_ids_result = await db.execute(
         select(TeamMember.team_id).where(TeamMember.user_id == user.id)
     )
@@ -70,11 +65,11 @@ async def resolve_agent_role(
             best_role = max(team_acls, key=lambda a: ROLE_HIERARCHY.get(a.role, 0))
             return best_role.role
 
-    # 5. Public agent → implicit 'user' role
+    # 4. Public agent → implicit 'user' role
     if agent.visibility == "public":
         return "user"
 
-    # 6. Team agent → implicit 'user' for team members
+    # 5. Team agent → implicit 'user' for team members
     if agent.visibility == "team" and user_team_ids:
         # Check if any of user's teams match agent owner's teams
         owner_team_ids_result = await db.execute(
@@ -84,7 +79,7 @@ async def resolve_agent_role(
         if owner_team_ids & set(user_team_ids):
             return "user"
 
-    # 7. Deny
+    # 6. Deny
     return None
 
 
