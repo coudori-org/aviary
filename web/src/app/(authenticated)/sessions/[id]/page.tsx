@@ -95,6 +95,12 @@ export default function ChatPage() {
             setConnStatus(msg.status);
             setStatusMessage(msg.message || null);
             break;
+          case "user_message":
+            setMessages((prev) => [...prev, {
+              id: crypto.randomUUID(), session_id: session.id, sender_type: "user",
+              sender_id: msg.sender_id, content: msg.content, metadata: {}, created_at: new Date().toISOString(),
+            }]);
+            break;
           case "chunk":
           case "tool_use":
           case "tool_result":
@@ -177,12 +183,6 @@ export default function ChatPage() {
   const handleSend = useCallback(
     (content: string) => {
       if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN || !isReady) return;
-      resetBlocks();
-      setMessages((prev) => [...prev, {
-        id: crypto.randomUUID(), session_id: session!.id, sender_type: "user",
-        sender_id: user!.id, content, metadata: {}, created_at: new Date().toISOString(),
-      }]);
-      setIsStreaming(true);
       wsRef.current.send(JSON.stringify({ type: "message", content }));
 
       if (!session!.title) {
@@ -192,7 +192,7 @@ export default function ChatPage() {
         updateSidebarTitle(session!.id, autoTitle);
       }
     },
-    [session, user, isReady, resetBlocks, updateSidebarTitle]
+    [session, user, isReady, updateSidebarTitle]
   );
 
   const handleTitleClick = useCallback(() => {

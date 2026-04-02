@@ -35,7 +35,6 @@ async def start_stream(
     agent_mcp_servers: list,
     agent_policy: dict,
     content: str,
-    sender_id: str,
 ) -> None:
     """Launch a background task that streams the agent response."""
     # Cancel any existing stream for this session
@@ -52,7 +51,7 @@ async def start_stream(
             session_id, agent_id,
             agent_model_config, agent_instruction,
             agent_tools, agent_mcp_servers, agent_policy,
-            content, sender_id,
+            content,
         )
     )
     _active_streams[session_id] = task
@@ -119,13 +118,15 @@ async def _run_stream(
     agent_mcp_servers: list,
     agent_policy: dict,
     content: str,
-    sender_id: str,
 ) -> None:
     """Execute the agent response stream as a background task."""
     session_uuid = uuid.UUID(session_id)
 
     await redis_service.set_stream_status(session_id, "streaming")
     await redis_service.set_session_status(session_id, "streaming")
+
+    # Broadcast replay_start so all connected clients show the typing indicator
+    await redis_service.publish_message(session_id, {"type": "replay_start"})
 
     # Ensure agent is running before streaming (handles pod-killed-while-chatting case)
     try:
@@ -141,7 +142,7 @@ async def _run_stream(
         ready = await agent_controller.wait_for_agent_ready(agent_id, timeout=90)
         if not ready:
             error_event = {"type": "error", "message": "Agent did not become ready in time"}
-            await redis_service.publish_message(session_id, {**error_event, "_sender": sender_id})
+            await redis_service.publish_message(session_id, error_event)
             await redis_service.set_stream_status(session_id, "error")
             await redis_service.set_session_status(session_id, "idle")
             return
@@ -270,4 +271,4 @@ async def _run_stream(
         await redis_service.set_session_status(session_id, "idle")
 
         error_event = {"type": "error", "message": "Agent streaming failed"}
-        await redis_service.publish_message(session_id, {**error_event, "_sender": sender_id})
+        await redis_service.publish_message(session_id, error_event)

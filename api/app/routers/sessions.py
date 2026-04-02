@@ -249,9 +249,6 @@ async def websocket_chat(websocket: WebSocket, session_id: uuid.UUID):
                         continue
                     try:
                         data = json.loads(raw_msg["data"])
-                        if data.get("_sender") == user_id_str:
-                            continue
-                        data.pop("_sender", None)
                         await websocket.send_json(data)
                     except Exception:
                         pass
@@ -286,7 +283,6 @@ async def websocket_chat(websocket: WebSocket, session_id: uuid.UUID):
                     "type": "user_message",
                     "sender_id": user_id_str,
                     "content": content,
-                    "_sender": user_id_str,
                 })
 
                 async with async_session_factory() as db:
@@ -302,7 +298,6 @@ async def websocket_chat(websocket: WebSocket, session_id: uuid.UUID):
                     agent_mcp_servers=agent.mcp_servers,
                     agent_policy=agent.policy,
                     content=content,
-                    sender_id=user_id_str,
                 )
         finally:
             relay_task.cancel()
