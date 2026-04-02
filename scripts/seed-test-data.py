@@ -76,7 +76,7 @@ async def main():
             "A helpful coding assistant",
             user1_id,
             "You are a helpful coding assistant. Help users write, debug, and review code.",
-            '{"backend": "claude", "model": "default", "temperature": 0.7}',
+            '{"backend": "claude", "model": "default"}',
             '["read_file", "write_file", "run_command"]',
             '{}',
             "public",

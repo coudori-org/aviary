@@ -125,8 +125,7 @@ AGENT_PAYLOAD=$(cat <<EOF
   "instruction": "You are a test assistant. Reply briefly to any message.",
   "model_config": {
     "backend": "ollama",
-    "model": "default",
-    "temperature": 0.7
+    "model": "default"
   },
   "tools": [],
   "mcp_servers": [],

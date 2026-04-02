@@ -12,7 +12,6 @@ async def test_create_agent(user1_client: AsyncClient):
         "model_config": {
             "backend": "claude",
             "model": "default",
-            "temperature": 0.7,
         },
         "tools": ["read_file", "write_file"],
         "visibility": "private",

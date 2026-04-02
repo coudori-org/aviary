@@ -17,7 +17,7 @@ interface AgentFormData {
   model_config: {
     backend: string;
     model: string;
-    temperature: number;
+    temperature: number | null;
     top_p: number | null;
     top_k: number | null;
     num_ctx: number | null;
@@ -41,7 +41,7 @@ const defaultData: AgentFormData = {
   model_config: {
     backend: "claude",
     model: "default",
-    temperature: 0.7,
+    temperature: null,
     top_p: null,
     top_k: null,
     num_ctx: null,
@@ -55,6 +55,15 @@ interface ModelOption {
   id: string;
   name: string;
 }
+
+// Capability badge styles — known caps get distinct colors, others get a muted style
+const CAP_STYLES: Record<string, string> = {
+  vision: "bg-blue-500/10 text-blue-400 ring-blue-500/20",
+  audio: "bg-purple-500/10 text-purple-400 ring-purple-500/20",
+  tools: "bg-green-500/10 text-green-400 ring-green-500/20",
+  thinking: "bg-amber-500/10 text-amber-400 ring-amber-500/20",
+  _default: "bg-zinc-500/10 text-zinc-400 ring-zinc-500/20",
+};
 
 // Discrete context window steps
 const CTX_STEPS = [4096, 8192, 16384, 32768, 65536, 131072, 262144, 524288, 1048576];
@@ -130,7 +139,7 @@ export function AgentForm({ initialData, onSubmit, submitLabel }: AgentFormProps
             temperature: info.defaults.temperature ?? prev.model_config.temperature,
             top_p: info.defaults.top_p ?? prev.model_config.top_p,
             top_k: info.defaults.top_k != null ? info.defaults.top_k : prev.model_config.top_k,
-            num_ctx: info.defaults.num_ctx ?? prev.model_config.num_ctx,
+            num_ctx: info.defaults.num_ctx ?? info.limits.max_context_length ?? prev.model_config.num_ctx,
           },
         }));
       } catch {
@@ -177,7 +186,8 @@ export function AgentForm({ initialData, onSubmit, submitLabel }: AgentFormProps
   const maxCtx = modelInfo?.limits.max_context_length ?? null;
   const availableCtxSteps = CTX_STEPS.filter((s) => !maxCtx || s <= maxCtx);
   const availableCtxLabels = CTX_LABELS.slice(0, availableCtxSteps.length);
-  const isNonClaude = data.model_config.backend !== "claude";
+  const isSpecificModel = data.model_config.model !== "default";
+  const showSamplingControls = isSpecificModel && data.model_config.backend !== "claude";
 
   return (
     <form onSubmit={handleSubmit} className="space-y-8">
@@ -293,21 +303,17 @@ export function AgentForm({ initialData, onSubmit, submitLabel }: AgentFormProps
           </div>
 
           {/* Capabilities badges */}
-          {modelInfo && (
-            <div className="flex items-center gap-2">
+          {modelInfo && modelInfo.capabilities.length > 0 && (
+            <div className="flex items-center gap-2 flex-wrap">
               <span className="text-[11px] text-muted-foreground/60">Capabilities:</span>
-              {modelInfo.capabilities.vision && (
-                <span className="inline-flex items-center rounded-md bg-blue-500/10 px-2 py-0.5 text-[11px] font-medium text-blue-400 ring-1 ring-inset ring-blue-500/20">Vision</span>
-              )}
-              {modelInfo.capabilities.audio && (
-                <span className="inline-flex items-center rounded-md bg-purple-500/10 px-2 py-0.5 text-[11px] font-medium text-purple-400 ring-1 ring-inset ring-purple-500/20">Audio</span>
-              )}
-              {modelInfo.capabilities.tools && (
-                <span className="inline-flex items-center rounded-md bg-green-500/10 px-2 py-0.5 text-[11px] font-medium text-green-400 ring-1 ring-inset ring-green-500/20">Tools</span>
-              )}
-              {!modelInfo.capabilities.vision && !modelInfo.capabilities.audio && !modelInfo.capabilities.tools && (
-                <span className="text-[11px] text-muted-foreground/40">Text only</span>
-              )}
+              {modelInfo.capabilities.map((cap) => {
+                const style = CAP_STYLES[cap] ?? CAP_STYLES._default;
+                return (
+                  <span key={cap} className={`inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset ${style}`}>
+                    {cap.charAt(0).toUpperCase() + cap.slice(1)}
+                  </span>
+                );
+              })}
               {maxCtx && (
                 <span className="ml-auto text-[11px] text-muted-foreground/50">
                   Max context: {formatCtxLabel(maxCtx)}
@@ -317,7 +323,7 @@ export function AgentForm({ initialData, onSubmit, submitLabel }: AgentFormProps
           )}
 
           {/* Context Window (non-Claude) */}
-          {isNonClaude && (
+          {showSamplingControls && (
             <div className="space-y-2">
               <Label>Context Window</Label>
               <div className="flex items-center gap-3">
@@ -337,16 +343,19 @@ export function AgentForm({ initialData, onSubmit, submitLabel }: AgentFormProps
                   {formatCtxLabel(data.model_config.num_ctx)}
                 </span>
               </div>
-              <div className="flex justify-between text-[10px] text-muted-foreground/40 px-0.5">
-                {availableCtxLabels.map((label) => (
-                  <span key={label}>{label}</span>
-                ))}
+              <div className="flex items-center gap-3">
+                <div className="flex-1 flex justify-between text-[10px] text-muted-foreground/40 px-0.5">
+                  {availableCtxLabels.map((label) => (
+                    <span key={label}>{label}</span>
+                  ))}
+                </div>
+                <span className="w-16" />
               </div>
             </div>
           )}
 
           {/* Advanced Sampling (non-Claude only) */}
-          {isNonClaude && (
+          {showSamplingControls && (
             <div className="space-y-5 border-t border-border/40 pt-5">
               <p className="text-[11px] font-medium text-muted-foreground/70 uppercase tracking-wider">Advanced Sampling</p>
 
@@ -359,7 +368,7 @@ export function AgentForm({ initialData, onSubmit, submitLabel }: AgentFormProps
                     min={0}
                     max={2}
                     step={0.05}
-                    value={data.model_config.temperature}
+                    value={data.model_config.temperature ?? 1.0}
                     onChange={(e) => updateModelConfig("temperature", parseFloat(e.target.value))}
                     className="flex-1 h-2 rounded-full appearance-none bg-secondary cursor-pointer accent-primary"
                   />
@@ -369,7 +378,7 @@ export function AgentForm({ initialData, onSubmit, submitLabel }: AgentFormProps
                     min={0}
                     max={2}
                     step={0.05}
-                    value={data.model_config.temperature}
+                    value={data.model_config.temperature ?? ""}
                     onChange={(e) => {
                       const v = parseFloat(e.target.value);
                       if (!isNaN(v)) updateModelConfig("temperature", v);

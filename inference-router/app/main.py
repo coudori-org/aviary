@@ -22,9 +22,11 @@ from fastapi.responses import StreamingResponse
 from app.backends import (
     ANTHROPIC_API_KEY,
     CLAUDE_API_URL,
+    DEFAULT_MODEL_PARAMS,
     OLLAMA_URL,
     VALID_BACKENDS,
     VLLM_URL,
+    fetch_default_model_params,
     get_proxy_url,
     resolve_model,
 )
@@ -33,6 +35,13 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Aviary Inference Router", version="0.1.0")
+
+
+@app.on_event("startup")
+async def _startup():
+    await fetch_default_model_params()
+    if DEFAULT_MODEL_PARAMS:
+        logger.info("Cached default model params: %s", DEFAULT_MODEL_PARAMS)
 
 
 @app.post("/v1/messages")
@@ -62,13 +71,20 @@ async def proxy_messages(request: Request):
         "x-sampling-top-k": ("top_k", int),
         "x-sampling-num-ctx": ("num_ctx", int),
     }
+    has_sampling_headers = False
     for header, (body_key, cast) in _SAMPLING_HEADERS.items():
         val = request.headers.get(header)
         if val is not None:
+            has_sampling_headers = True
             try:
                 body.setdefault(body_key, cast(val))
             except (ValueError, TypeError):
                 pass
+
+    # When no sampling headers provided, apply cached defaults for the backend
+    if not has_sampling_headers and backend in DEFAULT_MODEL_PARAMS:
+        for key, value in DEFAULT_MODEL_PARAMS[backend].items():
+            body.setdefault(key, value)
 
     body_bytes = json.dumps(body).encode()
     is_stream = body.get("stream", False)
@@ -299,11 +315,7 @@ async def get_model_info(backend: str, model: str):
                 "limits": {
                     "max_context_length": max_ctx or None,
                 },
-                "capabilities": {
-                    "vision": "vision" in caps,
-                    "audio": "audio" in caps,
-                    "tools": "tools" in caps,
-                },
+                "capabilities": caps,
             }
         except httpx.HTTPStatusError as e:
             raise HTTPException(status_code=e.response.status_code, detail=f"Ollama error: {e.response.text}")
@@ -316,7 +328,7 @@ async def get_model_info(backend: str, model: str):
             "backend": backend,
             "defaults": {"temperature": 1.0, "top_p": None, "top_k": None, "num_ctx": None},
             "limits": {"max_context_length": 200000},
-            "capabilities": {"vision": True, "audio": False, "tools": True},
+            "capabilities": ["vision", "tools"],
         }
     elif backend == "vllm":
         return {
@@ -324,7 +336,7 @@ async def get_model_info(backend: str, model: str):
             "backend": backend,
             "defaults": {"temperature": 0.7, "top_p": None, "top_k": None, "num_ctx": None},
             "limits": {"max_context_length": None},
-            "capabilities": {"vision": False, "audio": False, "tools": False},
+            "capabilities": [],
         }
     else:
         raise HTTPException(status_code=400, detail=f"Unknown backend: {backend}")

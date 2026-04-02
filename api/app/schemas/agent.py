@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 class ModelConfig(BaseModel):
     backend: str = Field("claude", pattern="^(claude|ollama|vllm)$")
     model: str = "default"
-    temperature: float = 0.7
+    temperature: float | None = None
     top_p: float | None = None
     top_k: int | None = None
     num_ctx: int | None = None

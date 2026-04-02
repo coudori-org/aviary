@@ -178,10 +178,11 @@ export async function* processMessage(
     ANTHROPIC_API_KEY: "routed-via-inference-router",
     ANTHROPIC_CUSTOM_HEADERS: [
       `X-Backend: ${backend}`,
-      ...(mc.temperature != null ? [`X-Sampling-Temperature: ${mc.temperature}`] : []),
-      ...(mc.top_p != null ? [`X-Sampling-Top-P: ${mc.top_p}`] : []),
-      ...(mc.top_k != null ? [`X-Sampling-Top-K: ${mc.top_k}`] : []),
-      ...(mc.num_ctx != null ? [`X-Sampling-Num-Ctx: ${mc.num_ctx}`] : []),
+      // Only send sampling headers for specific models; "default" uses server-side cached defaults
+      ...(model !== "default" && mc.temperature != null ? [`X-Sampling-Temperature: ${mc.temperature}`] : []),
+      ...(model !== "default" && mc.top_p != null ? [`X-Sampling-Top-P: ${mc.top_p}`] : []),
+      ...(model !== "default" && mc.top_k != null ? [`X-Sampling-Top-K: ${mc.top_k}`] : []),
+      ...(model !== "default" && mc.num_ctx != null ? [`X-Sampling-Num-Ctx: ${mc.num_ctx}`] : []),
     ].join("\n"),
     SESSION_WORKSPACE: workspace,
     CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",

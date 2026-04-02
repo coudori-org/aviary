@@ -30,6 +30,53 @@ DEFAULT_MODELS: dict[str, str] = {
 }
 
 
+# In-memory cache for default model sampling parameters.
+# Populated at startup by fetch_default_model_params().
+# Keys: backend name, Values: dict of sampling params (temperature, top_p, top_k, num_ctx).
+DEFAULT_MODEL_PARAMS: dict[str, dict] = {}
+
+
+async def fetch_default_model_params():
+    """Fetch and cache sampling parameters for each backend's default model.
+
+    Called once at startup. For Ollama, queries /api/show to read Modelfile defaults.
+    """
+    import httpx
+
+    # Ollama
+    ollama_model = DEFAULT_MODELS.get("ollama", "")
+    if ollama_model:
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                resp = await client.post(f"{OLLAMA_URL}/api/show", json={"name": ollama_model})
+                resp.raise_for_status()
+                data = resp.json()
+            params: dict[str, float] = {}
+            for line in (data.get("parameters") or "").strip().splitlines():
+                parts = line.split()
+                if len(parts) == 2:
+                    try:
+                        params[parts[0]] = float(parts[1])
+                    except ValueError:
+                        pass
+            # Extract max context length from model_info
+            max_ctx = 0
+            for k, v in (data.get("model_info") or {}).items():
+                if k.endswith(".context_length") and isinstance(v, (int, float)):
+                    max_ctx = max(max_ctx, int(v))
+
+            DEFAULT_MODEL_PARAMS["ollama"] = {
+                k: v for k, v in {
+                    "temperature": params.get("temperature"),
+                    "top_p": params.get("top_p"),
+                    "top_k": int(params["top_k"]) if "top_k" in params else None,
+                    "num_ctx": max_ctx or (int(params["num_ctx"]) if "num_ctx" in params else None),
+                }.items() if v is not None
+            }
+        except Exception:
+            pass  # Ollama may not be running at startup
+
+
 def resolve_model(model: str, backend: str) -> str:
     """Resolve 'default' to the configured default model for the backend."""
     if model == "default":
