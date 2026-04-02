@@ -9,8 +9,9 @@ import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 
-from app.routers import agents, deployments, policies
+from app.routers import agents, deployments, pages, policies
 from app.services import controller_client, redis_service, scaling_service
 
 logger = logging.getLogger(__name__)
@@ -59,9 +60,12 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+app.mount("/static", StaticFiles(directory="app/static"), name="static")
+
 app.include_router(agents.router, prefix="/api/agents", tags=["agents"])
 app.include_router(deployments.router, prefix="/api/agents", tags=["deployments"])
 app.include_router(policies.router, prefix="/api/agents", tags=["policies"])
+app.include_router(pages.router, tags=["pages"])
 
 
 @app.get("/health")

@@ -1,0 +1,267 @@
+"""HTML pages — serves the admin web UI via Jinja2 templates."""
+
+import uuid
+import logging
+
+from fastapi import APIRouter, Depends, Form, Request
+from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.templating import Jinja2Templates
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from aviary_shared.db.models import Agent
+from app.db import get_db
+from app.services import controller_client, redis_service
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter()
+templates = Jinja2Templates(directory="app/templates")
+
+
+# ── Agent List ────────────────────────────────────────────────
+
+@router.get("/", response_class=HTMLResponse)
+async def agent_list(request: Request, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(Agent).order_by(Agent.created_at.desc()))
+    agents = result.scalars().all()
+    return templates.TemplateResponse("agents.html", {"request": request, "agents": agents})
+
+
+# ── Agent Detail ──────────────────────────────────────────────
+
+@router.get("/agents/{agent_id}", response_class=HTMLResponse)
+async def agent_detail(
+    request: Request, agent_id: uuid.UUID, db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(select(Agent).where(Agent.id == agent_id))
+    agent = result.scalar_one_or_none()
+    if not agent:
+        return HTMLResponse("<h1>Agent not found</h1>", status_code=404)
+
+    policy = agent.policy or {}
+    egress_rules = policy.get("allowedEgress", [])
+    flash = request.query_params.get("flash")
+    flash_data = None
+    if flash:
+        flash_data = {"type": "success", "message": flash}
+    error = request.query_params.get("error")
+    if error:
+        flash_data = {"type": "error", "message": error}
+
+    return templates.TemplateResponse("agent_detail.html", {
+        "request": request,
+        "agent": agent,
+        "policy": policy,
+        "egress_rules": egress_rules,
+        "flash": flash_data,
+    })
+
+
+# ── Agent Config Update ──────────────────────────────────────
+
+@router.post("/agents/{agent_id}/update")
+async def update_agent_config(
+    agent_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    name: str = Form(...),
+    description: str = Form(""),
+    instruction: str = Form(...),
+    visibility: str = Form("private"),
+):
+    result = await db.execute(select(Agent).where(Agent.id == agent_id))
+    agent = result.scalar_one_or_none()
+    if not agent:
+        return RedirectResponse(f"/agents/{agent_id}?error=Agent+not+found", status_code=303)
+
+    agent.name = name
+    agent.description = description or None
+    agent.instruction = instruction
+    agent.visibility = visibility
+    await db.flush()
+
+    # Sync config to K8s if namespace exists
+    if agent.namespace:
+        try:
+            await controller_client.update_namespace_config(
+                namespace=agent.namespace,
+                instruction=agent.instruction,
+                tools=agent.tools,
+                policy=agent.policy,
+                mcp_servers=agent.mcp_servers,
+            )
+        except Exception:
+            logger.warning("K8s config sync failed for agent %s", agent.id, exc_info=True)
+
+    return RedirectResponse(f"/agents/{agent_id}?flash=Configuration+saved", status_code=303)
+
+
+# ── Policy Update ─────────────────────────────────────────────
+
+@router.post("/agents/{agent_id}/policy")
+async def update_policy(
+    agent_id: uuid.UUID,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(select(Agent).where(Agent.id == agent_id))
+    agent = result.scalar_one_or_none()
+    if not agent:
+        return RedirectResponse(f"/agents/{agent_id}?error=Agent+not+found", status_code=303)
+
+    form = await request.form()
+
+    # Parse scaling fields
+    agent.pod_strategy = form.get("pod_strategy", agent.pod_strategy)
+    agent.min_pods = int(form.get("min_pods", agent.min_pods))
+    agent.max_pods = int(form.get("max_pods", agent.max_pods))
+
+    # Build policy dict
+    policy = dict(agent.policy) if agent.policy else {}
+    policy["maxMemoryPerSession"] = form.get("max_memory", "4Gi")
+    policy["maxCpuPerSession"] = form.get("max_cpu", "4")
+    policy["maxConcurrentSessions"] = int(form.get("max_concurrent_sessions", 20))
+    policy["maxTokensPerTurn"] = int(form.get("max_tokens_per_turn", 100000))
+    policy["containerImage"] = form.get("container_image", "aviary-runtime:latest")
+    policy["maxConcurrentSessionsPerPod"] = int(form.get("max_sessions_per_pod", 10))
+    policy["allowShellExec"] = "allow_shell_exec" in form
+    policy["allowFileWrite"] = "allow_file_write" in form
+
+    # Parse egress rules
+    names = form.getlist("egress_name[]")
+    types = form.getlist("egress_type[]")
+    targets = form.getlist("egress_target[]")
+    ports_list = form.getlist("egress_ports[]")
+
+    egress_rules = []
+    for i in range(len(names)):
+        name = names[i].strip()
+        target = targets[i].strip() if i < len(targets) else ""
+        if not name or not target:
+            continue
+        rule = {"name": name}
+        if i < len(types) and types[i] == "cidr":
+            rule["cidr"] = target
+        else:
+            rule["domain"] = target
+        # Parse ports
+        ports_str = ports_list[i].strip() if i < len(ports_list) else ""
+        ports = []
+        if ports_str:
+            for p in ports_str.split(","):
+                p = p.strip()
+                if p.isdigit():
+                    ports.append({"port": int(p), "protocol": "TCP"})
+        rule["ports"] = ports
+        egress_rules.append(rule)
+
+    policy["allowedEgress"] = egress_rules
+    agent.policy = policy
+    await db.flush()
+
+    # Sync to Redis + K8s
+    agent_id_str = str(agent.id)
+    try:
+        await redis_service.sync_egress_policy(agent_id_str, policy)
+    except Exception:
+        logger.warning("Redis egress sync failed for agent %s", agent.id, exc_info=True)
+
+    if agent.namespace:
+        try:
+            await controller_client.update_network_policy(agent.namespace, policy)
+        except Exception:
+            logger.warning("NetworkPolicy update failed for agent %s", agent.id, exc_info=True)
+        try:
+            await controller_client.invalidate_egress_cache(agent_id_str)
+        except Exception:
+            pass
+
+    return RedirectResponse(f"/agents/{agent_id}?flash=Policy+saved", status_code=303)
+
+
+# ── Deployment Actions ────────────────────────────────────────
+
+@router.post("/agents/{agent_id}/activate")
+async def activate_agent(agent_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    from datetime import datetime, timezone
+
+    result = await db.execute(select(Agent).where(Agent.id == agent_id))
+    agent = result.scalar_one_or_none()
+    if not agent:
+        return RedirectResponse(f"/agents/{agent_id}?error=Agent+not+found", status_code=303)
+
+    try:
+        if not agent.namespace:
+            ns_name = await controller_client.create_namespace(
+                agent_id=str(agent.id), owner_id=str(agent.owner_id),
+                instruction=agent.instruction, tools=agent.tools,
+                policy=agent.policy or {}, mcp_servers=agent.mcp_servers or [],
+            )
+            agent.namespace = ns_name
+
+        await controller_client.ensure_deployment(
+            namespace=agent.namespace, agent_id=str(agent.id), owner_id=str(agent.owner_id),
+            instruction=agent.instruction, tools=agent.tools,
+            policy=agent.policy or {}, mcp_servers=agent.mcp_servers or [],
+            min_pods=agent.min_pods, max_pods=agent.max_pods,
+        )
+        agent.deployment_active = True
+        agent.last_activity_at = datetime.now(timezone.utc)
+        await db.flush()
+        return RedirectResponse(f"/agents/{agent_id}?flash=Agent+activated", status_code=303)
+    except Exception as e:
+        return RedirectResponse(f"/agents/{agent_id}?error=Activation+failed:+{e}", status_code=303)
+
+
+@router.post("/agents/{agent_id}/deactivate")
+async def deactivate_agent(agent_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(Agent).where(Agent.id == agent_id))
+    agent = result.scalar_one_or_none()
+    if not agent:
+        return RedirectResponse(f"/agents/{agent_id}?error=Agent+not+found", status_code=303)
+
+    if agent.namespace:
+        try:
+            await controller_client.scale_to_zero(agent.namespace)
+        except Exception:
+            pass
+    agent.deployment_active = False
+    await db.flush()
+    return RedirectResponse(f"/agents/{agent_id}?flash=Agent+deactivated", status_code=303)
+
+
+@router.post("/agents/{agent_id}/deploy")
+async def deploy_agent(agent_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(Agent).where(Agent.id == agent_id))
+    agent = result.scalar_one_or_none()
+    if not agent:
+        return RedirectResponse(f"/agents/{agent_id}?error=Agent+not+found", status_code=303)
+
+    if agent.deployment_active and agent.namespace:
+        try:
+            await controller_client.rolling_restart(agent.namespace)
+        except Exception:
+            pass
+    return RedirectResponse(f"/agents/{agent_id}?flash=Rolling+restart+triggered", status_code=303)
+
+
+@router.post("/agents/{agent_id}/delete")
+async def delete_agent(agent_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(Agent).where(Agent.id == agent_id))
+    agent = result.scalar_one_or_none()
+    if not agent:
+        return RedirectResponse("/?error=Agent+not+found", status_code=303)
+
+    if agent.namespace:
+        try:
+            await controller_client.delete_deployment(agent.namespace)
+        except Exception:
+            pass
+        try:
+            await controller_client.delete_namespace(str(agent.id))
+        except Exception:
+            pass
+
+    await db.delete(agent)
+    await db.flush()
+    return RedirectResponse("/?flash=Agent+deleted", status_code=303)

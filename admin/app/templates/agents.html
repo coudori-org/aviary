@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}Agents — Aviary Admin{% endblock %}
+{% block content %}
+<div style="margin-top: 16px;">
+  <div class="flex items-center justify-between mb-4">
+    <h2 style="font-size: 18px; font-weight: 600;">Agents</h2>
+    <span class="text-dim text-sm">{{ agents | length }} total</span>
+  </div>
+
+  {% if agents %}
+  <table class="table">
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th>Slug</th>
+        <th>Visibility</th>
+        <th>Status</th>
+        <th>Deployment</th>
+        <th>Pods</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for agent in agents %}
+      <tr>
+        <td><a href="/agents/{{ agent.id }}">{{ agent.name }}</a></td>
+        <td class="mono">{{ agent.slug }}</td>
+        <td><span class="badge badge-{{ agent.visibility }}">{{ agent.visibility }}</span></td>
+        <td><span class="badge badge-{{ agent.status }}">{{ agent.status }}</span></td>
+        <td>
+          {% if agent.deployment_active %}
+            <span class="badge badge-ready">active</span>
+          {% else %}
+            <span class="badge badge-offline">inactive</span>
+          {% endif %}
+        </td>
+        <td class="text-sm text-muted">{{ agent.min_pods }}–{{ agent.max_pods }}</td>
+        <td><a href="/agents/{{ agent.id }}" class="btn btn-sm">Manage</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty">No agents registered.</div>
+  {% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,257 @@
+{% extends "base.html" %}
+{% block title %}{{ agent.name }} — Aviary Admin{% endblock %}
+{% block content %}
+<div class="breadcrumb">
+  <a href="/">Agents</a>
+  <span>/</span>
+  <span>{{ agent.name }}</span>
+</div>
+
+{% if flash %}
+<div class="flash flash-{{ flash.type }}">{{ flash.message }}</div>
+{% endif %}
+
+<!-- Agent header -->
+<div class="flex items-center justify-between mb-4">
+  <div>
+    <h2 style="font-size: 18px; font-weight: 600;">{{ agent.name }}</h2>
+    <p class="text-sm text-muted">{{ agent.slug }} · {{ agent.description or 'No description' }}</p>
+  </div>
+  <div class="btn-group">
+    {% if agent.deployment_active %}
+    <form method="POST" action="/agents/{{ agent.id }}/deactivate" style="display:inline">
+      <button type="submit" class="btn btn-sm btn-danger">Deactivate</button>
+    </form>
+    <form method="POST" action="/agents/{{ agent.id }}/deploy" style="display:inline">
+      <button type="submit" class="btn btn-sm">Restart</button>
+    </form>
+    {% else %}
+    <form method="POST" action="/agents/{{ agent.id }}/activate" style="display:inline">
+      <button type="submit" class="btn btn-sm btn-primary">Activate</button>
+    </form>
+    {% endif %}
+  </div>
+</div>
+
+<!-- Status cards -->
+<div class="form-row mb-4">
+  <div class="card">
+    <div class="card-header"><h3>Status</h3></div>
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 13px;">
+      <span class="text-muted">Agent Status</span>
+      <span class="badge badge-{{ agent.status }}">{{ agent.status }}</span>
+      <span class="text-muted">Deployment</span>
+      {% if agent.deployment_active %}
+        <span class="badge badge-ready">active</span>
+      {% else %}
+        <span class="badge badge-offline">inactive</span>
+      {% endif %}
+      <span class="text-muted">Namespace</span>
+      <span class="text-mono">{{ agent.namespace or '—' }}</span>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-header"><h3>Scaling</h3></div>
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 13px;">
+      <span class="text-muted">Pod Strategy</span>
+      <span>{{ agent.pod_strategy }}</span>
+      <span class="text-muted">Min Pods</span>
+      <span>{{ agent.min_pods }}</span>
+      <span class="text-muted">Max Pods</span>
+      <span>{{ agent.max_pods }}</span>
+    </div>
+  </div>
+</div>
+
+<!-- Agent Config Form -->
+<form method="POST" action="/agents/{{ agent.id }}/update">
+  <div class="card">
+    <div class="card-header"><h2>Agent Configuration</h2></div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Name</label>
+        <input name="name" value="{{ agent.name }}">
+      </div>
+      <div class="form-group">
+        <label>Visibility</label>
+        <select name="visibility">
+          <option value="private" {{ 'selected' if agent.visibility == 'private' }}>Private</option>
+          <option value="team" {{ 'selected' if agent.visibility == 'team' }}>Team</option>
+          <option value="public" {{ 'selected' if agent.visibility == 'public' }}>Public</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-group">
+      <label>Description</label>
+      <input name="description" value="{{ agent.description or '' }}">
+    </div>
+    <div class="form-group">
+      <label>System Instruction</label>
+      <textarea name="instruction" rows="6">{{ agent.instruction }}</textarea>
+    </div>
+    <button type="submit" class="btn btn-primary">Save Configuration</button>
+  </div>
+</form>
+
+<!-- Policy Form -->
+<form method="POST" action="/agents/{{ agent.id }}/policy">
+  <div class="card">
+    <div class="card-header"><h2>Infrastructure Policy</h2></div>
+
+    <div class="section-title">Scaling</div>
+    <div class="form-row-3">
+      <div class="form-group">
+        <label>Pod Strategy</label>
+        <select name="pod_strategy">
+          <option value="lazy" {{ 'selected' if agent.pod_strategy == 'lazy' }}>Lazy</option>
+          <option value="eager" {{ 'selected' if agent.pod_strategy == 'eager' }}>Eager</option>
+          <option value="manual" {{ 'selected' if agent.pod_strategy == 'manual' }}>Manual</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Min Pods</label>
+        <input type="number" name="min_pods" value="{{ agent.min_pods }}" min="0" max="20">
+      </div>
+      <div class="form-group">
+        <label>Max Pods</label>
+        <input type="number" name="max_pods" value="{{ agent.max_pods }}" min="1" max="20">
+      </div>
+    </div>
+
+    <div class="section-title">Resource Limits</div>
+    <div class="form-row-3">
+      <div class="form-group">
+        <label>Max Memory per Session</label>
+        <input name="max_memory" value="{{ policy.maxMemoryPerSession | default('4Gi') }}">
+      </div>
+      <div class="form-group">
+        <label>Max CPU per Session</label>
+        <input name="max_cpu" value="{{ policy.maxCpuPerSession | default('4') }}">
+      </div>
+      <div class="form-group">
+        <label>Max Concurrent Sessions</label>
+        <input type="number" name="max_concurrent_sessions" value="{{ policy.maxConcurrentSessions | default(20) }}">
+      </div>
+    </div>
+    <div class="form-row-3">
+      <div class="form-group">
+        <label>Max Tokens per Turn</label>
+        <input type="number" name="max_tokens_per_turn" value="{{ policy.maxTokensPerTurn | default(100000) }}">
+      </div>
+      <div class="form-group">
+        <label>Container Image</label>
+        <input name="container_image" value="{{ policy.containerImage | default('aviary-runtime:latest') }}">
+      </div>
+      <div class="form-group">
+        <label>Sessions per Pod</label>
+        <input type="number" name="max_sessions_per_pod" value="{{ policy.maxConcurrentSessionsPerPod | default(10) }}">
+      </div>
+    </div>
+
+    <div class="form-row">
+      <div class="form-group">
+        <label>
+          <input type="checkbox" name="allow_shell_exec" {{ 'checked' if policy.allowShellExec | default(false) }}> Allow Shell Execution
+        </label>
+      </div>
+      <div class="form-group">
+        <label>
+          <input type="checkbox" name="allow_file_write" {{ 'checked' if policy.allowFileWrite | default(true) }}> Allow File Write
+        </label>
+      </div>
+    </div>
+
+    <div class="section-title">Network Policy (Egress Rules)</div>
+    <p class="text-sm text-dim mb-4">All outbound traffic is blocked by default. Add rules to allow specific destinations.</p>
+
+    <div id="egress-rules">
+      {% for rule in egress_rules %}
+      <div class="egress-rule" data-index="{{ loop.index0 }}">
+        <div class="form-group">
+          <label>Name</label>
+          <input name="egress_name[]" value="{{ rule.name }}" placeholder="e.g. GitHub API">
+        </div>
+        <div class="form-group">
+          <label>Type</label>
+          <select name="egress_type[]" onchange="toggleEgressField(this)">
+            <option value="domain" {{ 'selected' if rule.domain is defined and rule.domain is not none }}>Domain</option>
+            <option value="cidr" {{ 'selected' if rule.cidr is defined and rule.cidr is not none }}>CIDR</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Target</label>
+          <input name="egress_target[]" value="{{ rule.domain or rule.cidr or '' }}" placeholder="*.example.com or 10.0.0.0/8">
+        </div>
+        <div class="form-group">
+          <label>Ports</label>
+          <input name="egress_ports[]" value="{{ rule.ports | map(attribute='port') | join(', ') if rule.ports else '' }}" placeholder="443, 8080">
+        </div>
+        <button type="button" class="btn-remove" onclick="this.closest('.egress-rule').remove()" title="Remove">✕</button>
+      </div>
+      {% endfor %}
+    </div>
+    <button type="button" class="btn btn-sm mt-4" onclick="addEgressRule()">+ Add Egress Rule</button>
+
+    <div class="mt-4">
+      <button type="submit" class="btn btn-primary">Save Policy</button>
+      <button type="button" class="btn" onclick="syncPolicy('{{ agent.id }}')">Force Sync to K8s</button>
+    </div>
+  </div>
+</form>
+
+<!-- Danger zone -->
+<div class="card" style="border-color: rgba(239,68,68,0.3);">
+  <div class="card-header"><h2 style="color: var(--danger);">Danger Zone</h2></div>
+  <div class="flex items-center justify-between">
+    <div>
+      <p class="text-sm">Permanently delete this agent and all its resources.</p>
+    </div>
+    <form method="POST" action="/agents/{{ agent.id }}/delete" onsubmit="return confirm('Delete this agent? This cannot be undone.')">
+      <button type="submit" class="btn btn-danger">Delete Agent</button>
+    </form>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+function addEgressRule() {
+  const container = document.getElementById('egress-rules');
+  const html = `
+    <div class="egress-rule">
+      <div class="form-group">
+        <label>Name</label>
+        <input name="egress_name[]" placeholder="e.g. GitHub API">
+      </div>
+      <div class="form-group">
+        <label>Type</label>
+        <select name="egress_type[]">
+          <option value="domain">Domain</option>
+          <option value="cidr">CIDR</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Target</label>
+        <input name="egress_target[]" placeholder="*.example.com or 10.0.0.0/8">
+      </div>
+      <div class="form-group">
+        <label>Ports</label>
+        <input name="egress_ports[]" placeholder="443, 8080">
+      </div>
+      <button type="button" class="btn-remove" onclick="this.closest('.egress-rule').remove()" title="Remove">✕</button>
+    </div>`;
+  container.insertAdjacentHTML('beforeend', html);
+}
+
+async function syncPolicy(agentId) {
+  try {
+    const resp = await fetch(`/api/agents/${agentId}/policy/sync`, { method: 'POST' });
+    const data = await resp.json();
+    alert(`Sync result:\nRedis: ${data.synced.redis}\nNetworkPolicy: ${data.synced.network_policy}\nEgress Cache: ${data.synced.egress_cache}`);
+  } catch (e) {
+    alert('Sync failed: ' + e.message);
+  }
+}
+</script>
+{% endblock %}
