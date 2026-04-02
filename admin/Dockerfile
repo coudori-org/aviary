@@ -20,15 +20,18 @@ COPY shared/ ./shared/
 
 # Install deps from lock file
 ARG UV_INDEX_URL
+ENV UV_LINK_MODE=copy
 RUN uv sync --frozen --package aviary-admin --no-dev --no-install-project
 
 # Copy app source
 COPY admin/ ./admin/
-
 RUN uv sync --frozen --package aviary-admin --no-dev
+
+# Activate virtual environment via PATH
+ENV PATH="/workspace/.venv/bin:$PATH"
 
 WORKDIR /workspace/admin
 
 EXPOSE 8001
 
-CMD ["uv", "run", "--frozen", "--no-dev", "--package", "aviary-admin", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8001", "--reload"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8001", "--reload"]

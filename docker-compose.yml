@@ -101,7 +101,7 @@ services:
       context: ./inference-router
       args:
         UV_INDEX_URL: ${UV_INDEX_URL:-}
-    command: python -m uvicorn app.main:app --host 0.0.0.0 --port 8080 --reload
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8080 --reload
     ports:
       - "8090:8080"
     extra_hosts:
@@ -125,7 +125,7 @@ services:
       context: ./credential-proxy
       args:
         UV_INDEX_URL: ${UV_INDEX_URL:-}
-    command: python -m uvicorn app.main:app --host 0.0.0.0 --port 8080 --reload
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8080 --reload
     ports:
       - "8091:8080"
     volumes:

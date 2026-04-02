@@ -20,16 +20,20 @@ COPY shared/ ./shared/
 
 # Install deps from lock file (cache-friendly — only reruns on manifest/lock change)
 ARG UV_INDEX_URL
+ENV UV_LINK_MODE=copy
 RUN uv sync --frozen --package aviary-api --no-dev --no-install-project
 
 # Copy app source
 COPY api/ ./api/
 RUN uv sync --frozen --package aviary-api --no-dev
 
-COPY api/entrypoint.sh /workspace/api/entrypoint.sh
-RUN chmod +x /workspace/api/entrypoint.sh
+# Activate virtual environment via PATH
+ENV PATH="/workspace/.venv/bin:$PATH"
 
 WORKDIR /workspace/api
+
+COPY api/entrypoint.sh /workspace/api/entrypoint.sh
+RUN chmod +x /workspace/api/entrypoint.sh
 
 EXPOSE 8000
 
