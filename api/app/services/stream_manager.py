@@ -133,7 +133,7 @@ async def _run_stream(
     tool_results: dict[str, str] = {}  # tool_use_id → result content
 
     try:
-        stream_url = agent_controller.get_stream_url(agent_id)
+        stream_url = agent_controller.get_stream_url(agent_id, session_id)
 
         if not stream_url:
             placeholder = "[Agent not running — runtime container needed for inference.]"

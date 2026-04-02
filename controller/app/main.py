@@ -9,12 +9,13 @@ import logging
 
 from fastapi import FastAPI
 
-from app.routers import deployments, egress, namespaces, streaming
+from app.routers import agents, deployments, egress, namespaces, streaming
 
 logging.basicConfig(level=logging.INFO)
 
 app = FastAPI(title="Aviary Agent Controller", version="0.1.0")
 
+app.include_router(agents.router, prefix="/v1", tags=["agents"])
 app.include_router(namespaces.router, prefix="/v1", tags=["namespaces"])
 app.include_router(deployments.router, prefix="/v1", tags=["deployments"])
 app.include_router(streaming.router, prefix="/v1", tags=["streaming"])
