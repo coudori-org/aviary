@@ -1,5 +1,15 @@
 {% extends "base.html" %}
 {% block title %}{{ agent.name }} — Aviary Admin{% endblock %}
+{% block flash %}
+{% if flash %}
+<div class="flash flash-{{ flash.type }}" onclick="this.remove()"
+  style="position: fixed; top: 72px; right: 12px; z-index: 1000; width: 360px; cursor: pointer; box-shadow: 0 4px 16px rgba(0,0,0,0.4);">
+  {{ flash.message }}
+  <span style="float: right; opacity: 0.5; margin-left: 12px;">✕</span>
+</div>
+<script>setTimeout(() => document.querySelector('.flash')?.remove(), 5000);</script>
+{% endif %}
+{% endblock %}
 {% block content %}
 <div class="breadcrumb">
   <a href="/">Agents</a>
@@ -7,28 +17,18 @@
   <span>{{ agent.name }}</span>
 </div>
 
-{% if flash %}
-<div class="flash flash-{{ flash.type }}">{{ flash.message }}</div>
-{% endif %}
-
 <!-- Agent header -->
 <div class="flex items-center justify-between mb-4">
   <div>
     <h2 style="font-size: 18px; font-weight: 600;">{{ agent.name }}</h2>
     <p class="text-sm text-muted">{{ agent.slug }} · {{ agent.description or 'No description' }}</p>
   </div>
-  <div class="btn-group">
+  <div class="btn-group" id="action-buttons">
     {% if deployment.active %}
-    <form method="POST" action="/agents/{{ agent.id }}/deactivate" style="display:inline">
-      <button type="submit" class="btn btn-sm btn-danger">Deactivate</button>
-    </form>
-    <form method="POST" action="/agents/{{ agent.id }}/deploy" style="display:inline">
-      <button type="submit" class="btn btn-sm">Restart</button>
-    </form>
+    <button class="btn btn-sm btn-danger" onclick="agentAction('deactivate', this)">Deactivate</button>
+    <button class="btn btn-sm" onclick="agentAction('deploy', this)">Restart</button>
     {% else %}
-    <form method="POST" action="/agents/{{ agent.id }}/activate" style="display:inline">
-      <button type="submit" class="btn btn-sm btn-primary">Activate</button>
-    </form>
+    <button class="btn btn-sm btn-primary" onclick="agentAction('activate', this)">Activate</button>
     {% endif %}
   </div>
 </div>
@@ -41,11 +41,13 @@
       <span class="text-muted">Agent Status</span>
       <span class="badge badge-{{ agent.status }}">{{ agent.status }}</span>
       <span class="text-muted">Deployment</span>
+      <span id="deployment-badge">
       {% if deployment.active %}
         <span class="badge badge-ready">active ({{ deployment.ready_replicas }}/{{ deployment.replicas }})</span>
       {% else %}
         <span class="badge badge-offline">inactive</span>
       {% endif %}
+      </span>
       <span class="text-muted">Namespace</span>
       <span class="text-mono">agent-{{ agent.id }}</span>
       <span class="text-muted">Created</span>
@@ -68,7 +70,7 @@
 </div>
 
 <!-- Agent Config Form -->
-<form method="POST" action="/agents/{{ agent.id }}/update">
+<form method="POST" action="/agents/{{ agent.id }}/update" onsubmit="return submitForm(this, 'Configuration saved')">
   <div class="card">
     <div class="card-header"><h2>Agent Configuration</h2></div>
     <div class="form-row">
@@ -98,7 +100,7 @@
 </form>
 
 <!-- Policy Form -->
-<form method="POST" action="/agents/{{ agent.id }}/policy">
+<form method="POST" action="/agents/{{ agent.id }}/policy" onsubmit="return submitForm(this, 'Policy saved')">
   <div class="card">
     <div class="card-header"><h2>Infrastructure Policy</h2></div>
 
@@ -235,13 +237,119 @@ function addEgressRule() {
   container.insertAdjacentHTML('beforeend', html);
 }
 
+const AGENT_ID = '{{ agent.id }}';
+
+function showFlash(message, type, { pulse = false, autoDismiss = false } = {}) {
+  document.querySelector('.flash')?.remove();
+  const div = document.createElement('div');
+  div.className = `flash flash-${type}${pulse ? ' flash-pulse' : ''}`;
+  div.style.cssText = 'position:fixed;top:72px;right:12px;z-index:1000;width:360px;cursor:pointer;box-shadow:0 4px 16px rgba(0,0,0,0.4);';
+  div.innerHTML = `${message}<span style="float:right;opacity:0.5;margin-left:12px;">✕</span>`;
+  div.onclick = () => div.remove();
+  document.body.appendChild(div);
+  if (autoDismiss) setTimeout(() => div.remove(), 5000);
+}
+
+async function checkDeployment() {
+  try {
+    const resp = await fetch(`/api/agents/${AGENT_ID}/deployment`);
+    const data = await resp.json();
+    return { ready: data.ready_replicas || 0, replicas: data.replicas || 0 };
+  } catch {
+    return { ready: 0, replicas: 0 };
+  }
+}
+
+function updateUI(ready, replicas) {
+  const badge = document.getElementById('deployment-badge');
+  const buttons = document.getElementById('action-buttons');
+  if (ready > 0) {
+    badge.innerHTML = `<span class="badge badge-ready">active (${ready}/${replicas})</span>`;
+    buttons.innerHTML = `
+      <button class="btn btn-sm btn-danger" onclick="agentAction('deactivate', this)">Deactivate</button>
+      <button class="btn btn-sm" onclick="agentAction('deploy', this)">Restart</button>`;
+  } else {
+    badge.innerHTML = `<span class="badge badge-offline">inactive</span>`;
+    buttons.innerHTML = `
+      <button class="btn btn-sm btn-primary" onclick="agentAction('activate', this)">Activate</button>`;
+  }
+}
+
+async function waitForStatus(targetActive, maxWait) {
+  const deadline = Date.now() + maxWait;
+  while (Date.now() < deadline) {
+    const { ready } = await checkDeployment();
+    if ((ready > 0) === targetActive) return true;
+    await new Promise(r => setTimeout(r, 2000));
+  }
+  return false;
+}
+
+function setButtonsDisabled(text) {
+  const buttons = document.getElementById('action-buttons');
+  buttons.innerHTML = `<button class="btn btn-sm" disabled style="opacity:0.6">${text}</button>`;
+}
+
+async function agentAction(action, activeBtn) {
+  const labels = { activate: 'Activating...', deactivate: 'Deactivating...', deploy: 'Restarting...' };
+  setButtonsDisabled(labels[action] || 'Processing...');
+  showFlash(labels[action] || 'Processing...', 'success', { pulse: true });
+
+  try {
+    const resp = await fetch(`/api/agents/${AGENT_ID}/${action}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+
+    if (action === 'activate') {
+      await waitForStatus(true, 90000);
+      showFlash('Agent activated', 'success', { autoDismiss: true });
+    } else if (action === 'deactivate') {
+      await waitForStatus(false, 30000);
+      showFlash('Agent deactivated', 'success', { autoDismiss: true });
+    } else {
+      showFlash('Rolling restart triggered', 'success', { autoDismiss: true });
+    }
+  } catch (e) {
+    showFlash('Action failed: ' + e.message, 'error');
+  }
+  const { ready, replicas } = await checkDeployment();
+  updateUI(ready, replicas);
+}
+
+function submitForm(form, successMsg) {
+  const btn = form.querySelector('button[type="submit"]');
+  const origText = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Saving...';
+  btn.style.opacity = '0.6';
+
+  fetch(form.action, { method: 'POST', body: new FormData(form), redirect: 'manual' })
+    .then(resp => {
+      if (resp.ok || resp.type === 'opaqueredirect' || resp.status === 303) {
+        showFlash(successMsg, 'success', { autoDismiss: true });
+      } else {
+        showFlash('Save failed', 'error');
+      }
+    })
+    .catch(e => showFlash('Save failed: ' + e.message, 'error'))
+    .finally(() => {
+      btn.disabled = false;
+      btn.textContent = origText;
+      btn.style.opacity = '';
+    });
+
+  return false;  // Prevent default form submit
+}
+
 async function syncPolicy(agentId) {
   try {
     const resp = await fetch(`/api/agents/${agentId}/policy/sync`, { method: 'POST' });
     const data = await resp.json();
-    alert(`Sync result:\nRedis: ${data.synced.redis}\nNetworkPolicy: ${data.synced.network_policy}\nEgress Cache: ${data.synced.egress_cache}`);
+    showFlash(`Sync: Redis=${data.synced.redis}, NetworkPolicy=${data.synced.network_policy}`, 'success', { autoDismiss: true });
   } catch (e) {
-    alert('Sync failed: ' + e.message);
+    showFlash('Sync failed: ' + e.message, 'error');
   }
 }
 </script>
