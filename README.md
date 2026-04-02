@@ -4,7 +4,7 @@
 
 [한국어](./README.ko.md)
 
-Aviary is an enterprise platform where users can create, configure, deploy, and use purpose-built AI agents through a web UI. Each agent runs in an isolated Kubernetes namespace with long-running Pods that serve multiple sessions concurrently, isolated at the kernel level via bubblewrap sandboxing.
+Aviary is an enterprise platform where users can create, configure, and use purpose-built AI agents through a web UI. Each agent runs in an isolated Kubernetes namespace with long-running Pods that serve multiple sessions concurrently, isolated at the kernel level via bubblewrap sandboxing.
 
 ## Architecture
 
@@ -16,8 +16,15 @@ Aviary is an enterprise platform where users can create, configure, deploy, and 
                 │ REST + WebSocket
 ┌───────────────▼────────────────────────────────────────────────┐
 │                     API Server (FastAPI)                        │
-│    OIDC Auth · Agent CRUD · Session Mgr · ACL · Vault Client   │
+│      OIDC Auth · Agent CRUD · Session Mgr · ACL · Chat         │
 └───┬───────────┬───────────┬────────────────────────────────────┘
+    │           │           │
+    │           │           │           ┌────────────────────────┐
+    │           │           │           │  Admin Console (:8001) │
+    │           │           │           │  Policy · Scaling ·    │
+    │           │           │           │  Deployments · Web UI  │
+    │           │           │           └───────────┬────────────┘
+    │           │           │                       │
     │           │           │
     │           │   ┌───────▼────────────────────────────────────┐
     │           │   │           Platform Services                │
@@ -67,7 +74,7 @@ Aviary is an enterprise platform where users can create, configure, deploy, and 
        └───────────────┘  └──────────────┘  └────────────────┘
 ```
 
-**Platform Services** (Inference Router, Credential Proxy) are stateless HTTP proxies that run outside K8s. **Agent Controller** runs inside K8s (platform namespace) and serves as the single gateway for all K8s operations — the API server has no direct K8s dependency (no kubeconfig). It handles namespace/deployment CRUD, SSE streaming proxy to agent Pods, and egress cache invalidation. **Egress Proxy** runs inside K8s because it relies on pod IP resolution to identify source agents and on NetworkPolicy for deny-by-default enforcement.
+The platform separates user-facing operations (**API Server**) from infrastructure management (**Admin Console**). **Platform Services** (Inference Router, Credential Proxy) are stateless HTTP proxies that run outside K8s. **Agent Controller** runs inside K8s (platform namespace) and serves as the single gateway for all K8s operations. **Egress Proxy** runs inside K8s for pod IP resolution and NetworkPolicy enforcement.
 
 ## Key Features
 
@@ -80,7 +87,8 @@ Aviary is an enterprise platform where users can create, configure, deploy, and 
 - **Multi-Backend Inference** — Claude API, Ollama, vLLM, AWS Bedrock; new backends require no NetworkPolicy changes
 - **Live Config Updates** — Agent config (instruction, tools) is passed from DB on every message; edits take effect immediately without Pod restarts
 - **OIDC Auth + Team Sync** — Keycloak (dev) / Okta (prod); IdP groups auto-sync to Aviary teams on login
-- **Granular ACL** — 7-step permission resolution with role hierarchy (`viewer` < `user` < `admin` < `owner`)
+- **API / Admin Separation** — Separate services for user operations (API) and infrastructure management (Admin Console)
+- **Granular ACL** — Permission resolution with role hierarchy (`viewer` < `user` < `admin` < `owner`)
 - **Credential Proxy** — Secrets never enter session Pods; injected from Vault via a shared proxy
 - **Real-time Chat** — WebSocket streaming with Redis pub/sub for multi-user shared sessions
 
@@ -104,27 +112,36 @@ Aviary is an enterprise platform where users can create, configure, deploy, and 
 
 ```
 aviary/
-├── api/                     # API Server (FastAPI)
+├── api/                     # API Server (FastAPI) — user-facing
 │   ├── app/
 │   │   ├── auth/            # OIDC validation, team sync
-│   │   ├── db/              # SQLAlchemy models, Alembic migrations
+│   │   ├── db/              # Re-exports shared DB models
 │   │   ├── routers/         # REST + WebSocket endpoints
-│   │   ├── services/        # Business logic (agent, session, k8s, vault, acl, redis)
+│   │   ├── services/        # Business logic (agent, session, vault, acl, redis)
 │   │   └── schemas/         # Pydantic models
-│   └── tests/               # pytest (16 tests)
+│   └── tests/
+├── admin/                   # Admin Console (FastAPI) — operator-facing
+│   ├── app/
+│   │   ├── routers/         # Agent, deployment, policy management
+│   │   ├── services/        # Controller client, redis, scaling
+│   │   ├── templates/       # Jinja2 web UI
+│   │   └── static/          # CSS
+│   └── tests/
+├── shared/                  # Shared DB package (used by api + admin)
+│   └── aviary_shared/
+│       └── db/              # SQLAlchemy models, session factory, migrations
 ├── web/                     # Web UI (Next.js 15)
 │   └── src/
 │       ├── app/             # Pages (agents, sessions, login)
 │       ├── components/      # Chat, agent management, UI primitives
 │       └── lib/             # API client, auth, WebSocket
+├── controller/              # Agent Controller (FastAPI, runs in K8s)
+│   └── app/                 # K8s gateway, agent-centric + K8s-specific APIs
 ├── runtime/                 # Agent Runtime (runs in agent Pods)
-│   └── app/                 # claude-agent-sdk harness, session manager
+│   └── src/                 # claude-agent-sdk harness, session manager
 ├── inference-router/        # LLM Gateway
-│   └── app/                 # Anthropic API proxy, backend routing
 ├── credential-proxy/        # Secret injection proxy
-│   └── app/                 # Vault client, session resolver
 ├── egress-proxy/            # HTTP/HTTPS egress proxy
-│   └── app/                 # Forward proxy, per-agent policy checker
 ├── config/                  # Keycloak realm, K3s config
 ├── k8s/platform/            # K8s manifests
 ├── scripts/                 # Dev setup, DB init, seeding
@@ -151,6 +168,7 @@ This single command builds all images, starts all services, runs DB migrations, 
 |---------|-----|
 | Web UI | http://localhost:3000 |
 | API Server | http://localhost:8000 |
+| Admin Console | http://localhost:8001 |
 | Inference Router | http://localhost:8090 |
 | Credential Proxy | http://localhost:8091 |
 | Keycloak Admin | http://localhost:8080 (admin/admin) |
@@ -158,11 +176,10 @@ This single command builds all images, starts all services, runs DB migrations, 
 
 ### Test Accounts
 
-| Email | Password | Role | Teams |
-|-------|----------|------|-------|
-| admin@test.com | password | Platform Admin | engineering |
-| user1@test.com | password | Regular User | engineering, product |
-| user2@test.com | password | Regular User | data-science |
+| Email | Password | Teams |
+|-------|----------|-------|
+| user1@test.com | password | engineering, product |
+| user2@test.com | password | data-science |
 
 ### Everyday Commands
 
@@ -209,7 +226,7 @@ docker compose exec api pytest tests/ -v
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/api/agents` | List agents (ACL-filtered) |
-| POST | `/api/agents` | Create agent + provision K8s namespace |
+| POST | `/api/agents` | Create agent (config only) |
 | GET/PUT/DELETE | `/api/agents/{id}` | Get / update / soft-delete agent |
 
 ### Sessions & Chat
@@ -240,7 +257,7 @@ All outbound HTTP/HTTPS from agent Pods is routed through a centralized forward 
 Agent configuration (instruction, tools, policy) is passed from the database to the runtime on every message turn. Edits take effect immediately on the next message without restarting Pods or affecting other users' sessions.
 
 ### ACL Resolution
-Permission resolution follows 7 steps: platform admin → agent owner → direct user ACL → team ACL → public visibility → team visibility → deny. Roles form a hierarchy: `viewer` < `user` < `admin` < `owner`.
+Permission resolution follows 6 steps: agent owner → direct user ACL → team ACL → public visibility → team visibility → deny. Roles form a hierarchy: `viewer` < `user` < `admin` < `owner`.
 
 ### Agent Pod Strategy
 Each agent gets a long-running Deployment with configurable spawn strategy: `lazy` (default, created on first message), `eager` (created with agent), or `manual` (admin-activated). Multiple sessions share the same Pod(s), isolated by workspace directory and bubblewrap sandbox. Idle agents (7 days) are scaled to 0, not deleted — re-activated on next message.
@@ -252,7 +269,8 @@ The `claude` CLI binary in PATH is a wrapper script that runs the real binary in
 
 | Service | Port | Role |
 |---------|------|------|
-| `api` | 8000 | API Server |
+| `api` | 8000 | API Server (user-facing) |
+| `admin` | 8001 | Admin Console (operator-facing, no auth) |
 | `web` | 3000 | Web UI |
 | `inference-router` | 8090 | LLM gateway |
 | `credential-proxy` | 8091 | Secret injection proxy |

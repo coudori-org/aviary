@@ -4,7 +4,7 @@
 
 [English](./README.md)
 
-Aviary는 웹 UI를 통해 AI 에이전트를 생성, 설정, 배포, 사용할 수 있는 엔터프라이즈 플랫폼입니다. 각 에이전트는 격리된 Kubernetes 네임스페이스에서 장기 실행 Pod으로 구동되며, 여러 세션이 동일 Pod을 공유하면서 bubblewrap 샌드박싱으로 커널 수준의 격리를 제공합니다.
+Aviary는 웹 UI를 통해 AI 에이전트를 생성, 설정, 사용할 수 있는 엔터프라이즈 플랫폼입니다. 각 에이전트는 격리된 Kubernetes 네임스페이스에서 장기 실행 Pod으로 구동되며, 여러 세션이 동일 Pod을 공유하면서 bubblewrap 샌드박싱으로 커널 수준의 격리를 제공합니다.
 
 ## 아키텍처
 
@@ -16,8 +16,15 @@ Aviary는 웹 UI를 통해 AI 에이전트를 생성, 설정, 배포, 사용할 
                 │ REST + WebSocket
 ┌───────────────▼────────────────────────────────────────────────┐
 │                      API 서버 (FastAPI)                         │
-│    OIDC 인증 · Agent CRUD · 세션 관리 · ACL · Vault 클라이언트   │
+│       OIDC 인증 · Agent CRUD · 세션 관리 · ACL · 채팅            │
 └───┬───────────┬───────────┬────────────────────────────────────┘
+    │           │           │
+    │           │           │           ┌────────────────────────┐
+    │           │           │           │  Admin 콘솔 (:8001)    │
+    │           │           │           │  정책 · 스케일링 ·      │
+    │           │           │           │  배포 관리 · Web UI     │
+    │           │           │           └───────────┬────────────┘
+    │           │           │                       │
     │           │           │
     │           │   ┌───────▼────────────────────────────────────┐
     │           │   │             플랫폼 서비스                    │
@@ -67,7 +74,7 @@ Aviary는 웹 UI를 통해 AI 에이전트를 생성, 설정, 배포, 사용할 
        └───────────────┘  └──────────────┘  └────────────────┘
 ```
 
-**플랫폼 서비스** (Inference Router, Credential Proxy)는 상태 없는 HTTP 프록시로 K8s 외부에서 실행됩니다. **Agent Controller**는 K8s 내부(platform namespace)에서 실행되며, API 서버의 모든 K8s 작업(네임스페이스/배포/Pod 통신)을 대행하는 게이트웨이입니다. API 서버는 kubeconfig 없이 Controller HTTP 엔드포인트만 호출합니다. **Egress Proxy**는 Pod IP로 에이전트를 식별하고 NetworkPolicy로 deny-by-default를 강제하므로 K8s 안에서 실행됩니다.
+플랫폼은 사용자 대면 기능(**API 서버**)과 인프라 관리(**Admin 콘솔**)를 분리합니다. **플랫폼 서비스** (Inference Router, Credential Proxy)는 상태 없는 HTTP 프록시로 K8s 외부에서 실행됩니다. **Agent Controller**는 K8s 내부(platform namespace)에서 모든 K8s 작업을 대행하는 게이트웨이입니다. **Egress Proxy**는 Pod IP로 에이전트를 식별하고 NetworkPolicy로 deny-by-default를 강제하므로 K8s 안에서 실행됩니다.
 
 ## 주요 기능
 
@@ -80,7 +87,8 @@ Aviary는 웹 UI를 통해 AI 에이전트를 생성, 설정, 배포, 사용할 
 - **멀티 백엔드 추론** — Claude API, Ollama, vLLM, AWS Bedrock; 새 백엔드 추가 시 NetworkPolicy 변경 불필요
 - **실시간 설정 반영** — 에이전트 설정(instruction, tools)이 매 메시지마다 DB에서 전달되어 Pod 재시작 없이 즉시 적용
 - **OIDC 인증 + 팀 동기화** — Keycloak (개발) / Okta (운영); IdP 그룹이 로그인 시 팀으로 자동 동기화
-- **세분화된 ACL** — 7단계 권한 해석, 역할 계층 (`viewer` < `user` < `admin` < `owner`)
+- **API / Admin 분리** — 사용자 기능(API)과 인프라 관리(Admin 콘솔)를 별도 서비스로 분리
+- **세분화된 ACL** — 권한 해석, 역할 계층 (`viewer` < `user` < `admin` < `owner`)
 - **자격증명 프록시** — 시크릿이 세션 Pod에 노출되지 않고, 공유 프록시가 Vault에서 주입
 - **실시간 채팅** — WebSocket 스트리밍, Redis pub/sub 기반 다중 사용자 공유 세션
 
@@ -104,27 +112,36 @@ Aviary는 웹 UI를 통해 AI 에이전트를 생성, 설정, 배포, 사용할 
 
 ```
 aviary/
-├── api/                     # API 서버 (FastAPI)
+├── api/                     # API 서버 (FastAPI) — 사용자 대면
 │   ├── app/
 │   │   ├── auth/            # OIDC 검증, 팀 동기화
-│   │   ├── db/              # SQLAlchemy 모델, Alembic 마이그레이션
+│   │   ├── db/              # 공유 DB 모델 re-export
 │   │   ├── routers/         # REST + WebSocket 엔드포인트
-│   │   ├── services/        # 비즈니스 로직 (agent, session, k8s, vault, acl, redis)
+│   │   ├── services/        # 비즈니스 로직 (agent, session, vault, acl, redis)
 │   │   └── schemas/         # Pydantic 모델
-│   └── tests/               # pytest (16개)
+│   └── tests/
+├── admin/                   # Admin 콘솔 (FastAPI) — 운영자 대면
+│   ├── app/
+│   │   ├── routers/         # 에이전트, 배포, 정책 관리
+│   │   ├── services/        # Controller 클라이언트, redis, 스케일링
+│   │   ├── templates/       # Jinja2 웹 UI
+│   │   └── static/          # CSS
+│   └── tests/
+├── shared/                  # 공유 DB 패키지 (api + admin 공용)
+│   └── aviary_shared/
+│       └── db/              # SQLAlchemy 모델, 세션 팩토리, 마이그레이션
 ├── web/                     # Web UI (Next.js 15)
 │   └── src/
 │       ├── app/             # 페이지 (agents, sessions, login)
 │       ├── components/      # 채팅, 에이전트 관리, UI 기본 요소
 │       └── lib/             # API 클라이언트, 인증, WebSocket
+├── controller/              # Agent Controller (FastAPI, K8s 내부 실행)
+│   └── app/                 # K8s 게이트웨이, 에이전트 중심 + K8s 전용 API
 ├── runtime/                 # 에이전트 런타임 (에이전트 Pod 내부에서 실행)
-│   └── app/                 # claude-agent-sdk 하네스, 세션 매니저
+│   └── src/                 # claude-agent-sdk 하네스, 세션 매니저
 ├── inference-router/        # LLM 게이트웨이
-│   └── app/                 # Anthropic API 프록시, 백엔드 라우팅
 ├── credential-proxy/        # 시크릿 주입 프록시
-│   └── app/                 # Vault 클라이언트, 세션 리졸버
 ├── egress-proxy/            # HTTP/HTTPS 이그레스 프록시
-│   └── app/                 # 포워드 프록시, 에이전트별 정책 체커
 ├── config/                  # Keycloak realm, K3s 설정
 ├── k8s/platform/            # K8s 매니페스트
 ├── scripts/                 # 개발 환경 설정, DB 초기화, 시딩
@@ -151,6 +168,7 @@ cd aviary
 |--------|-----|
 | Web UI | http://localhost:3000 |
 | API 서버 | http://localhost:8000 |
+| Admin 콘솔 | http://localhost:8001 |
 | Inference Router | http://localhost:8090 |
 | Credential Proxy | http://localhost:8091 |
 | Keycloak 관리자 | http://localhost:8080 (admin/admin) |
@@ -158,11 +176,10 @@ cd aviary
 
 ### 테스트 계정
 
-| 이메일 | 비밀번호 | 역할 | 팀 |
-|--------|----------|------|----|
-| admin@test.com | password | 플랫폼 관리자 | engineering |
-| user1@test.com | password | 일반 사용자 | engineering, product |
-| user2@test.com | password | 일반 사용자 | data-science |
+| 이메일 | 비밀번호 | 팀 |
+|--------|----------|----|
+| user1@test.com | password | engineering, product |
+| user2@test.com | password | data-science |
 
 ### 주요 명령어
 
@@ -209,7 +226,7 @@ docker compose exec api pytest tests/ -v
 | 메서드 | 경로 | 설명 |
 |--------|------|------|
 | GET | `/api/agents` | 에이전트 목록 (ACL 기반 필터링) |
-| POST | `/api/agents` | 에이전트 생성 + K8s 네임스페이스 프로비저닝 |
+| POST | `/api/agents` | 에이전트 생성 (설정만) |
 | GET/PUT/DELETE | `/api/agents/{id}` | 조회 / 수정 / 소프트 삭제 |
 
 ### 세션 및 채팅
@@ -240,7 +257,7 @@ docker compose exec api pytest tests/ -v
 에이전트 설정(instruction, tools, policy)은 매 메시지 턴마다 DB에서 런타임으로 전달됩니다. 편집 내용이 Pod 재시작 없이 다음 메시지부터 즉시 적용되며, 다른 사용자의 세션에 영향을 주지 않습니다.
 
 ### ACL 해석
-권한은 7단계로 해석됩니다: 플랫폼 관리자 → 에이전트 소유자 → 직접 사용자 ACL → 팀 ACL → 공개 가시성 → 팀 가시성 → 거부. 역할 계층: `viewer` < `user` < `admin` < `owner`.
+권한은 6단계로 해석됩니다: 에이전트 소유자 → 직접 사용자 ACL → 팀 ACL → 공개 가시성 → 팀 가시성 → 거부. 역할 계층: `viewer` < `user` < `admin` < `owner`.
 
 ### 에이전트 Pod 전략
 각 에이전트는 장기 실행 Deployment로 구동되며, 스폰 전략을 설정할 수 있습니다: `lazy` (기본값, 첫 메시지 시 생성), `eager` (에이전트 생성 시), `manual` (관리자가 활성화). 여러 세션이 동일 Pod을 공유하며 워크스페이스 디렉토리와 bubblewrap 샌드박스로 격리됩니다. 유휴 에이전트(7일)는 삭제되지 않고 0으로 스케일 다운되며, 다음 메시지에서 재활성화됩니다.
