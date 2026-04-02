@@ -73,17 +73,15 @@ async def update_policy(
         logger.warning("Redis egress sync failed for agent %s", agent.id, exc_info=True)
 
     # Update K8s NetworkPolicy
-    if agent.namespace:
-        try:
-            await controller_client.update_network_policy(agent.namespace, agent.policy)
-        except Exception:
-            logger.warning("NetworkPolicy update failed for agent %s", agent.id, exc_info=True)
-
-        # Invalidate egress proxy cache
-        try:
-            await controller_client.invalidate_egress_cache(agent_id_str)
-        except Exception:
-            pass
+    ns = f"agent-{agent.id}"
+    try:
+        await controller_client.update_network_policy(ns, agent.policy)
+    except Exception:
+        logger.warning("NetworkPolicy update failed for agent %s", agent.id, exc_info=True)
+    try:
+        await controller_client.invalidate_egress_cache(agent_id_str)
+    except Exception:
+        pass
 
     return {
         "agent_id": agent_id_str,
@@ -111,17 +109,16 @@ async def force_sync_policy(agent_id: uuid.UUID, db: AsyncSession = Depends(get_
     except Exception:
         logger.warning("Redis sync failed for agent %s", agent.id, exc_info=True)
 
-    if agent.namespace:
-        try:
-            await controller_client.update_network_policy(agent.namespace, agent.policy)
-            synced["network_policy"] = True
-        except Exception:
-            logger.warning("NetworkPolicy sync failed for agent %s", agent.id, exc_info=True)
-
-        try:
-            await controller_client.invalidate_egress_cache(agent_id_str)
-            synced["egress_cache"] = True
-        except Exception:
-            pass
+    ns = f"agent-{agent.id}"
+    try:
+        await controller_client.update_network_policy(ns, agent.policy)
+        synced["network_policy"] = True
+    except Exception:
+        logger.warning("NetworkPolicy sync failed for agent %s", agent.id, exc_info=True)
+    try:
+        await controller_client.invalidate_egress_cache(agent_id_str)
+        synced["egress_cache"] = True
+    except Exception:
+        pass
 
     return {"agent_id": agent_id_str, "synced": synced}

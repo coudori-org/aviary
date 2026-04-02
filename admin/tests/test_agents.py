@@ -34,7 +34,6 @@ async def test_get_agent(client: AsyncClient, seed_agent: Agent):
     assert data["pod_strategy"] == "lazy"
     assert data["min_pods"] == 1
     assert data["max_pods"] == 3
-    assert data["deployment_active"] is False
 
 
 @pytest.mark.asyncio

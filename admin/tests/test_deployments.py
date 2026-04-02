@@ -14,7 +14,6 @@ async def test_get_deployment_status_no_namespace(client: AsyncClient, seed_agen
     resp = await client.get(f"/api/agents/{seed_agent.id}/deployment")
     assert resp.status_code == 200
     data = resp.json()
-    assert data["deployment_active"] is False
     assert data["pod_strategy"] == "lazy"
     assert data["replicas"] == 0
     assert data["ready_replicas"] == 0
@@ -37,7 +36,6 @@ async def test_activate_agent(client: AsyncClient, seed_agent: Agent):
     assert resp.status_code == 200
     data = resp.json()
     assert data["status"] == "activated"
-    assert data["deployment_active"] is True
     mock_ns.assert_called_once()
     mock_dep.assert_called_once()
 
@@ -60,7 +58,7 @@ async def test_deactivate_agent(client: AsyncClient, seed_agent: Agent):
         resp = await client.post(f"/api/agents/{seed_agent.id}/deactivate")
 
     assert resp.status_code == 200
-    assert resp.json()["deployment_active"] is False
+    assert resp.json()["status"] == "deactivated"
     mock_scale.assert_called_once()
 
 

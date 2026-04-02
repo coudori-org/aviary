@@ -127,17 +127,17 @@ async def update_agent_config(
     agent.visibility = visibility
     await db.flush()
 
-    # Sync config to K8s if namespace exists
-    if agent.namespace:
-        try:
-            await controller_client.update_namespace_config(
-                namespace=agent.namespace,
-                instruction=agent.instruction,
-                tools=agent.tools,
-                policy=agent.policy,
-                mcp_servers=agent.mcp_servers,
-            )
-        except Exception:
+    # Sync config to K8s
+    ns = f"agent-{agent.id}"
+    try:
+        await controller_client.update_namespace_config(
+            namespace=ns,
+            instruction=agent.instruction,
+            tools=agent.tools,
+            policy=agent.policy,
+            mcp_servers=agent.mcp_servers,
+        )
+    except Exception:
             logger.warning("K8s config sync failed for agent %s", agent.id, exc_info=True)
 
     return RedirectResponse(f"/agents/{agent_id}?flash=Configuration+saved", status_code=303)
@@ -210,15 +210,15 @@ async def update_policy(
     except Exception:
         logger.warning("Redis egress sync failed for agent %s", agent.id, exc_info=True)
 
-    if agent.namespace:
-        try:
-            await controller_client.update_network_policy(agent.namespace, policy)
-        except Exception:
-            logger.warning("NetworkPolicy update failed for agent %s", agent.id, exc_info=True)
-        try:
-            await controller_client.invalidate_egress_cache(agent_id_str)
-        except Exception:
-            pass
+    ns = f"agent-{agent.id}"
+    try:
+        await controller_client.update_network_policy(ns, policy)
+    except Exception:
+        logger.warning("NetworkPolicy update failed for agent %s", agent.id, exc_info=True)
+    try:
+        await controller_client.invalidate_egress_cache(agent_id_str)
+    except Exception:
+        pass
 
     return RedirectResponse(f"/agents/{agent_id}?flash=Policy+saved", status_code=303)
 
@@ -234,24 +234,24 @@ async def activate_agent(agent_id: uuid.UUID, db: AsyncSession = Depends(get_db)
     if not agent:
         return RedirectResponse(f"/agents/{agent_id}?error=Agent+not+found", status_code=303)
 
+    ns = f"agent-{agent.id}"
     try:
-        if not agent.namespace:
-            ns_name = await controller_client.create_namespace(
+        # Ensure namespace exists
+        try:
+            await controller_client.create_namespace(
                 agent_id=str(agent.id), owner_id=str(agent.owner_id),
                 instruction=agent.instruction, tools=agent.tools,
                 policy=agent.policy or {}, mcp_servers=agent.mcp_servers or [],
             )
-            agent.namespace = ns_name
+        except Exception:
+            pass  # Already exists
 
         await controller_client.ensure_deployment(
-            namespace=agent.namespace, agent_id=str(agent.id), owner_id=str(agent.owner_id),
+            namespace=ns, agent_id=str(agent.id), owner_id=str(agent.owner_id),
             instruction=agent.instruction, tools=agent.tools,
             policy=agent.policy or {}, mcp_servers=agent.mcp_servers or [],
             min_pods=agent.min_pods, max_pods=agent.max_pods,
         )
-        agent.deployment_active = True
-        agent.last_activity_at = datetime.now(timezone.utc)
-        await db.flush()
         return RedirectResponse(f"/agents/{agent_id}?flash=Agent+activated", status_code=303)
     except Exception as e:
         return RedirectResponse(f"/agents/{agent_id}?error=Activation+failed:+{e}", status_code=303)
@@ -264,13 +264,11 @@ async def deactivate_agent(agent_id: uuid.UUID, db: AsyncSession = Depends(get_d
     if not agent:
         return RedirectResponse(f"/agents/{agent_id}?error=Agent+not+found", status_code=303)
 
-    if agent.namespace:
-        try:
-            await controller_client.scale_to_zero(agent.namespace)
-        except Exception:
-            pass
-    agent.deployment_active = False
-    await db.flush()
+    ns = f"agent-{agent.id}"
+    try:
+        await controller_client.scale_to_zero(ns)
+    except Exception:
+        pass
     return RedirectResponse(f"/agents/{agent_id}?flash=Agent+deactivated", status_code=303)
 
 
@@ -281,11 +279,11 @@ async def deploy_agent(agent_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
     if not agent:
         return RedirectResponse(f"/agents/{agent_id}?error=Agent+not+found", status_code=303)
 
-    if agent.deployment_active and agent.namespace:
-        try:
-            await controller_client.rolling_restart(agent.namespace)
-        except Exception:
-            pass
+    ns = f"agent-{agent.id}"
+    try:
+        await controller_client.rolling_restart(ns)
+    except Exception:
+        pass
     return RedirectResponse(f"/agents/{agent_id}?flash=Rolling+restart+triggered", status_code=303)
 
 

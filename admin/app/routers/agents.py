@@ -33,11 +33,9 @@ class AgentResponse(BaseModel):
     visibility: str
     category: str | None = None
     icon: str | None = None
-    namespace: str | None = None
     pod_strategy: str
     min_pods: int
     max_pods: int
-    deployment_active: bool
     status: str
     created_at: str
     updated_at: str
@@ -58,11 +56,9 @@ class AgentResponse(BaseModel):
             visibility=agent.visibility,
             category=agent.category,
             icon=agent.icon,
-            namespace=agent.namespace,
             pod_strategy=agent.pod_strategy,
             min_pods=agent.min_pods,
             max_pods=agent.max_pods,
-            deployment_active=agent.deployment_active,
             status=agent.status,
             created_at=agent.created_at.isoformat(),
             updated_at=agent.updated_at.isoformat(),
@@ -152,18 +148,18 @@ async def update_agent(
 
     await db.flush()
 
-    # Sync to K8s if namespace exists
-    if agent.namespace:
-        try:
-            await controller_client.update_namespace_config(
-                namespace=agent.namespace,
-                instruction=agent.instruction,
-                tools=agent.tools,
-                policy=agent.policy,
-                mcp_servers=agent.mcp_servers,
-            )
-        except Exception:
-            logger.warning("K8s config sync failed for agent %s", agent.id, exc_info=True)
+    # Sync to K8s
+    ns = f"agent-{agent.id}"
+    try:
+        await controller_client.update_namespace_config(
+            namespace=ns,
+            instruction=agent.instruction,
+            tools=agent.tools,
+            policy=agent.policy,
+            mcp_servers=agent.mcp_servers,
+        )
+    except Exception:
+        logger.warning("K8s config sync failed for agent %s", agent.id, exc_info=True)
 
     await db.refresh(agent)
     return AgentResponse.from_agent(agent)
