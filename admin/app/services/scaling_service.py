@@ -108,9 +108,8 @@ async def cleanup_idle_agents() -> int:
             continue
 
         # Check idle duration from DB
-        if not agent.last_activity_at:
-            continue
-        if agent.last_activity_at.timestamp() >= cutoff:
+        # None means no recorded activity — treat as idle
+        if agent.last_activity_at and agent.last_activity_at.timestamp() >= cutoff:
             continue
 
         try:
