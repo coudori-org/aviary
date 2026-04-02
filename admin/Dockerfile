@@ -6,9 +6,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Install shared package first
+# Install shared package first (satisfies aviary-shared dependency)
 COPY shared/ /shared/
-RUN pip install --no-cache-dir -e /shared
+RUN pip install --no-cache-dir /shared
 
 # Install Python deps
 COPY admin/pyproject.toml /app/

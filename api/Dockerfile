@@ -9,7 +9,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Install shared package first
 COPY shared/ /shared/
-RUN pip install --no-cache-dir -e /shared
+RUN pip install --no-cache-dir /shared
 
 # Install Python deps (cached layer — only re-runs when pyproject.toml changes)
 COPY api/pyproject.toml /app/

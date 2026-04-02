@@ -1,0 +1,5 @@
+[tool.uv.workspace]
+members = ["api", "admin", "shared"]
+
+[tool.uv.sources]
+aviary-shared = { workspace = true }
