@@ -26,6 +26,19 @@ NC='\033[0m'; BOLD='\033[1m'
 TARGET="${1:-help}"
 RUN_SMOKE=false
 
+# Load .env for registry settings (UV_INDEX_URL, NPM_CONFIG_REGISTRY)
+if [ -f "$PROJECT_DIR/.env" ]; then
+  set -a
+  # shellcheck disable=SC1091
+  source "$PROJECT_DIR/.env"
+  set +a
+fi
+
+# Collect --build-arg flags from registry env vars
+BUILD_ARGS=()
+[ -n "${UV_INDEX_URL:-}" ]        && BUILD_ARGS+=(--build-arg "UV_INDEX_URL=$UV_INDEX_URL")
+[ -n "${NPM_CONFIG_REGISTRY:-}" ] && BUILD_ARGS+=(--build-arg "NPM_CONFIG_REGISTRY=$NPM_CONFIG_REGISTRY")
+
 for arg in "$@"; do
   [ "$arg" = "--smoke" ] && RUN_SMOKE=true
 done
@@ -39,7 +52,7 @@ load_k8s_image() {
 
 rebuild_runtime() {
   echo -e "${BOLD}Rebuilding runtime...${NC}"
-  docker build -t aviary-runtime:latest ./runtime/
+  docker build "${BUILD_ARGS[@]}" -t aviary-runtime:latest ./runtime/
   load_k8s_image "aviary-runtime:latest"
   echo -e "${CYAN}Rolling restart runtime pods...${NC}"
   docker compose exec -T k8s kubectl rollout restart deployment -l app=aviary-agent -A 2>/dev/null || true
@@ -47,7 +60,7 @@ rebuild_runtime() {
 
 rebuild_controller() {
   echo -e "${BOLD}Rebuilding agent-controller...${NC}"
-  docker build -t aviary-agent-controller:latest -f controller/Dockerfile .
+  docker build "${BUILD_ARGS[@]}" -t aviary-agent-controller:latest -f controller/Dockerfile .
   load_k8s_image "aviary-agent-controller:latest"
   echo -e "${CYAN}Restarting controller deployment...${NC}"
   docker compose exec -T k8s kubectl rollout restart deployment/agent-controller -n platform
@@ -55,7 +68,7 @@ rebuild_controller() {
 
 rebuild_egress() {
   echo -e "${BOLD}Rebuilding egress-proxy...${NC}"
-  docker build -t aviary-egress-proxy:latest ./egress-proxy/
+  docker build "${BUILD_ARGS[@]}" -t aviary-egress-proxy:latest ./egress-proxy/
   load_k8s_image "aviary-egress-proxy:latest"
   echo -e "${CYAN}Restarting egress-proxy deployment...${NC}"
   docker compose exec -T k8s kubectl rollout restart deployment/egress-proxy -n platform

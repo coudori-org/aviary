@@ -7,6 +7,19 @@ cd "$PROJECT_DIR"
 
 echo "=== Aviary Dev Environment Setup ==="
 
+# Load .env for registry settings (UV_INDEX_URL, NPM_CONFIG_REGISTRY)
+if [ -f "$PROJECT_DIR/.env" ]; then
+  set -a
+  # shellcheck disable=SC1091
+  source "$PROJECT_DIR/.env"
+  set +a
+fi
+
+# Collect --build-arg flags from registry env vars
+BUILD_ARGS=()
+[ -n "${UV_INDEX_URL:-}" ]        && BUILD_ARGS+=(--build-arg "UV_INDEX_URL=$UV_INDEX_URL")
+[ -n "${NPM_CONFIG_REGISTRY:-}" ] && BUILD_ARGS+=(--build-arg "NPM_CONFIG_REGISTRY=$NPM_CONFIG_REGISTRY")
+
 # 1. Build and start all Docker Compose services
 echo "[1/7] Building and starting Docker Compose services..."
 docker compose up -d --build
@@ -38,9 +51,9 @@ echo "  K8s gateway IP: $K8S_GATEWAY_IP"
 
 # 5. Build K8s images and load them (runtime, egress-proxy, agent-controller)
 echo "[5/7] Building K8s images (runtime, egress-proxy, agent-controller)..."
-docker build -t aviary-runtime:latest          ./runtime/
-docker build -t aviary-egress-proxy:latest     ./egress-proxy/
-docker build -t aviary-agent-controller:latest -f controller/Dockerfile .
+docker build "${BUILD_ARGS[@]}" -t aviary-runtime:latest          ./runtime/
+docker build "${BUILD_ARGS[@]}" -t aviary-egress-proxy:latest     ./egress-proxy/
+docker build "${BUILD_ARGS[@]}" -t aviary-agent-controller:latest -f controller/Dockerfile .
 
 echo "  Loading images into K8s..."
 docker save \

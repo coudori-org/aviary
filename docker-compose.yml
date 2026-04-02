@@ -99,6 +99,8 @@ services:
   inference-router:
     build:
       context: ./inference-router
+      args:
+        UV_INDEX_URL: ${UV_INDEX_URL:-}
     command: python -m uvicorn app.main:app --host 0.0.0.0 --port 8080 --reload
     ports:
       - "8090:8080"
@@ -121,6 +123,8 @@ services:
   credential-proxy:
     build:
       context: ./credential-proxy
+      args:
+        UV_INDEX_URL: ${UV_INDEX_URL:-}
     command: python -m uvicorn app.main:app --host 0.0.0.0 --port 8080 --reload
     ports:
       - "8091:8080"
@@ -148,6 +152,8 @@ services:
     build:
       context: .
       dockerfile: api/Dockerfile
+      args:
+        UV_INDEX_URL: ${UV_INDEX_URL:-}
     ports:
       - "8000:8000"
     volumes:
@@ -187,6 +193,8 @@ services:
   web:
     build:
       context: ./web
+      args:
+        NPM_CONFIG_REGISTRY: ${NPM_CONFIG_REGISTRY:-}
     ports:
       - "3000:3000"
     volumes:
@@ -213,6 +221,8 @@ services:
     build:
       context: .
       dockerfile: admin/Dockerfile
+      args:
+        UV_INDEX_URL: ${UV_INDEX_URL:-}
     ports:
       - "8001:8001"
     volumes:

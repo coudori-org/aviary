@@ -1,6 +1,8 @@
 # --- Build stage: compile TypeScript ---
 FROM node:22-slim AS build
 
+ARG NPM_CONFIG_REGISTRY
+
 WORKDIR /app
 COPY package.json package-lock.json /app/
 RUN npm ci
@@ -20,6 +22,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Node 22's built-in fetch() ignores HTTP_PROXY. Installing undici as a
 # standalone package allows proxy-bootstrap.js to set EnvHttpProxyAgent
 # as the global dispatcher via require('undici'). (Node 24+ has NODE_USE_ENV_PROXY.)
+ARG NPM_CONFIG_REGISTRY
 RUN npm install -g @anthropic-ai/claude-code undici
 
 # Replace `claude` binary with bubblewrap sandbox wrapper.
