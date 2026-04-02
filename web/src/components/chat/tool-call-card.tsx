@@ -36,8 +36,10 @@ interface ToolCallCardProps {
 export const ToolCallCard = memo(function ToolCallCard({ block }: ToolCallCardProps) {
   const [expanded, setExpanded] = useState(false);
   const isRunning = block.status === "running";
+  const isError = block.is_error === true;
   const summary = inputSummary(block.name, block.input);
   const isSubagent = block.name === "Agent";
+  const hasChildren = block.children && block.children.length > 0;
 
   return (
     <div
@@ -45,7 +47,9 @@ export const ToolCallCard = memo(function ToolCallCard({ block }: ToolCallCardPr
         "rounded-lg border transition-colors",
         isRunning
           ? "border-primary/30 bg-primary/[0.03]"
-          : "border-border/30 bg-secondary/30",
+          : isError
+            ? "border-destructive/30 bg-destructive/[0.03]"
+            : "border-border/30 bg-secondary/30",
       )}
     >
       {/* Header */}
@@ -74,6 +78,19 @@ export const ToolCallCard = memo(function ToolCallCard({ block }: ToolCallCardPr
               fill="currentColor"
               d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
             />
+          </svg>
+        ) : isError ? (
+          <svg
+            className="h-3.5 w-3.5 shrink-0 text-destructive"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <line x1="18" y1="6" x2="6" y2="18" />
+            <line x1="6" y1="6" x2="18" y2="18" />
           </svg>
         ) : (
           <svg
@@ -127,6 +144,13 @@ export const ToolCallCard = memo(function ToolCallCard({ block }: ToolCallCardPr
           <span className="truncate text-muted-foreground/60">{summary}</span>
         )}
 
+        {/* Children count badge for subagent */}
+        {isSubagent && hasChildren && (
+          <span className="rounded-full bg-primary/10 px-1.5 text-[9px] font-medium text-primary">
+            {block.children!.length} tool{block.children!.length !== 1 ? "s" : ""}
+          </span>
+        )}
+
         {/* Spacer */}
         <span className="flex-1" />
 
@@ -154,9 +178,18 @@ export const ToolCallCard = memo(function ToolCallCard({ block }: ToolCallCardPr
         </svg>
       </button>
 
-      {/* Expanded detail */}
+      {/* Nested subagent tool calls — always visible */}
+      {hasChildren && (
+        <div className="border-t border-border/20 px-3 py-2 space-y-1">
+          {block.children!.map((child) => (
+            <ToolCallCard key={child.id} block={child} />
+          ))}
+        </div>
+      )}
+
+      {/* Expanded detail (input/result) */}
       {expanded && (
-        <div className="border-t border-border/20 px-3 py-2 text-xs">
+        <div className={cn("border-t border-border/20 px-3 py-2 text-xs", hasChildren && "border-t-0 pt-0")}>
           {/* Input */}
           <div className="mb-1.5 font-medium text-muted-foreground/70">Input</div>
           <pre className="mb-2 max-h-40 overflow-auto rounded bg-[hsl(222_22%_6%)] p-2 text-[11px] leading-relaxed text-muted-foreground">
@@ -166,8 +199,15 @@ export const ToolCallCard = memo(function ToolCallCard({ block }: ToolCallCardPr
           {/* Result */}
           {block.result != null && (
             <>
-              <div className="mb-1.5 font-medium text-muted-foreground/70">Result</div>
-              <pre className="max-h-40 overflow-auto rounded bg-[hsl(222_22%_6%)] p-2 text-[11px] leading-relaxed text-muted-foreground whitespace-pre-wrap">
+              <div className={cn("mb-1.5 font-medium", isError ? "text-destructive/70" : "text-muted-foreground/70")}>
+                {isError ? "Error" : "Result"}
+              </div>
+              <pre className={cn(
+                "max-h-40 overflow-auto rounded p-2 text-[11px] leading-relaxed whitespace-pre-wrap",
+                isError
+                  ? "bg-destructive/[0.06] text-destructive/80"
+                  : "bg-[hsl(222_22%_6%)] text-muted-foreground",
+              )}>
                 {block.result.length > 2000
                   ? block.result.slice(0, 2000) + "\n... (truncated)"
                   : block.result}

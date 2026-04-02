@@ -46,6 +46,18 @@ async def get_session(db: AsyncSession, session_id: uuid.UUID) -> Session | None
     return result.scalar_one_or_none()
 
 
+async def get_session_titles(
+    db: AsyncSession, session_ids: list[uuid.UUID]
+) -> dict[str, str | None]:
+    """Batch fetch titles for multiple sessions."""
+    if not session_ids:
+        return {}
+    result = await db.execute(
+        select(Session.id, Session.title).where(Session.id.in_(session_ids))
+    )
+    return {str(row[0]): row[1] for row in result.all()}
+
+
 async def list_sessions_for_agent(
     db: AsyncSession, user: User, agent_id: uuid.UUID
 ) -> list[Session]:

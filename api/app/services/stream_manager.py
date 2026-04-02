@@ -35,7 +35,6 @@ async def start_stream(
     agent_mcp_servers: list,
     agent_policy: dict,
     content: str,
-    sender_id: str,
 ) -> None:
     """Launch a background task that streams the agent response."""
     # Cancel any existing stream for this session
@@ -52,7 +51,7 @@ async def start_stream(
             session_id, agent_id,
             agent_model_config, agent_instruction,
             agent_tools, agent_mcp_servers, agent_policy,
-            content, sender_id,
+            content,
         )
     )
     _active_streams[session_id] = task
@@ -119,13 +118,15 @@ async def _run_stream(
     agent_mcp_servers: list,
     agent_policy: dict,
     content: str,
-    sender_id: str,
 ) -> None:
     """Execute the agent response stream as a background task."""
     session_uuid = uuid.UUID(session_id)
 
     await redis_service.set_stream_status(session_id, "streaming")
     await redis_service.set_session_status(session_id, "streaming")
+
+    # Broadcast replay_start so all connected clients show the typing indicator
+    await redis_service.publish_message(session_id, {"type": "replay_start"})
 
     # Ensure agent is running before streaming (handles pod-killed-while-chatting case)
     try:
@@ -141,7 +142,7 @@ async def _run_stream(
         ready = await agent_controller.wait_for_agent_ready(agent_id, timeout=90)
         if not ready:
             error_event = {"type": "error", "message": "Agent did not become ready in time"}
-            await redis_service.publish_message(session_id, {**error_event, "_sender": sender_id})
+            await redis_service.publish_message(session_id, error_event)
             await redis_service.set_stream_status(session_id, "error")
             await redis_service.set_session_status(session_id, "idle")
             return
@@ -151,7 +152,7 @@ async def _run_stream(
     full_response = ""
     blocks_meta: list[dict] = []  # Ordered blocks (text + tool_call) for UI replay
     current_text = ""  # Accumulates text chunks between tool calls
-    tool_results: dict[str, str] = {}  # tool_use_id → result content
+    tool_results: dict[str, dict] = {}  # tool_use_id → {content, is_error}
 
     try:
         stream_url = agent_controller.get_stream_url(agent_id, session_id)
@@ -200,12 +201,15 @@ async def _run_stream(
                             if current_text:
                                 blocks_meta.append({"type": "text", "content": current_text})
                                 current_text = ""
-                            blocks_meta.append({
+                            tool_block: dict = {
                                 "type": "tool_call",
                                 "name": chunk_data.get("name"),
                                 "input": chunk_data.get("input"),
                                 "tool_use_id": chunk_data.get("tool_use_id"),
-                            })
+                            }
+                            if chunk_data.get("parent_tool_use_id"):
+                                tool_block["parent_tool_use_id"] = chunk_data["parent_tool_use_id"]
+                            blocks_meta.append(tool_block)
                             await redis_service.append_stream_chunk(session_id, chunk_data)
                             await redis_service.publish_message(session_id, chunk_data)
                         elif chunk_type == "tool_result":
@@ -215,7 +219,10 @@ async def _run_stream(
                             if isinstance(result_content, str) and len(result_content) > 10240:
                                 result_content = result_content[:10240] + "\n... (truncated)"
                             if tid:
-                                tool_results[tid] = result_content
+                                tool_results[tid] = {
+                                    "content": result_content,
+                                    "is_error": chunk_data.get("is_error", False),
+                                }
                             result_data = {**chunk_data, "content": result_content}
                             await redis_service.append_stream_chunk(session_id, result_data)
                             await redis_service.publish_message(session_id, result_data)
@@ -228,7 +235,10 @@ async def _run_stream(
             blocks_meta.append({"type": "text", "content": current_text})
         for block in blocks_meta:
             if block.get("type") == "tool_call" and block.get("tool_use_id") in tool_results:
-                block["result"] = tool_results[block["tool_use_id"]]
+                tr = tool_results[block["tool_use_id"]]
+                block["result"] = tr["content"]
+                if tr.get("is_error"):
+                    block["is_error"] = True
 
         # Save completed response to DB (with ordered blocks for UI replay)
         meta = {"blocks": blocks_meta} if blocks_meta else None
@@ -243,11 +253,10 @@ async def _run_stream(
         await redis_service.set_stream_result(session_id, full_response, message_id)
         await redis_service.set_session_status(session_id, "idle")
 
-        done_event = {"type": "done", "messageId": message_id}
-        await redis_service.publish_message(session_id, done_event)
-
-        # Increment unread for offline participants
-        online_users = await redis_service.get_online_users(session_id)
+        # Increment unread for ALL participants first, then publish done.
+        # Connected clients clear their own unread when they receive the done
+        # event via WS relay — this ensures multi-tab scenarios work correctly
+        # (same user online in one tab, viewing sidebar in another).
         async with async_session_factory() as db:
             result = await db.execute(
                 select(SessionParticipant.user_id).where(
@@ -256,9 +265,11 @@ async def _run_stream(
             )
             all_participants = {str(row[0]) for row in result.all()}
 
-        offline_participants = all_participants - online_users
-        for uid in offline_participants:
+        for uid in all_participants:
             await redis_service.increment_unread(session_id, uid)
+
+        done_event = {"type": "done", "messageId": message_id}
+        await redis_service.publish_message(session_id, done_event)
 
     except asyncio.CancelledError:
         logger.info("Stream cancelled for session %s", session_id)
@@ -270,4 +281,4 @@ async def _run_stream(
         await redis_service.set_session_status(session_id, "idle")
 
         error_event = {"type": "error", "message": "Agent streaming failed"}
-        await redis_service.publish_message(session_id, {**error_event, "_sender": sender_id})
+        await redis_service.publish_message(session_id, error_event)

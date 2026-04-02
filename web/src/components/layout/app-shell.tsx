@@ -372,7 +372,7 @@ function SidebarSessionItem({
   session: Session;
   isActive: boolean;
 }) {
-  const { status, unread } = useSessionStatus(session.id);
+  const { status, unread, title: polledTitle } = useSessionStatus(session.id);
   const { deleteSession } = useSidebar();
   const router = useRouter();
   const [confirming, setConfirming] = useState(false);
@@ -409,7 +409,7 @@ function SidebarSessionItem({
         <span className="truncate flex-1 text-destructive">Delete?</span>
       ) : (
         <span className="truncate flex-1">
-          {session.title || "Untitled"}
+          {polledTitle || session.title || "Untitled"}
         </span>
       )}
       {status === "streaming" && !confirming && (

@@ -4,6 +4,46 @@ import { useCallback, useRef, useState } from "react";
 import type { StreamBlock, TextBlock, ToolCallBlock, TodoItem } from "@/types";
 import type { WSMessage } from "@/lib/websocket";
 
+/**
+ * Convert a flat list of blocks into a tree where subagent tool calls are
+ * nested inside their parent Agent tool call's `children` array.
+ */
+function buildTree(flat: StreamBlock[]): StreamBlock[] {
+  const toolMap = new Map<string, ToolCallBlock>();
+  const tree: StreamBlock[] = [];
+
+  // First pass: create cloned tool blocks with empty children
+  for (const b of flat) {
+    if (b.type === "tool_call") {
+      toolMap.set(b.id, { ...b, children: [] });
+    }
+  }
+
+  // Second pass: attach children or push to top-level
+  for (const b of flat) {
+    if (b.type === "tool_call") {
+      const node = toolMap.get(b.id)!;
+      const parentId = b.parent_tool_use_id;
+      if (parentId && toolMap.has(parentId)) {
+        toolMap.get(parentId)!.children!.push(node);
+      } else {
+        tree.push(node);
+      }
+    } else {
+      tree.push(b);
+    }
+  }
+
+  // Strip empty children arrays
+  for (const node of toolMap.values()) {
+    if (node.children && node.children.length === 0) {
+      delete node.children;
+    }
+  }
+
+  return tree;
+}
+
 export function useStreamingBlocks() {
   const [blocks, setBlocks] = useState<StreamBlock[]>([]);
   const [todos, setTodos] = useState<TodoItem[]>([]);
@@ -13,7 +53,7 @@ export function useStreamingBlocks() {
   const scheduleRender = useCallback(() => {
     if (!rafRef.current) {
       rafRef.current = requestAnimationFrame(() => {
-        setBlocks([...blocksRef.current]);
+        setBlocks(buildTree(blocksRef.current));
         rafRef.current = 0;
       });
     }
@@ -57,6 +97,7 @@ export function useStreamingBlocks() {
             name: msg.name,
             input: msg.input,
             status: "running",
+            ...(msg.parent_tool_use_id ? { parent_tool_use_id: msg.parent_tool_use_id } : {}),
           };
           updateBlocks((prev) => [...prev, toolBlock]);
 
@@ -77,7 +118,7 @@ export function useStreamingBlocks() {
           updateBlocks((prev) =>
             prev.map((b) =>
               b.type === "tool_call" && b.id === msg.tool_use_id
-                ? { ...b, status: "complete" as const, result: msg.content }
+                ? { ...b, status: "complete" as const, result: msg.content, is_error: msg.is_error }
                 : b,
             ),
           );
@@ -125,7 +166,7 @@ export function useStreamingBlocks() {
       .join("");
   }, []);
 
-  /** Serialize all blocks for saving in message metadata (preserves order) */
+  /** Serialize all blocks for saving in message metadata (flat, preserves order) */
   const getBlocksMeta = useCallback((): Record<string, unknown>[] => {
     return blocksRef.current.map((b) => {
       if (b.type === "text") {
@@ -137,9 +178,14 @@ export function useStreamingBlocks() {
         input: b.input,
         tool_use_id: b.id,
         result: b.result,
+        ...(b.is_error ? { is_error: true } : {}),
+        ...(b.parent_tool_use_id ? { parent_tool_use_id: b.parent_tool_use_id } : {}),
       };
     });
   }, []);
 
   return { blocks, todos, handleMessage, reset, flattenText, getBlocksMeta, finalize };
 }
+
+/** Re-export buildTree for use by message-bubble (past messages) */
+export { buildTree };

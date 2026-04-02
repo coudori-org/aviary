@@ -4,7 +4,8 @@ import { useCallback, useState } from "react";
 import { cn } from "@/lib/utils";
 import { MarkdownContent } from "@/components/chat/markdown-content";
 import { ToolCallCard } from "@/components/chat/tool-call-card";
-import type { Message, ToolCallBlock } from "@/types";
+import { buildTree } from "@/components/chat/use-streaming-blocks";
+import type { Message, StreamBlock, ToolCallBlock } from "@/types";
 
 interface MessageBubbleProps {
   message: Message;
@@ -41,6 +42,30 @@ function MessageCopyButton({ text }: { text: string }) {
   );
 }
 
+/** Convert raw saved block metadata into a StreamBlock tree */
+function restoreBlocks(raw: Array<Record<string, unknown>>): StreamBlock[] {
+  const flat: StreamBlock[] = raw.map((block, i) => {
+    if (block.type === "tool_call") {
+      return {
+        type: "tool_call" as const,
+        id: String(block.tool_use_id ?? `saved-${i}`),
+        name: String(block.name ?? "unknown"),
+        input: (block.input as Record<string, unknown>) ?? {},
+        status: "complete" as const,
+        result: block.result != null ? String(block.result) : undefined,
+        is_error: block.is_error === true ? true : undefined,
+        parent_tool_use_id: block.parent_tool_use_id ? String(block.parent_tool_use_id) : undefined,
+      };
+    }
+    return {
+      type: "text" as const,
+      id: `text-${i}`,
+      content: String(block.content ?? ""),
+    };
+  });
+  return buildTree(flat);
+}
+
 export function MessageBubble({ message, currentUserId }: MessageBubbleProps) {
   const isUser = message.sender_type === "user";
   const savedBlocks = !isUser ? (message.metadata?.blocks as Array<Record<string, unknown>> | undefined) : undefined;
@@ -72,25 +97,16 @@ export function MessageBubble({ message, currentUserId }: MessageBubbleProps) {
             <div className="whitespace-pre-wrap break-words">{message.content}</div>
           </div>
         ) : hasBlocks ? (
-          /* Render saved blocks in original streaming order */
+          /* Render saved blocks as tree (subagent tools nested under Agent) */
           <>
-            {savedBlocks!.map((block, i) => {
+            {restoreBlocks(savedBlocks!).map((block) => {
               if (block.type === "tool_call") {
-                const toolBlock: ToolCallBlock = {
-                  type: "tool_call",
-                  id: String(block.tool_use_id ?? `saved-${i}`),
-                  name: String(block.name ?? "unknown"),
-                  input: (block.input as Record<string, unknown>) ?? {},
-                  status: "complete",
-                  result: block.result != null ? String(block.result) : undefined,
-                };
-                return <ToolCallCard key={toolBlock.id} block={toolBlock} />;
+                return <ToolCallCard key={block.id} block={block} />;
               }
-              // text block
               return (
-                <div key={`text-${i}`} className="rounded-2xl rounded-tl-md bg-chat-agent px-4 py-3 text-[14px] leading-[1.7] text-chat-agent-fg">
+                <div key={block.id} className="rounded-2xl rounded-tl-md bg-chat-agent px-4 py-3 text-[14px] leading-[1.7] text-chat-agent-fg">
                   <div className="markdown-body break-words">
-                    <MarkdownContent content={String(block.content ?? "")} />
+                    <MarkdownContent content={block.content} />
                   </div>
                 </div>
               );

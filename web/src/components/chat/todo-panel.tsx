@@ -58,7 +58,7 @@ export const TodoPanel = memo(function TodoPanel({ todos }: TodoPanelProps) {
 
   const completed = todos.filter((t) => t.status === "completed").length;
   const total = todos.length;
-  const current = todos.find((t) => t.status === "in_progress");
+  const inProgress = todos.filter((t) => t.status === "in_progress");
   const progress = total > 0 ? (completed / total) * 100 : 0;
 
   return (
@@ -95,7 +95,7 @@ export const TodoPanel = memo(function TodoPanel({ todos }: TodoPanelProps) {
         className="flex w-full items-center gap-2 rounded-lg border border-border/20 bg-secondary/30 px-3 py-1.5 text-xs transition-colors hover:bg-secondary/50"
       >
         {/* Spinner or check */}
-        {current ? (
+        {inProgress.length > 0 ? (
           <svg className="h-3 w-3 shrink-0 animate-spin text-primary" viewBox="0 0 24 24" fill="none">
             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
@@ -106,9 +106,11 @@ export const TodoPanel = memo(function TodoPanel({ todos }: TodoPanelProps) {
           </svg>
         )}
 
-        {/* Current task or "Done" */}
-        <span className="truncate text-foreground/70">
-          {current?.content ?? "Plan complete"}
+        {/* Current tasks or "Done" */}
+        <span className="min-w-0 truncate text-foreground/70">
+          {inProgress.length === 0
+            ? "Plan complete"
+            : inProgress.map((t) => t.content).join(" · ")}
         </span>
 
         {/* Counter */}

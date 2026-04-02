@@ -84,7 +84,10 @@ export interface ToolCallBlock {
   input: Record<string, unknown>;
   status: "running" | "complete";
   result?: string;
+  is_error?: boolean;
   elapsed?: number;
+  parent_tool_use_id?: string;
+  children?: ToolCallBlock[];
 }
 
 export type StreamBlock = TextBlock | ToolCallBlock;

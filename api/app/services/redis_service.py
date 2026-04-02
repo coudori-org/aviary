@@ -135,31 +135,38 @@ async def clear_agent_deployment_cache(agent_id: str) -> None:
 # ── Online presence tracking ─────────────────────────────────
 
 async def add_ws_connection(session_id: str, user_id: str) -> None:
-    """Track that a user has an active WebSocket connection to a session."""
+    """Track that a user has an active WebSocket connection to a session.
+
+    Uses a hash with reference counting so that multiple connections from the
+    same user (e.g. multiple browser tabs) are tracked independently.
+    """
     client = get_client()
     if not client:
         return
     key = f"session:{session_id}:online"
-    await client.sadd(key, user_id)
+    await client.hincrby(key, user_id, 1)
     await client.expire(key, 3600)
 
 
 async def remove_ws_connection(session_id: str, user_id: str) -> None:
-    """Remove a user's WebSocket connection tracking."""
+    """Decrement connection count for a user. Removes entry when count reaches zero."""
     client = get_client()
     if not client:
         return
     key = f"session:{session_id}:online"
-    await client.srem(key, user_id)
+    new_count = await client.hincrby(key, user_id, -1)
+    if new_count <= 0:
+        await client.hdel(key, user_id)
 
 
 async def get_online_users(session_id: str) -> set[str]:
-    """Get the set of user IDs currently connected to a session."""
+    """Get the set of user IDs with at least one active connection to a session."""
     client = get_client()
     if not client:
         return set()
     key = f"session:{session_id}:online"
-    return await client.smembers(key)
+    data = await client.hgetall(key)
+    return {uid for uid, count in data.items() if int(count) > 0}
 
 
 # ── Stream buffer (chunk replay for reconnecting clients) ───

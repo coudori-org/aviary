@@ -106,9 +106,10 @@ export interface SSEChunk {
   name?: string;
   input?: unknown;
   tool_use_id?: string;
+  is_error?: boolean;
+  parent_tool_use_id?: string | null;
   // tool_progress fields
   tool_name?: string;
-  parent_tool_use_id?: string | null;
   elapsed_time_seconds?: number;
   // Result metadata (only on type: "result")
   session_id?: string;
@@ -203,16 +204,24 @@ export async function* processMessage(
       const msg = message as SDKMessage & Record<string, any>;
 
       if (msg.type === "assistant" && msg.message?.content) {
+        const parentId = msg.parent_tool_use_id ?? null;
         for (const block of msg.message.content) {
           if (block.type === "text") {
             fullResponse += block.text;
             yield { type: "chunk", content: block.text };
           } else if (block.type === "tool_use") {
-            yield { type: "tool_use", name: block.name, input: block.input, tool_use_id: block.id };
+            yield {
+              type: "tool_use",
+              name: block.name,
+              input: block.input,
+              tool_use_id: block.id,
+              ...(parentId ? { parent_tool_use_id: parentId } : {}),
+            };
           }
         }
       } else if (msg.type === "user" && msg.message?.content) {
         // SDKUserMessage — tool results sent back to the model after execution.
+        const parentId = msg.parent_tool_use_id ?? null;
         const content = msg.message.content;
         if (Array.isArray(content)) {
           for (const block of content) {
@@ -224,6 +233,8 @@ export async function* processMessage(
                   typeof block.content === "string"
                     ? block.content
                     : JSON.stringify(block.content ?? ""),
+                ...(block.is_error ? { is_error: true } : {}),
+                ...(parentId ? { parent_tool_use_id: parentId } : {}),
               };
             }
           }

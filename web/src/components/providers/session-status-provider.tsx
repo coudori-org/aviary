@@ -13,6 +13,7 @@ import { apiFetch } from "@/lib/api";
 interface SessionStatusEntry {
   status: "streaming" | "idle" | "offline";
   unread: number;
+  title: string | null;
 }
 
 interface SessionStatusContextValue {
@@ -41,6 +42,7 @@ export function SessionStatusProvider({ children }: { children: React.ReactNode 
       const res = await apiFetch<{
         statuses: Record<string, string>;
         unread: Record<string, number>;
+        titles: Record<string, string | null>;
       }>(`/sessions/status?ids=${sessionIds.join(",")}`);
 
       const merged: Record<string, SessionStatusEntry> = {};
@@ -48,6 +50,7 @@ export function SessionStatusProvider({ children }: { children: React.ReactNode 
         merged[id] = {
           status: (res.statuses[id] || "offline") as SessionStatusEntry["status"],
           unread: res.unread[id] || 0,
+          title: res.titles[id] ?? null,
         };
       }
       setStatuses(merged);
@@ -76,7 +79,7 @@ export function SessionStatusProvider({ children }: { children: React.ReactNode 
 
 export function useSessionStatus(sessionId: string): SessionStatusEntry {
   const { statuses } = useContext(SessionStatusContext);
-  return statuses[sessionId] || { status: "offline", unread: 0 };
+  return statuses[sessionId] || { status: "offline", unread: 0, title: null };
 }
 
 export function useSetSessionIds() {
