@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from aviary_shared.db.models import Agent
 from app.db import get_db
-from app.services import controller_client, redis_service
+from app.services import supervisor_client, redis_service
 
 logger = logging.getLogger(__name__)
 
@@ -75,11 +75,11 @@ async def update_policy(
     # Update K8s NetworkPolicy
     ns = f"agent-{agent.id}"
     try:
-        await controller_client.update_network_policy(ns, agent.policy)
+        await supervisor_client.update_network_policy(ns, agent.policy)
     except Exception:
         logger.warning("NetworkPolicy update failed for agent %s", agent.id, exc_info=True)
     try:
-        await controller_client.invalidate_egress_cache(agent_id_str)
+        await supervisor_client.invalidate_egress_cache(agent_id_str)
     except Exception:
         pass
 
@@ -111,12 +111,12 @@ async def force_sync_policy(agent_id: uuid.UUID, db: AsyncSession = Depends(get_
 
     ns = f"agent-{agent.id}"
     try:
-        await controller_client.update_network_policy(ns, agent.policy)
+        await supervisor_client.update_network_policy(ns, agent.policy)
         synced["network_policy"] = True
     except Exception:
         logger.warning("NetworkPolicy sync failed for agent %s", agent.id, exc_info=True)
     try:
-        await controller_client.invalidate_egress_cache(agent_id_str)
+        await supervisor_client.invalidate_egress_cache(agent_id_str)
         synced["egress_cache"] = True
     except Exception:
         pass

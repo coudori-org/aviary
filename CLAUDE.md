@@ -9,17 +9,17 @@ Multi-tenant AI agent platform. Users create/configure agents via Web UI, each r
 docker compose up -d      # Subsequent: just start services
 ```
 
-Services: Web (`:3000`), API (`:8000`), Admin (`:8001`), Keycloak (`:8080`, admin/admin), Vault (`:8200`), Inference Router (`:8090`), Credential Proxy (`:8091`), Agent Controller (`:9000`).
+Services: Web (`:3000`), API (`:8000`), Admin (`:8001`), Keycloak (`:8080`, admin/admin), Vault (`:8200`), Inference Router (`:8090`), Credential Proxy (`:8091`), Agent Supervisor (`:9000`).
 Test accounts: `user1@test.com`, `user2@test.com` (all `password`).
 
 ## Architecture
 
 ```
-Browser → Next.js (:3000) → API rewrite proxy → FastAPI (:8000) → Agent Controller (:9000) → Agent Pods
+Browser → Next.js (:3000) → API rewrite proxy → FastAPI (:8000) → Agent Supervisor (:9000) → Agent Pods
                                                       ↓
                                                PostgreSQL / Redis / Vault / Keycloak
 
-Admin Console (:8001) → Agent Controller (:9000) → K8s API
+Admin Console (:8001) → Agent Supervisor (:9000) → K8s API
       ↓
 PostgreSQL / Redis
 
@@ -28,7 +28,7 @@ Platform services (docker compose):
   Credential Proxy (:8091) → Vault
 
 Platform services (K8s, platform namespace):
-  Agent Controller (:9000, NodePort 30900) → K8s API (namespace/deployment/pod management)
+  Agent Supervisor (:9000, NodePort 30900) → K8s API (namespace/deployment/pod management)
   Egress Proxy → per-agent outbound policy enforcement
 
 Agent Pod outbound:
@@ -41,27 +41,27 @@ Agent Pod outbound:
 
 Three backend services with distinct roles:
 
-**API Server (`:8000`)** — User-facing. Agent CRUD (config only), OIDC auth, ACL, sessions, chat. Communicates with the Agent Controller via an abstract interface (`agent_controller.py`) using only `agent_id` and `session_id`. No infrastructure knowledge — does not read or write policy, namespace, deployment, or scaling fields.
+**API Server (`:8000`)** — User-facing. Agent CRUD (config only), OIDC auth, ACL, sessions, chat. Communicates with the Agent Supervisor via an abstract interface (`agent_supervisor.py`) using only `agent_id` and `session_id`. No infrastructure knowledge — does not read or write policy, namespace, deployment, or scaling fields.
 
-**Admin Console (`:8001`)** — Operator-facing. No authentication (local-only). Edits and applies infrastructure configuration: network policies (egress rules), resource allocation, deployment lifecycle (activate/deactivate/restart). Syncs policy changes to Redis (egress-proxy) and K8s (NetworkPolicy) via the controller. Includes a built-in web UI (Jinja2 templates).
+**Admin Console (`:8001`)** — Operator-facing. No authentication (local-only). Edits and applies infrastructure configuration: network policies (egress rules), resource allocation, deployment lifecycle (activate/deactivate/restart). Syncs policy changes to Redis (egress-proxy) and K8s (NetworkPolicy) via the supervisor. Includes a built-in web UI (Jinja2 templates).
 
-**Agent Controller (`:9000`)** — Infrastructure manager. Runs inside K8s. Manages all runtime resources: namespace/deployment/service/PVC lifecycle, auto-scaling based on session load, idle cleanup (scale to zero after inactivity). Has DB access for reading agent config (`min_pods`, `max_pods`) and updating `last_activity_at` on every agent request.
+**Agent Supervisor (`:9000`)** — Infrastructure manager. Runs inside K8s. Manages all runtime resources: namespace/deployment/service/PVC lifecycle, auto-scaling based on session load, idle cleanup (scale to zero after inactivity). Has DB access for reading agent config (`min_pods`, `max_pods`) and updating `last_activity_at` on every agent request.
 
 **Shared DB package** (`shared/aviary_shared/`) — SQLAlchemy models and session factory used by all three services.
 
 **Key flows:**
-- Agent creation → API saves config to DB + registers with controller (secure defaults) → admin later configures policy/scaling
-- Chat message → WebSocket → API asks controller to ensure agent running → Controller SSE proxy to agent Pod → claude-agent-sdk → Inference Router → LLM backend
-- Policy edit → Admin updates DB + syncs to Redis (egress-proxy) + updates K8s NetworkPolicy via controller. Immediate effect, no Pod restart.
+- Agent creation → API saves config to DB + registers with supervisor (secure defaults) → admin later configures policy/scaling
+- Chat message → WebSocket → API asks supervisor to ensure agent running → Supervisor SSE proxy to agent Pod → claude-agent-sdk → Inference Router → LLM backend
+- Policy edit → Admin updates DB + syncs to Redis (egress-proxy) + updates K8s NetworkPolicy via supervisor. Immediate effect, no Pod restart.
 - Agent config edit (instruction, tools) → API updates DB only. Passed to runtime on every message request body. Immediate effect, no Pod restart.
 
-**Pod Strategy (agent-per-pod):** Each agent gets a long-running Deployment with 1-N replicas. Multiple sessions share the same Pod(s), isolated by working directory (`/workspace/sessions/{session_id}/`). Pods auto-scale based on session load and are released after 7 days of inactivity (both managed by the agent controller).
+**Pod Strategy (agent-per-pod):** Each agent gets a long-running Deployment with 1-N replicas. Multiple sessions share the same Pod(s), isolated by working directory (`/workspace/sessions/{session_id}/`). Pods auto-scale based on session load and are released after 7 days of inactivity (both managed by the agent supervisor).
 
 **Inference Router** (docker compose, `:8090`): All LLM calls go through a centralized proxy. Backend is determined by the `X-Backend` header injected by the runtime via `ANTHROPIC_CUSTOM_HEADERS` (e.g., `claude` → Claude API, `ollama` → Ollama, `vllm` → vLLM, `bedrock` → Bedrock). Speaks Anthropic Messages API so claude-agent-sdk works transparently. API server also queries it for model listing (`/v1/backends/{backend}/models`).
 
 **Credential Proxy** (docker compose, `:8091`): Session Pods never hold secrets. External API calls go through proxy which injects credentials from Vault.
 
-**Agent Controller** (K8s platform namespace, `:9000`): Manages all K8s resources and runtime operations. Has DB access for agent config and activity tracking. Exposes two API layers:
+**Agent Supervisor** (K8s platform namespace, `:9000`): Manages all K8s resources and runtime operations. Has DB access for agent config and activity tracking. Exposes two API layers:
 - **Agent-centric API** (`/v1/agents/{id}/...`) — Used by the API server. Abstract operations: register, run, ready, wait, session message/abort/cleanup. Updates `last_activity_at` on every request. No K8s concepts exposed.
 - **K8s-specific API** (`/v1/namespaces/`, `/v1/deployments/`, `/v1/egress/`) — Used by the admin console. Direct namespace/deployment/NetworkPolicy management.
 
@@ -78,14 +78,14 @@ Keycloak tokens have `iss=http://localhost:8080/...` (browser URL), but API cont
 `model_config` is a reserved Pydantic class variable. Use `Field(alias="model_config")` with `model_config_data` as the Python field name. The `model_config = {...}` class var must be declared BEFORE field definitions. See `api/app/schemas/agent.py`.
 
 ### API Server Knows Nothing About Infrastructure
-The API server (`api/`) has no references to K8s concepts (namespace, pod, deployment, NetworkPolicy). It communicates with the agent controller via `agent_controller.py` which uses only `agent_id` and `session_id`. The Agent model's infrastructure fields (`namespace`, `pod_strategy`, `min_pods`, `max_pods`, `deployment_active`) exist in the shared DB model but the API never reads or writes them. Policy is not part of the API's schema — the API does not accept, return, or store policy data. Policy management is exclusively handled by the admin console.
+The API server (`api/`) has no references to K8s concepts (namespace, pod, deployment, NetworkPolicy). It communicates with the agent supervisor via `agent_supervisor.py` which uses only `agent_id` and `session_id`. The Agent model's infrastructure fields (`namespace`, `pod_strategy`, `min_pods`, `max_pods`, `deployment_active`) exist in the shared DB model but the API never reads or writes them. Policy is not part of the API's schema — the API does not accept, return, or store policy data. Policy management is exclusively handled by the admin console.
 
-### Agent Controller Dual API
-The controller exposes two layers:
+### Agent Supervisor Dual API
+The supervisor exposes two layers:
 - `/v1/agents/{id}/register`, `/v1/agents/{id}/run`, `/v1/agents/{id}/ready`, `/v1/agents/{id}/sessions/{sid}/message` — agent-centric, used by API server. Updates `last_activity_at` in DB on every call.
 - `/v1/namespaces/`, `/v1/deployments/{ns}/ensure`, `/v1/deployments/{ns}/scale` — K8s-specific, used by admin console.
 
-The agent-centric API internally delegates to the K8s-specific endpoints, deriving namespace as `agent-{agent_id}`. The controller also has DB access (`shared/aviary_shared`) for reading agent scaling config and tracking activity.
+The agent-centric API internally delegates to the K8s-specific endpoints, deriving namespace as `agent-{agent_id}`. The supervisor also has DB access (`shared/aviary_shared`) for reading agent scaling config and tracking activity.
 
 ### claude-agent-sdk Multi-Turn (TypeScript)
 Uses the `query()` function from `@anthropic-ai/claude-agent-sdk` (TypeScript). TS SDK doesn't expose a `sessionId` option — Aviary session_id is injected via `extraArgs: { "session-id": sessionId }` which passes `--session-id <uuid>` to the CLI on the first message. Subsequent messages use `resume: sessionId` to load existing conversation history. Resume is determined by checking for existing JSONL in `<workspace>/.claude/projects/`. CLI session data is persisted to PVC via bwrap bind-mount of `<workspace>/.claude/` to `/tmp/.claude`, enabling conversation resume across Pod restarts. Runtime is a Node.js/Express server (`src/server.ts`) — no Python dependency. MCP servers from agent config are passed through to the SDK via `mcpServers` option. The runtime emits a final `result` SSE event with metadata (`total_cost_usd`, `usage`, `duration_ms`, `num_turns`) from the SDK's `ResultMessage` — the API can opt in to consuming this for billing/logging.
@@ -97,12 +97,12 @@ Each runtime Pod runs a `SessionManager` that tracks active sessions, enforces c
 The `claude` binary in PATH is a wrapper script (`scripts/claude-sandbox.sh`). The real binary is renamed to `claude-real` at build time (see Dockerfile). SDK must use `pathToClaudeCodeExecutable: "/usr/local/bin/claude"` to bypass the bundled binary and use the wrapper. (node:22-slim puts npm global binaries in `/usr/local/bin/`, unlike the old python:3.12-slim + nodesource setup which used `/usr/bin/`.) When the SDK invokes `claude`, the wrapper reads `SESSION_WORKSPACE` from env (set per-session in `src/agent.ts`) and runs `claude-real` inside a bwrap mount namespace where `/workspace/sessions/` is an empty tmpfs with only the current session's directory bind-mounted back. `$SESSION_WORKSPACE/.claude` is bind-mounted to `/tmp/.claude` (HOME=/tmp) so CLI session data persists on PVC. Other sessions' files don't exist. PID namespace is also isolated.
 
 ### Auto-Scaling and Idle Cleanup
-Both run as background tasks in the agent controller (`controller/app/scaling.py`):
+Both run as background tasks in the agent supervisor (`agent-supervisor/app/scaling.py`):
 - **Auto-scaling** (30s interval): queries pod metrics directly from K8s, scales up/down based on sessions/pod vs `min_pods`/`max_pods` from DB.
-- **Idle cleanup** (5min interval): checks `last_activity_at` from DB against the configured timeout (default 7 days). Scales to zero if expired. The controller updates `last_activity_at` on every agent-centric API call, so any user interaction resets the idle timer.
+- **Idle cleanup** (5min interval): checks `last_activity_at` from DB against the configured timeout (default 7 days). Scales to zero if expired. The supervisor updates `last_activity_at` on every agent-centric API call, so any user interaction resets the idle timer.
 
 ### Egress Proxy Policy Enforcement
-Two-layer enforcement: (1) K8s NetworkPolicy blocks all egress except DNS, platform NS (port 8080), and explicitly allowed CIDRs. (2) Egress proxy (HTTP-level) enforces domain-based rules. Agent pods have `HTTP_PROXY`/`HTTPS_PROXY` pointing to `egress-proxy.platform.svc:8080`, with `NO_PROXY` excluding internal platform services. Policy flow: Admin writes to DB + Redis `egress:{agent_id}` key → calls Agent Controller `/v1/egress/invalidate/{agent_id}` → Controller relays to egress-proxy admin API → proxy re-reads from Redis on next request. See `admin/app/routers/policies.py`, `admin/app/services/redis_service.py`, `egress-proxy/app/policy.py`.
+Two-layer enforcement: (1) K8s NetworkPolicy blocks all egress except DNS, platform NS (port 8080), and explicitly allowed CIDRs. (2) Egress proxy (HTTP-level) enforces domain-based rules. Agent pods have `HTTP_PROXY`/`HTTPS_PROXY` pointing to `egress-proxy.platform.svc:8080`, with `NO_PROXY` excluding internal platform services. Policy flow: Admin writes to DB + Redis `egress:{agent_id}` key → calls Agent Supervisor `/v1/egress/invalidate/{agent_id}` → Supervisor relays to egress-proxy admin API → proxy re-reads from Redis on next request. See `admin/app/routers/policies.py`, `admin/app/services/redis_service.py`, `egress-proxy/app/policy.py`.
 
 ### Egress Rule Schema
 Egress rules are stored in the agent's `policy` JSONB field in DB (managed exclusively by the admin console). Domain patterns: `"example.com"` (exact), `"*.example.com"` (wildcard subdomain), `".example.com"` (same as `*`), `"*"` (all). Both CIDR and domain types can be mixed in the same `allowedEgress` list. Optional `ports` field restricts to specific ports; empty means all ports allowed.
@@ -111,7 +111,7 @@ Egress rules are stored in the agent's `policy` JSONB field in DB (managed exclu
 `runtime/config/managed-settings.json` is installed to `/etc/claude-code/managed-settings.json` (the hardcoded path Claude Code CLI reads on Linux). Currently sets `skipWebFetchPreflight: true` to prevent CLI from calling `api.anthropic.com/api/web/domain_info` before each WebFetch — this endpoint is unreachable in air-gapped/fintech environments where all external traffic must go through the egress proxy. All model tiers (`ANTHROPIC_MODEL`, `ANTHROPIC_SMALL_FAST_MODEL`, `ANTHROPIC_DEFAULT_HAIKU_MODEL`, etc.) are remapped to the agent's configured model in `src/agent.ts` so that CLI internal tasks (WebFetch summarization, subagents) route through the inference router.
 
 ### K8s Image Loading
-All K8s custom images use `imagePullPolicy: Never`. Loaded via `docker save | docker compose exec -T k8s ctr images import -`. The `setup-dev.sh` handles this for runtime, egress-proxy, and agent-controller images. Inference router and credential proxy run outside K8s and don't need image loading.
+All K8s custom images use `imagePullPolicy: Never`. Loaded via `docker save | docker compose exec -T k8s ctr images import -`. The `setup-dev.sh` handles this for runtime, egress-proxy, and agent-supervisor images. Inference router and credential proxy run outside K8s and don't need image loading.
 
 ### K8s Fixed Node Name
 `--node-name=aviary-node` in docker-compose.yml prevents stale node accumulation on container restart. Without it, PVCs bind to old node names causing scheduling failures.
@@ -150,16 +150,16 @@ docker compose exec admin pytest tests/ -v
 
 API: Tests using dedicated `aviary_test` database with `NullPool` (avoids asyncpg conflicts). Test app has no lifespan (no background tasks). Mock auth via `_TOKEN_CLAIMS` dict mapping tokens to claims for multi-user scenarios.
 
-Admin: Tests use the same test database pattern. No auth mocking needed (admin has no authentication). Controller calls are mocked.
+Admin: Tests use the same test database pattern. No auth mocking needed (admin has no authentication). Supervisor calls are mocked.
 
 ## Rebuilding Images
 
-**K8s images** (runtime, egress-proxy, agent-controller) — after modifying `runtime/`, `egress-proxy/`, or `controller/`:
+**K8s images** (runtime, egress-proxy, agent-supervisor) — after modifying `runtime/`, `egress-proxy/`, or `agent-supervisor/`:
 
 ```bash
 docker build -t aviary-runtime:latest ./runtime/
-docker build -t aviary-agent-controller:latest -f controller/Dockerfile .
-docker save aviary-runtime:latest aviary-agent-controller:latest | docker compose exec -T k8s ctr images import -
+docker build -t aviary-agent-supervisor:latest -f agent-supervisor/Dockerfile .
+docker save aviary-runtime:latest aviary-agent-supervisor:latest | docker compose exec -T k8s ctr images import -
 # Repeat pattern for egress-proxy if changed
 ```
 
@@ -178,7 +178,7 @@ docker compose up -d --build api admin inference-router credential-proxy
 | `DATABASE_URL` | PostgreSQL async connection |
 | `REDIS_URL` | Redis for pub/sub, caching, presence |
 | `VAULT_ADDR` / `VAULT_TOKEN` | Vault connection |
-| `AGENT_CONTROLLER_URL` | Agent Controller URL (default: `http://localhost:9000`) |
+| `AGENT_SUPERVISOR_URL` | Agent Supervisor URL (default: `http://localhost:9000`) |
 | `INFERENCE_ROUTER_URL` | Inference router URL (default: `http://inference-router:8080`) |
 | `CREDENTIAL_PROXY_URL` | Credential proxy URL (default: `http://credential-proxy:8080`) |
 
@@ -188,7 +188,7 @@ docker compose up -d --build api admin inference-router credential-proxy
 |----------|---------|
 | `DATABASE_URL` | PostgreSQL async connection |
 | `REDIS_URL` | Redis for egress policy sync |
-| `AGENT_CONTROLLER_URL` | Agent Controller URL (default: `http://localhost:9000`) |
+| `AGENT_SUPERVISOR_URL` | Agent Supervisor URL (default: `http://localhost:9000`) |
 
 ## Key Environment Variables (Runtime Pod)
 
@@ -201,7 +201,7 @@ docker compose up -d --build api admin inference-router credential-proxy
 | `HTTP_PROXY` / `HTTPS_PROXY` | Egress proxy URL (`http://egress-proxy.platform.svc:8080`) |
 | `NO_PROXY` | Bypass proxy for internal services (platform SVCs, localhost) |
 
-## Key Environment Variables (Agent Controller)
+## Key Environment Variables (Agent Supervisor)
 
 | Variable | Purpose |
 |----------|---------|

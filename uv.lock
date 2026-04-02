@@ -5,7 +5,7 @@ requires-python = ">=3.12"
 [manifest]
 members = [
     "aviary-admin",
-    "aviary-agent-controller",
+    "aviary-agent-supervisor",
     "aviary-api",
     "aviary-shared",
 ]
@@ -149,9 +149,9 @@ requires-dist = [
 provides-extras = ["dev"]
 
 [[package]]
-name = "aviary-agent-controller"
+name = "aviary-agent-supervisor"
 version = "0.1.0"
-source = { editable = "controller" }
+source = { editable = "agent-supervisor" }
 dependencies = [
     { name = "asyncpg" },
     { name = "aviary-shared" },

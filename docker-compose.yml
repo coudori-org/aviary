@@ -89,7 +89,7 @@ services:
       K3S_TOKEN: aviary-dev-token
     ports:
       - "6443:6443"
-      - "9000:30900"   # agent-controller NodePort
+      - "9000:30900"   # agent-supervisor NodePort
     volumes:
       - k8sdata:/var/lib/rancher/k3s
       - ./config/k3s/registries.yaml:/etc/rancher/k3s/registries.yaml
@@ -183,7 +183,7 @@ services:
       OIDC_CLIENT_ID: aviary-web
       VAULT_ADDR: http://vault:8200
       VAULT_TOKEN: dev-root-token
-      AGENT_CONTROLLER_URL: http://k8s:30900
+      AGENT_SUPERVISOR_URL: http://k8s:30900
       INFERENCE_ROUTER_URL: http://inference-router:8080
       CREDENTIAL_PROXY_URL: http://credential-proxy:8080
       CORS_ORIGINS: '["http://localhost:3000"]'
@@ -243,7 +243,7 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://aviary:aviary@postgres:5432/aviary
       REDIS_URL: redis://redis:6379/0
-      AGENT_CONTROLLER_URL: http://k8s:30900
+      AGENT_SUPERVISOR_URL: http://k8s:30900
     depends_on:
       db-migrate:
         condition: service_completed_successfully

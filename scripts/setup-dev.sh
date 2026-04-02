@@ -49,17 +49,17 @@ echo "  K8s is ready."
 K8S_GATEWAY_IP=$(docker compose exec -T k8s ip route | awk '/default/ {print $3}' | head -1)
 echo "  K8s gateway IP: $K8S_GATEWAY_IP"
 
-# 5. Build K8s images and load them (runtime, egress-proxy, agent-controller)
-echo "[5/7] Building K8s images (runtime, egress-proxy, agent-controller)..."
+# 5. Build K8s images and load them (runtime, egress-proxy, agent-supervisor)
+echo "[5/7] Building K8s images (runtime, egress-proxy, agent-supervisor)..."
 docker build "${BUILD_ARGS[@]}" -t aviary-runtime:latest          ./runtime/
 docker build "${BUILD_ARGS[@]}" -t aviary-egress-proxy:latest     ./egress-proxy/
-docker build "${BUILD_ARGS[@]}" -t aviary-agent-controller:latest -f controller/Dockerfile .
+docker build "${BUILD_ARGS[@]}" -t aviary-agent-supervisor:latest -f agent-supervisor/Dockerfile .
 
 echo "  Loading images into K8s..."
 docker save \
   aviary-runtime:latest \
   aviary-egress-proxy:latest \
-  aviary-agent-controller:latest \
+  aviary-agent-supervisor:latest \
   | docker compose exec -T k8s ctr images import -
 echo "  All images loaded."
 
@@ -77,7 +77,7 @@ echo "  Platform namespace ready."
 
 # 7. Wait for application services
 echo "[7/7] Waiting for application services..."
-echo -n "  Agent controller..."
+echo -n "  Agent supervisor..."
 until curl -sf http://localhost:9000/v1/health > /dev/null 2>&1; do
   sleep 2
 done
@@ -112,7 +112,7 @@ echo "  API Server:        http://localhost:8000"
 echo "  API Health:        http://localhost:8000/api/health"
 echo ""
 echo "Platform Services:"
-echo "  Agent Controller:  http://localhost:9000"
+echo "  Agent Supervisor:  http://localhost:9000"
 echo "  Inference Router:  http://localhost:8090"
 echo "  Credential Proxy:  http://localhost:8091"
 echo ""
@@ -133,9 +133,9 @@ echo "  Edit files in api/, web/, inference-router/, or credential-proxy/"
 echo "  — changes apply automatically via bind-mount."
 echo "  If you change dependencies:"
 echo "    docker compose up -d --build <service>"
-echo "  To rebuild K8s images (runtime, egress-proxy, agent-controller):"
+echo "  To rebuild K8s images (runtime, egress-proxy, agent-supervisor):"
 echo "    docker build -t aviary-runtime:latest ./runtime/"
 echo "    docker build -t aviary-egress-proxy:latest ./egress-proxy/"
-echo "    docker build -t aviary-agent-controller:latest -f controller/Dockerfile ."
-echo "    docker save aviary-runtime:latest aviary-egress-proxy:latest aviary-agent-controller:latest | docker compose exec -T k8s ctr images import -"
+echo "    docker build -t aviary-agent-supervisor:latest -f agent-supervisor/Dockerfile ."
+echo "    docker save aviary-runtime:latest aviary-egress-proxy:latest aviary-agent-supervisor:latest | docker compose exec -T k8s ctr images import -"
 echo "    docker compose exec -T k8s kubectl rollout restart deployment -n platform"

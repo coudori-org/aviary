@@ -45,7 +45,7 @@ Aviary is an enterprise platform where users can create, configure, and use purp
     │   │                                                        │
     │   │  ┌─── NS: platform ──────────────────────────────────┐ │
     │   │  │  ┌─────────────────┐  ┌────────────────────────┐  │ │
-    │   │  │  │  Egress Proxy   │  │   Agent Controller     │  │ │
+    │   │  │  │  Egress Proxy   │  │   Agent Supervisor     │  │ │
     │   │  │  │  (forward proxy │  │   (K8s gateway,         │  │ │
     │   │  │  │   + allowlist)  │  │    NodePort 30900)      │  │ │
     │   │  │  └────────┬────────┘  └────────────────────────┘  │ │
@@ -74,7 +74,7 @@ Aviary is an enterprise platform where users can create, configure, and use purp
        └───────────────┘  └──────────────┘  └────────────────┘
 ```
 
-**API Server** handles user-facing operations (auth, chat, agent config). **Admin Console** edits infrastructure configuration (policies, deployments). **Agent Controller** manages runtime resources, auto-scaling, and idle cleanup inside K8s. **Egress Proxy** enforces per-agent outbound traffic rules.
+**API Server** handles user-facing operations (auth, chat, agent config). **Admin Console** edits infrastructure configuration (policies, deployments). **Agent Supervisor** manages runtime resources, auto-scaling, and idle cleanup inside K8s. **Egress Proxy** enforces per-agent outbound traffic rules.
 
 ## Key Features
 
@@ -135,7 +135,7 @@ aviary/
 │       ├── app/             # Pages (agents, sessions, login)
 │       ├── components/      # Chat, agent management, UI primitives
 │       └── lib/             # API client, auth, WebSocket
-├── controller/              # Agent Controller (FastAPI, runs in K8s)
+├── agent-supervisor/         # Agent Supervisor (FastAPI, runs in K8s)
 │   └── app/                 # K8s gateway, agent-centric + K8s-specific APIs
 ├── runtime/                 # Agent Runtime (runs in agent Pods)
 │   └── src/                 # claude-agent-sdk harness, session manager
@@ -199,11 +199,11 @@ Source code is bind-mounted into containers. Edits to `api/`, `web/`, `inference
 docker compose up -d --build api
 docker compose up -d --build web
 
-# Rebuild K8s images (runtime, egress-proxy, agent-controller)
+# Rebuild K8s images (runtime, egress-proxy, agent-supervisor)
 docker build -t aviary-runtime:latest ./runtime/
 docker build -t aviary-egress-proxy:latest ./egress-proxy/
-docker build -t aviary-agent-controller:latest -f controller/Dockerfile .
-docker save aviary-runtime:latest aviary-egress-proxy:latest aviary-agent-controller:latest | docker compose exec -T k8s ctr images import -
+docker build -t aviary-agent-supervisor:latest -f agent-supervisor/Dockerfile .
+docker save aviary-runtime:latest aviary-egress-proxy:latest aviary-agent-supervisor:latest | docker compose exec -T k8s ctr images import -
 ```
 
 ## Testing

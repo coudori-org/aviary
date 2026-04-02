@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from aviary_shared.db.models import Agent
 from app.db import get_db
-from app.services import controller_client, redis_service
+from app.services import supervisor_client, redis_service
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +45,7 @@ async def agent_list(
     for agent in agents:
         ns = f"agent-{agent.id}"
         try:
-            status_info = await controller_client.get_deployment_status(ns)
+            status_info = await supervisor_client.get_deployment_status(ns)
             ready = status_info.get("ready_replicas") or 0
             deployment_map[str(agent.id)] = {"active": ready > 0, "ready": ready}
         except Exception:
@@ -71,11 +71,11 @@ async def agent_detail(
     if not agent:
         return HTMLResponse("<h1>Agent not found</h1>", status_code=404)
 
-    # Query live deployment status from controller
+    # Query live deployment status from supervisor
     ns = f"agent-{agent.id}"
     deployment_status = {"active": False, "replicas": 0, "ready_replicas": 0}
     try:
-        status_info = await controller_client.get_deployment_status(ns)
+        status_info = await supervisor_client.get_deployment_status(ns)
         replicas = status_info.get("replicas", 0)
         ready = status_info.get("ready_replicas", 0)
         deployment_status = {
@@ -130,7 +130,7 @@ async def update_agent_config(
     # Sync config to K8s
     ns = f"agent-{agent.id}"
     try:
-        await controller_client.update_namespace_config(
+        await supervisor_client.update_namespace_config(
             namespace=ns,
             instruction=agent.instruction,
             tools=agent.tools,
@@ -168,7 +168,7 @@ async def update_policy(
     policy["maxMemoryPerSession"] = form.get("max_memory", "4Gi")
     policy["maxCpuPerSession"] = form.get("max_cpu", "4")
     policy["maxConcurrentSessions"] = int(form.get("max_concurrent_sessions", 20))
-    # TODO: enforce in API server by clamping max_tokens before forwarding to controller
+    # TODO: enforce in API server by clamping max_tokens before forwarding to supervisor
     policy["maxTokensPerTurn"] = int(form.get("max_tokens_per_turn", 100000))
     policy["containerImage"] = form.get("container_image", "aviary-runtime:latest")
     policy["maxConcurrentSessionsPerPod"] = int(form.get("max_sessions_per_pod", 10))
@@ -213,11 +213,11 @@ async def update_policy(
 
     ns = f"agent-{agent.id}"
     try:
-        await controller_client.update_network_policy(ns, policy)
+        await supervisor_client.update_network_policy(ns, policy)
     except Exception:
         logger.warning("NetworkPolicy update failed for agent %s", agent.id, exc_info=True)
     try:
-        await controller_client.invalidate_egress_cache(agent_id_str)
+        await supervisor_client.invalidate_egress_cache(agent_id_str)
     except Exception:
         pass
 
@@ -239,7 +239,7 @@ async def activate_agent(agent_id: uuid.UUID, db: AsyncSession = Depends(get_db)
     try:
         # Ensure namespace exists
         try:
-            await controller_client.create_namespace(
+            await supervisor_client.create_namespace(
                 agent_id=str(agent.id), owner_id=str(agent.owner_id),
                 instruction=agent.instruction, tools=agent.tools,
                 policy=agent.policy or {}, mcp_servers=agent.mcp_servers or [],
@@ -247,7 +247,7 @@ async def activate_agent(agent_id: uuid.UUID, db: AsyncSession = Depends(get_db)
         except Exception:
             pass  # Already exists
 
-        await controller_client.ensure_deployment(
+        await supervisor_client.ensure_deployment(
             namespace=ns, agent_id=str(agent.id), owner_id=str(agent.owner_id),
             instruction=agent.instruction, tools=agent.tools,
             policy=agent.policy or {}, mcp_servers=agent.mcp_servers or [],
@@ -267,7 +267,7 @@ async def deactivate_agent(agent_id: uuid.UUID, db: AsyncSession = Depends(get_d
 
     ns = f"agent-{agent.id}"
     try:
-        await controller_client.scale_to_zero(ns)
+        await supervisor_client.scale_to_zero(ns)
     except Exception:
         pass
     return RedirectResponse(f"/agents/{agent_id}?flash=Agent+deactivated", status_code=303)
@@ -282,7 +282,7 @@ async def deploy_agent(agent_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
 
     ns = f"agent-{agent.id}"
     try:
-        await controller_client.rolling_restart(ns)
+        await supervisor_client.rolling_restart(ns)
     except Exception:
         pass
     return RedirectResponse(f"/agents/{agent_id}?flash=Rolling+restart+triggered", status_code=303)
@@ -300,11 +300,11 @@ async def delete_agent(agent_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
     # Clean up K8s resources
     ns = f"agent-{agent.id}"
     try:
-        await controller_client.delete_deployment(ns)
+        await supervisor_client.delete_deployment(ns)
     except Exception:
         pass
     try:
-        await controller_client.delete_namespace(str(agent.id))
+        await supervisor_client.delete_namespace(str(agent.id))
     except Exception:
         pass
 

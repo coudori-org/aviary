@@ -1,6 +1,6 @@
 """Agent business logic: CRUD with ACL checks.
 
-Infrastructure provisioning is fully delegated to the agent controller.
+Infrastructure provisioning is fully delegated to the agent supervisor.
 """
 
 import uuid
@@ -13,13 +13,13 @@ from sqlalchemy import or_, exists
 
 from app.db.models import Agent, Session, User
 from app.schemas.agent import AgentCreate, AgentUpdate
-from app.services import acl_service, agent_controller, redis_service
+from app.services import acl_service, agent_supervisor, redis_service
 
 logger = logging.getLogger(__name__)
 
 
 async def create_agent(db: AsyncSession, user: User, data: AgentCreate) -> Agent:
-    """Create a new agent. Infrastructure provisioning is delegated to the controller."""
+    """Create a new agent. Infrastructure provisioning is delegated to the supervisor."""
     # Check slug uniqueness
     existing = await db.execute(select(Agent).where(Agent.slug == data.slug))
     if existing.scalar_one_or_none():
@@ -41,9 +41,9 @@ async def create_agent(db: AsyncSession, user: User, data: AgentCreate) -> Agent
     db.add(agent)
     await db.flush()
 
-    # Register with agent controller (secure defaults, best-effort)
+    # Register with agent supervisor (secure defaults, best-effort)
     try:
-        await agent_controller.register_agent(
+        await agent_supervisor.register_agent(
             agent_id=str(agent.id),
             owner_id=str(user.id),
             config={
@@ -54,7 +54,7 @@ async def create_agent(db: AsyncSession, user: User, data: AgentCreate) -> Agent
         )
     except Exception:
         logger.warning(
-            "Agent controller registration failed for agent %s — will retry on first message",
+            "Agent supervisor registration failed for agent %s — will retry on first message",
             agent.id, exc_info=True,
         )
 
@@ -179,11 +179,11 @@ async def cleanup_agent_resources(db: AsyncSession, agent: Agent) -> None:
     """
     agent_id_str = str(agent.id)
 
-    # Ask controller to remove all agent resources
+    # Ask supervisor to remove all agent resources
     try:
-        await agent_controller.unregister_agent(agent_id_str)
+        await agent_supervisor.unregister_agent(agent_id_str)
     except Exception:
-        logger.warning("Agent controller cleanup failed for agent %s", agent.id, exc_info=True)
+        logger.warning("Agent supervisor cleanup failed for agent %s", agent.id, exc_info=True)
 
     # Clean up Redis egress policy
     try:

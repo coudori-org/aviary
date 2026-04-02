@@ -1,4 +1,4 @@
-"""Agent Controller client — abstract orchestration interface.
+"""Agent Supervisor client — abstract orchestration interface.
 
 The API server treats this as a black-box agent runtime manager.
 All operations use simple agent_id / session_id identifiers.
@@ -19,10 +19,10 @@ _client: httpx.AsyncClient | None = None
 async def init_client() -> None:
     global _client
     _client = httpx.AsyncClient(
-        base_url=settings.agent_controller_url,
+        base_url=settings.agent_supervisor_url,
         timeout=30,
     )
-    logger.info("Agent controller client initialized → %s", settings.agent_controller_url)
+    logger.info("Agent supervisor client initialized → %s", settings.agent_supervisor_url)
 
 
 async def close_client() -> None:
@@ -34,12 +34,12 @@ async def close_client() -> None:
 
 def _get_client() -> httpx.AsyncClient:
     if _client is None:
-        raise RuntimeError("Agent controller client not initialized — call init_client() first")
+        raise RuntimeError("Agent supervisor client not initialized — call init_client() first")
     return _client
 
 
 async def register_agent(agent_id: str, owner_id: str, config: dict) -> None:
-    """Register a new agent. Controller provisions resources with secure defaults.
+    """Register a new agent. Supervisor provisions resources with secure defaults.
 
     config keys: instruction, tools, mcp_servers
     """
@@ -95,7 +95,7 @@ async def wait_for_agent_ready(agent_id: str, timeout: int = 90) -> bool:
 
 def get_stream_url(agent_id: str, session_id: str) -> str:
     """Get the SSE stream URL for sending a message to an agent session."""
-    return f"{settings.agent_controller_url}/v1/agents/{agent_id}/sessions/{session_id}/message"
+    return f"{settings.agent_supervisor_url}/v1/agents/{agent_id}/sessions/{session_id}/message"
 
 
 async def abort_session(agent_id: str, session_id: str) -> None:
@@ -123,7 +123,7 @@ async def cleanup_session(agent_id: str, session_id: str) -> None:
 
 
 async def health_check() -> bool:
-    """Check if the agent controller is reachable."""
+    """Check if the agent supervisor is reachable."""
     try:
         resp = await _get_client().get("/v1/health")
         return resp.status_code == 200

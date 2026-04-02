@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from aviary_shared.db.models import Agent
 from app.db import get_db
-from app.services import controller_client
+from app.services import supervisor_client
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +29,7 @@ async def activate_agent(agent_id: uuid.UUID, db: AsyncSession = Depends(get_db)
 
     # Ensure namespace exists
     try:
-        await controller_client.create_namespace(
+        await supervisor_client.create_namespace(
             agent_id=str(agent.id), owner_id=str(agent.owner_id),
             instruction=agent.instruction, tools=agent.tools,
             policy=agent.policy or {}, mcp_servers=agent.mcp_servers or [],
@@ -39,7 +39,7 @@ async def activate_agent(agent_id: uuid.UUID, db: AsyncSession = Depends(get_db)
 
     # Ensure deployment
     try:
-        await controller_client.ensure_deployment(
+        await supervisor_client.ensure_deployment(
             namespace=ns, agent_id=str(agent.id), owner_id=str(agent.owner_id),
             instruction=agent.instruction, tools=agent.tools,
             policy=agent.policy or {}, mcp_servers=agent.mcp_servers or [],
@@ -61,7 +61,7 @@ async def deactivate_agent(agent_id: uuid.UUID, db: AsyncSession = Depends(get_d
 
     ns = f"agent-{agent.id}"
     try:
-        await controller_client.scale_to_zero(ns)
+        await supervisor_client.scale_to_zero(ns)
     except Exception:
         logger.warning("Failed to scale down agent %s", agent.id, exc_info=True)
 
@@ -78,7 +78,7 @@ async def get_deployment_status(agent_id: uuid.UUID, db: AsyncSession = Depends(
 
     ns = f"agent-{agent.id}"
     try:
-        status_info = await controller_client.get_deployment_status(ns)
+        status_info = await supervisor_client.get_deployment_status(ns)
     except Exception:
         status_info = {"replicas": 0, "ready_replicas": 0, "updated_replicas": 0}
 
@@ -100,7 +100,7 @@ async def deploy_agent(agent_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
 
     ns = f"agent-{agent.id}"
     try:
-        await controller_client.rolling_restart(ns)
+        await supervisor_client.rolling_restart(ns)
     except Exception:
         logger.warning("Rolling restart failed for agent %s", agent.id, exc_info=True)
 
@@ -131,7 +131,7 @@ async def scale_agent(
 
     ns = f"agent-{agent.id}"
     try:
-        await controller_client.scale_deployment(ns, body.replicas, agent.min_pods, agent.max_pods)
+        await supervisor_client.scale_deployment(ns, body.replicas, agent.min_pods, agent.max_pods)
     except Exception:
         logger.warning("Scale failed for agent %s", agent.id, exc_info=True)
 

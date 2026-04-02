@@ -20,7 +20,7 @@ from app.schemas.session import (
     SessionResponse,
     SessionTitleUpdate,
 )
-from app.services import acl_service, agent_controller, redis_service, session_service, stream_manager
+from app.services import acl_service, agent_supervisor, redis_service, session_service, stream_manager
 
 logger = logging.getLogger(__name__)
 
@@ -214,7 +214,7 @@ async def websocket_chat(websocket: WebSocket, session_id: uuid.UUID):
 
             agent_id_str = str(agent.id)
 
-            # Ensure agent is running (controller handles all provisioning)
+            # Ensure agent is running (supervisor handles all provisioning)
             await websocket.send_json({"type": "status", "status": "spawning"})
             try:
                 await session_service.ensure_agent_ready(db, agent)
@@ -224,9 +224,9 @@ async def websocket_chat(websocket: WebSocket, session_id: uuid.UUID):
 
             await db.commit()
 
-        # Wait for agent readiness via controller
+        # Wait for agent readiness via supervisor
         await websocket.send_json({"type": "status", "status": "waiting"})
-        ready = await agent_controller.wait_for_agent_ready(agent_id_str, timeout=90)
+        ready = await agent_supervisor.wait_for_agent_ready(agent_id_str, timeout=90)
         if not ready:
             await websocket.send_json({"type": "status", "status": "offline", "message": "Agent did not become ready in time"})
             return

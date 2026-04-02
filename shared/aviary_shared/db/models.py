@@ -100,7 +100,7 @@ class Agent(Base):
     category: Mapped[str | None] = mapped_column(String(100), nullable=True)
     icon: Mapped[str | None] = mapped_column(String(50), nullable=True)
 
-    # Infrastructure (managed by admin console / agent controller)
+    # Infrastructure (managed by admin console / agent supervisor)
     pod_strategy: Mapped[str] = mapped_column(String(20), default="lazy", server_default="lazy")
     min_pods: Mapped[int] = mapped_column(default=1, server_default="1")
     max_pods: Mapped[int] = mapped_column(default=3, server_default="3")

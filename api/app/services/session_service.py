@@ -9,7 +9,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Agent, Message, Session, SessionParticipant, User
-from app.services import agent_controller, redis_service
+from app.services import agent_supervisor, redis_service
 
 logger = logging.getLogger(__name__)
 
@@ -194,7 +194,7 @@ async def delete_session(db: AsyncSession, session: Session) -> None:
     agent = result.scalar_one_or_none()
     if agent:
         # 4. Session workspace cleanup (best-effort)
-        await agent_controller.cleanup_session(str(agent_id), session_id_str)
+        await agent_supervisor.cleanup_session(str(agent_id), session_id_str)
 
         # 5. If owning agent is soft-deleted and this was the last session, clean up
         if agent.status == "deleted":
@@ -204,12 +204,12 @@ async def delete_session(db: AsyncSession, session: Session) -> None:
 
 
 async def ensure_agent_ready(db: AsyncSession, agent: Agent) -> None:
-    """Ensure agent is running via agent controller.
+    """Ensure agent is running via agent supervisor.
 
-    Fully delegated — the controller handles all resource provisioning
+    Fully delegated — the supervisor handles all resource provisioning
     with secure defaults if the agent hasn't been set up yet.
     """
-    await agent_controller.ensure_agent_running(
+    await agent_supervisor.ensure_agent_running(
         agent_id=str(agent.id),
         owner_id=str(agent.owner_id),
         config={

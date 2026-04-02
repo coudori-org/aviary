@@ -23,8 +23,8 @@ class Settings(BaseSettings):
     # CORS
     cors_origins: list[str] = ["http://localhost:3000"]
 
-    # Agent Controller
-    agent_controller_url: str = "http://localhost:9000"
+    # Agent Supervisor
+    agent_supervisor_url: str = "http://localhost:9000"
 
     # Platform services
     inference_router_url: str = "http://inference-router:8080"

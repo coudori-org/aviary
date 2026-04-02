@@ -1,4 +1,4 @@
-"""DB session factory for the controller."""
+"""DB session factory for the agent supervisor."""
 
 from aviary_shared.db.session import create_session_factory
 from app.config import settings

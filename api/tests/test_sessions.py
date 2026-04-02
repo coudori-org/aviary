@@ -74,7 +74,7 @@ async def test_delete_session(user1_client: AsyncClient):
     session_resp = await user1_client.post(f"/api/agents/{agent_id}/sessions", json={"type": "private"})
     session_id = session_resp.json()["id"]
 
-    with patch("app.services.agent_controller.cleanup_session", new_callable=AsyncMock):
+    with patch("app.services.agent_supervisor.cleanup_session", new_callable=AsyncMock):
         resp = await user1_client.delete(f"/api/sessions/{session_id}")
     assert resp.status_code == 204
 

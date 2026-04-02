@@ -3,13 +3,13 @@
 # Quick Rebuild — only rebuild what changed
 #
 # Usage:
-#   ./scripts/quick-rebuild.sh runtime       # Rebuild runtime image + load to K8s
-#   ./scripts/quick-rebuild.sh controller    # Rebuild agent-controller + load to K8s
-#   ./scripts/quick-rebuild.sh egress        # Rebuild egress-proxy + load to K8s
-#   ./scripts/quick-rebuild.sh k8s           # All K8s images
-#   ./scripts/quick-rebuild.sh compose       # Rebuild docker compose services
-#   ./scripts/quick-rebuild.sh full          # docker compose down -v + setup-dev.sh
-#   ./scripts/quick-rebuild.sh smoke         # Just run smoke test (no rebuild)
+#   ./scripts/quick-rebuild.sh runtime           # Rebuild runtime image + load to K8s
+#   ./scripts/quick-rebuild.sh agent-supervisor  # Rebuild agent-supervisor + load to K8s
+#   ./scripts/quick-rebuild.sh egress            # Rebuild egress-proxy + load to K8s
+#   ./scripts/quick-rebuild.sh k8s              # All K8s images
+#   ./scripts/quick-rebuild.sh compose          # Rebuild docker compose services
+#   ./scripts/quick-rebuild.sh full             # docker compose down -v + setup-dev.sh
+#   ./scripts/quick-rebuild.sh smoke            # Just run smoke test (no rebuild)
 #
 # Add --smoke to any command to run smoke test after rebuild:
 #   ./scripts/quick-rebuild.sh runtime --smoke
@@ -58,12 +58,12 @@ rebuild_runtime() {
   docker compose exec -T k8s kubectl rollout restart deployment -l app=aviary-agent -A 2>/dev/null || true
 }
 
-rebuild_controller() {
-  echo -e "${BOLD}Rebuilding agent-controller...${NC}"
-  docker build "${BUILD_ARGS[@]}" -t aviary-agent-controller:latest -f controller/Dockerfile .
-  load_k8s_image "aviary-agent-controller:latest"
-  echo -e "${CYAN}Restarting controller deployment...${NC}"
-  docker compose exec -T k8s kubectl rollout restart deployment/agent-controller -n platform
+rebuild_agent_supervisor() {
+  echo -e "${BOLD}Rebuilding agent-supervisor...${NC}"
+  docker build "${BUILD_ARGS[@]}" -t aviary-agent-supervisor:latest -f agent-supervisor/Dockerfile .
+  load_k8s_image "aviary-agent-supervisor:latest"
+  echo -e "${CYAN}Restarting agent-supervisor deployment...${NC}"
+  docker compose exec -T k8s kubectl rollout restart deployment/agent-supervisor -n platform
 }
 
 rebuild_egress() {
@@ -78,15 +78,15 @@ case "$TARGET" in
   runtime)
     rebuild_runtime
     ;;
-  controller)
-    rebuild_controller
+  agent-supervisor)
+    rebuild_agent_supervisor
     ;;
   egress)
     rebuild_egress
     ;;
   k8s)
     rebuild_runtime
-    rebuild_controller
+    rebuild_agent_supervisor
     rebuild_egress
     ;;
   compose)
@@ -106,13 +106,13 @@ case "$TARGET" in
     echo "Usage: $0 <target> [--smoke]"
     echo ""
     echo "Targets:"
-    echo "  runtime      Rebuild runtime image + load to K8s + rolling restart"
-    echo "  controller   Rebuild agent-controller + load to K8s + restart"
-    echo "  egress       Rebuild egress-proxy + load to K8s + restart"
-    echo "  k8s          All K8s images (runtime + controller + egress)"
-    echo "  compose      Rebuild docker compose services (hot-reload)"
-    echo "  full         Complete teardown + setup-dev.sh"
-    echo "  smoke        Just run smoke test"
+    echo "  runtime            Rebuild runtime image + load to K8s + rolling restart"
+    echo "  agent-supervisor   Rebuild agent-supervisor + load to K8s + restart"
+    echo "  egress             Rebuild egress-proxy + load to K8s + restart"
+    echo "  k8s                All K8s images (runtime + agent-supervisor + egress)"
+    echo "  compose            Rebuild docker compose services (hot-reload)"
+    echo "  full               Complete teardown + setup-dev.sh"
+    echo "  smoke              Just run smoke test"
     echo ""
     echo "Options:"
     echo "  --smoke      Run smoke test after rebuild"

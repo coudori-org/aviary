@@ -49,7 +49,7 @@ async def get_agents_status(
 ):
     """Batch check agent readiness for sidebar display."""
     import asyncio
-    from app.services import agent_controller, redis_service
+    from app.services import agent_supervisor, redis_service
 
     agent_ids = [s.strip() for s in ids.split(",") if s.strip()]
     if not agent_ids:
@@ -70,7 +70,7 @@ async def get_agents_status(
                 pass
 
         try:
-            ready = await agent_controller.check_agent_ready(aid)
+            ready = await agent_supervisor.check_agent_ready(aid)
             result = "ready" if ready else "offline"
         except Exception:
             result = "offline"

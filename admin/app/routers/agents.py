@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from aviary_shared.db.models import Agent
 from app.db import get_db
-from app.services import controller_client
+from app.services import supervisor_client
 
 logger = logging.getLogger(__name__)
 
@@ -151,7 +151,7 @@ async def update_agent(
     # Sync to K8s
     ns = f"agent-{agent.id}"
     try:
-        await controller_client.update_namespace_config(
+        await supervisor_client.update_namespace_config(
             namespace=ns,
             instruction=agent.instruction,
             tools=agent.tools,
@@ -179,11 +179,11 @@ async def delete_agent(agent_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
     # Clean up K8s resources
     ns = f"agent-{agent.id}"
     try:
-        await controller_client.delete_deployment(ns)
+        await supervisor_client.delete_deployment(ns)
     except Exception:
         pass
     try:
-        await controller_client.delete_namespace(str(agent.id))
+        await supervisor_client.delete_namespace(str(agent.id))
     except Exception:
         pass
 

@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.auth.oidc import init_oidc
 from app.config import settings
 from app.routers import acl, agents, auth, catalog, credentials, inference, sessions
-from app.services import agent_controller
+from app.services import agent_supervisor
 from app.services.redis_service import close_redis, get_client, init_redis
 
 logger = logging.getLogger(__name__)
@@ -19,12 +19,12 @@ async def lifespan(app: FastAPI):
     # Startup
     await init_oidc()
     await init_redis()
-    await agent_controller.init_client()
+    await agent_supervisor.init_client()
 
     yield
 
     # Shutdown
-    await agent_controller.close_client()
+    await agent_supervisor.close_client()
     await close_redis()
 
 
@@ -61,10 +61,10 @@ async def health():
         except Exception:
             pass
 
-    controller_ok = await agent_controller.health_check()
+    supervisor_ok = await agent_supervisor.health_check()
 
     return {
         "status": "ok",
         "redis": "connected" if redis_ok else "unavailable",
-        "controller": "connected" if controller_ok else "unavailable",
+        "agent_supervisor": "connected" if supervisor_ok else "unavailable",
     }

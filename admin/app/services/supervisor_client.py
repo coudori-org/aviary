@@ -1,7 +1,7 @@
-"""Agent Controller HTTP client for the admin service.
+"""Agent Supervisor HTTP client for the admin service.
 
-Direct access to K8s-level operations via the controller's namespace/deployment API.
-Unlike the API server's abstracted client, the admin service uses the full controller API.
+Direct access to K8s-level operations via the supervisor's namespace/deployment API.
+Unlike the API server's abstracted client, the admin service uses the full supervisor API.
 """
 
 import json
@@ -19,10 +19,10 @@ _client: httpx.AsyncClient | None = None
 async def init_client() -> None:
     global _client
     _client = httpx.AsyncClient(
-        base_url=settings.agent_controller_url,
+        base_url=settings.agent_supervisor_url,
         timeout=30,
     )
-    logger.info("Controller client initialized → %s", settings.agent_controller_url)
+    logger.info("Supervisor client initialized → %s", settings.agent_supervisor_url)
 
 
 async def close_client() -> None:
@@ -34,7 +34,7 @@ async def close_client() -> None:
 
 def _get_client() -> httpx.AsyncClient:
     if _client is None:
-        raise RuntimeError("Controller client not initialized")
+        raise RuntimeError("Supervisor client not initialized")
     return _client
 
 

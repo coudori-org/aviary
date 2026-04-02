@@ -1,4 +1,4 @@
-"""Aviary Agent Controller — K8s gateway + infrastructure manager.
+"""Aviary Agent Supervisor — K8s gateway + infrastructure manager.
 
 Runs inside the K8s platform namespace. Manages agent runtime resources:
 - K8s namespace/deployment/service/PVC lifecycle
@@ -38,7 +38,7 @@ async def lifespan(app: FastAPI):
         pass
 
 
-app = FastAPI(title="Aviary Agent Controller", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="Aviary Agent Supervisor", version="0.1.0", lifespan=lifespan)
 
 app.include_router(agents.router, prefix="/v1", tags=["agents"])
 app.include_router(namespaces.router, prefix="/v1", tags=["namespaces"])

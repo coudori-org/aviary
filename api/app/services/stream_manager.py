@@ -5,7 +5,7 @@ Decouples agent response streaming from WebSocket lifecycle so that:
 - Chunks are buffered in Redis for replay on reconnect
 - Agent response is always saved to DB on completion
 
-Routes to agents via the Agent Controller's SSE proxy endpoint.
+Routes to agents via the Agent Supervisor's SSE proxy endpoint.
 """
 
 import asyncio
@@ -18,7 +18,7 @@ from sqlalchemy import select
 
 from app.db.models import SessionParticipant
 from app.db.session import async_session_factory
-from app.services import agent_controller, redis_service, session_service
+from app.services import agent_supervisor, redis_service, session_service
 
 logger = logging.getLogger(__name__)
 
@@ -73,9 +73,9 @@ async def cancel_stream(session_id: str, agent_id: str | None = None) -> bool:
     if not task or task.done():
         return False
 
-    # 1. Send abort request to the agent via controller
+    # 1. Send abort request to the agent via supervisor
     if agent_id:
-        await agent_controller.abort_session(agent_id, session_id)
+        await agent_supervisor.abort_session(agent_id, session_id)
 
     # 2. Cancel the asyncio background task
     task.cancel()
@@ -130,7 +130,7 @@ async def _run_stream(
 
     # Ensure agent is running before streaming (handles pod-killed-while-chatting case)
     try:
-        await agent_controller.ensure_agent_running(
+        await agent_supervisor.ensure_agent_running(
             agent_id=agent_id,
             owner_id="",  # Not needed for re-activation
             config={
@@ -139,7 +139,7 @@ async def _run_stream(
                 "mcp_servers": agent_mcp_servers,
             },
         )
-        ready = await agent_controller.wait_for_agent_ready(agent_id, timeout=90)
+        ready = await agent_supervisor.wait_for_agent_ready(agent_id, timeout=90)
         if not ready:
             error_event = {"type": "error", "message": "Agent did not become ready in time"}
             await redis_service.publish_message(session_id, error_event)
@@ -155,7 +155,7 @@ async def _run_stream(
     tool_results: dict[str, dict] = {}  # tool_use_id → {content, is_error}
 
     try:
-        stream_url = agent_controller.get_stream_url(agent_id, session_id)
+        stream_url = agent_supervisor.get_stream_url(agent_id, session_id)
 
         if not stream_url:
             placeholder = "[Agent not running — runtime container needed for inference.]"
@@ -164,7 +164,7 @@ async def _run_stream(
             await redis_service.publish_message(session_id, chunk_event)
             full_response = placeholder
         else:
-            # Stream via Controller's SSE proxy
+            # Stream via Supervisor's SSE proxy
             async with httpx.AsyncClient() as client:
                 async with client.stream(
                     "POST",

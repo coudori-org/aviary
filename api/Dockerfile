@@ -13,7 +13,7 @@ COPY pyproject.toml uv.lock ./
 COPY shared/pyproject.toml ./shared/pyproject.toml
 COPY api/pyproject.toml ./api/pyproject.toml
 COPY admin/pyproject.toml ./admin/pyproject.toml
-COPY controller/pyproject.toml ./controller/pyproject.toml
+COPY agent-supervisor/pyproject.toml ./agent-supervisor/pyproject.toml
 
 # Shared source needed for workspace install
 COPY shared/ ./shared/

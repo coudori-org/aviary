@@ -1,7 +1,7 @@
 [project]
-name = "aviary-agent-controller"
+name = "aviary-agent-supervisor"
 version = "0.1.0"
-description = "Aviary Agent Controller — K8s gateway service"
+description = "Aviary Agent Supervisor — K8s gateway service"
 requires-python = ">=3.12"
 dependencies = [
     "aviary-shared",

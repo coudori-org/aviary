@@ -13,7 +13,7 @@ COPY pyproject.toml uv.lock ./
 COPY shared/pyproject.toml ./shared/pyproject.toml
 COPY api/pyproject.toml ./api/pyproject.toml
 COPY admin/pyproject.toml ./admin/pyproject.toml
-COPY controller/pyproject.toml ./controller/pyproject.toml
+COPY agent-supervisor/pyproject.toml ./agent-supervisor/pyproject.toml
 
 # Shared source needed for workspace install
 COPY shared/ ./shared/
@@ -21,16 +21,16 @@ COPY shared/ ./shared/
 # Install deps from lock file
 ARG UV_INDEX_URL
 ENV UV_LINK_MODE=copy
-RUN uv sync --frozen --package aviary-agent-controller --no-dev --no-install-project
+RUN uv sync --frozen --package aviary-agent-supervisor --no-dev --no-install-project
 
 # Copy app source
-COPY controller/ ./controller/
-RUN uv sync --frozen --package aviary-agent-controller --no-dev
+COPY agent-supervisor/ ./agent-supervisor/
+RUN uv sync --frozen --package aviary-agent-supervisor --no-dev
 
 # Activate virtual environment via PATH
 ENV PATH="/workspace/.venv/bin:$PATH"
 
-WORKDIR /workspace/controller
+WORKDIR /workspace/agent-supervisor
 
 EXPOSE 9000
 

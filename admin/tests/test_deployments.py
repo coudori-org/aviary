@@ -28,8 +28,8 @@ async def test_get_deployment_not_found(client: AsyncClient):
 @pytest.mark.asyncio
 async def test_activate_agent(client: AsyncClient, seed_agent: Agent):
     """Activate creates namespace and deployment."""
-    with patch("app.services.controller_client.create_namespace", new_callable=AsyncMock, return_value=f"agent-{seed_agent.id}") as mock_ns, \
-         patch("app.services.controller_client.ensure_deployment", new_callable=AsyncMock, return_value={"namespace": f"agent-{seed_agent.id}", "created": True}) as mock_dep:
+    with patch("app.services.supervisor_client.create_namespace", new_callable=AsyncMock, return_value=f"agent-{seed_agent.id}") as mock_ns, \
+         patch("app.services.supervisor_client.ensure_deployment", new_callable=AsyncMock, return_value={"namespace": f"agent-{seed_agent.id}", "created": True}) as mock_dep:
 
         resp = await client.post(f"/api/agents/{seed_agent.id}/activate")
 
@@ -50,11 +50,11 @@ async def test_activate_agent_not_found(client: AsyncClient):
 async def test_deactivate_agent(client: AsyncClient, seed_agent: Agent):
     """Deactivate scales to zero and updates DB."""
     # First activate (set namespace in DB)
-    with patch("app.services.controller_client.create_namespace", new_callable=AsyncMock, return_value=f"agent-{seed_agent.id}"), \
-         patch("app.services.controller_client.ensure_deployment", new_callable=AsyncMock, return_value={"created": True}):
+    with patch("app.services.supervisor_client.create_namespace", new_callable=AsyncMock, return_value=f"agent-{seed_agent.id}"), \
+         patch("app.services.supervisor_client.ensure_deployment", new_callable=AsyncMock, return_value={"created": True}):
         await client.post(f"/api/agents/{seed_agent.id}/activate")
 
-    with patch("app.services.controller_client.scale_to_zero", new_callable=AsyncMock) as mock_scale:
+    with patch("app.services.supervisor_client.scale_to_zero", new_callable=AsyncMock) as mock_scale:
         resp = await client.post(f"/api/agents/{seed_agent.id}/deactivate")
 
     assert resp.status_code == 200
@@ -66,11 +66,11 @@ async def test_deactivate_agent(client: AsyncClient, seed_agent: Agent):
 async def test_deploy_triggers_restart(client: AsyncClient, seed_agent: Agent):
     """Deploy triggers rolling restart on active deployment."""
     # Activate first
-    with patch("app.services.controller_client.create_namespace", new_callable=AsyncMock, return_value=f"agent-{seed_agent.id}"), \
-         patch("app.services.controller_client.ensure_deployment", new_callable=AsyncMock, return_value={"created": True}):
+    with patch("app.services.supervisor_client.create_namespace", new_callable=AsyncMock, return_value=f"agent-{seed_agent.id}"), \
+         patch("app.services.supervisor_client.ensure_deployment", new_callable=AsyncMock, return_value={"created": True}):
         await client.post(f"/api/agents/{seed_agent.id}/activate")
 
-    with patch("app.services.controller_client.rolling_restart", new_callable=AsyncMock) as mock_restart:
+    with patch("app.services.supervisor_client.rolling_restart", new_callable=AsyncMock) as mock_restart:
         resp = await client.post(f"/api/agents/{seed_agent.id}/deploy")
 
     assert resp.status_code == 200
@@ -80,13 +80,13 @@ async def test_deploy_triggers_restart(client: AsyncClient, seed_agent: Agent):
 
 @pytest.mark.asyncio
 async def test_scale_agent(client: AsyncClient, seed_agent: Agent):
-    """Manual scaling updates DB bounds and calls controller."""
+    """Manual scaling updates DB bounds and calls supervisor."""
     # Activate first
-    with patch("app.services.controller_client.create_namespace", new_callable=AsyncMock, return_value=f"agent-{seed_agent.id}"), \
-         patch("app.services.controller_client.ensure_deployment", new_callable=AsyncMock, return_value={"created": True}):
+    with patch("app.services.supervisor_client.create_namespace", new_callable=AsyncMock, return_value=f"agent-{seed_agent.id}"), \
+         patch("app.services.supervisor_client.ensure_deployment", new_callable=AsyncMock, return_value={"created": True}):
         await client.post(f"/api/agents/{seed_agent.id}/activate")
 
-    with patch("app.services.controller_client.scale_deployment", new_callable=AsyncMock) as mock_scale:
+    with patch("app.services.supervisor_client.scale_deployment", new_callable=AsyncMock) as mock_scale:
         resp = await client.patch(f"/api/agents/{seed_agent.id}/scale", json={
             "replicas": 3,
             "min_pods": 2,
@@ -105,8 +105,8 @@ async def test_scale_agent(client: AsyncClient, seed_agent: Agent):
 
 @pytest.mark.asyncio
 async def test_scale_agent_without_namespace(client: AsyncClient, seed_agent: Agent):
-    """Scaling without namespace updates DB but skips controller call."""
-    with patch("app.services.controller_client.scale_deployment", new_callable=AsyncMock) as mock_scale:
+    """Scaling without namespace updates DB but skips supervisor call."""
+    with patch("app.services.supervisor_client.scale_deployment", new_callable=AsyncMock) as mock_scale:
         resp = await client.patch(f"/api/agents/{seed_agent.id}/scale", json={
             "replicas": 2,
             "min_pods": 1,

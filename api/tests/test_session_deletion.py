@@ -32,7 +32,7 @@ async def test_delete_session(user1_client: AsyncClient):
     agent_id = await _create_agent(user1_client, "del-sess")
     session_id = await _create_session(user1_client, agent_id)
 
-    with patch("app.services.agent_controller.cleanup_session", new_callable=AsyncMock):
+    with patch("app.services.agent_supervisor.cleanup_session", new_callable=AsyncMock):
         resp = await user1_client.delete(f"/api/sessions/{session_id}")
     assert resp.status_code == 204
 
@@ -52,7 +52,7 @@ async def test_delete_session_removes_messages(user1_client: AsyncClient):
     assert resp.status_code == 200
     assert resp.json()["messages"] == []
 
-    with patch("app.services.agent_controller.cleanup_session", new_callable=AsyncMock):
+    with patch("app.services.agent_supervisor.cleanup_session", new_callable=AsyncMock):
         resp = await user1_client.delete(f"/api/sessions/{session_id}")
     assert resp.status_code == 204
 
@@ -87,7 +87,7 @@ async def test_delete_session_does_not_affect_other_sessions(user1_client: Async
     session1 = await _create_session(user1_client, agent_id)
     session2 = await _create_session(user1_client, agent_id)
 
-    with patch("app.services.agent_controller.cleanup_session", new_callable=AsyncMock):
+    with patch("app.services.agent_supervisor.cleanup_session", new_callable=AsyncMock):
         resp = await user1_client.delete(f"/api/sessions/{session1}")
     assert resp.status_code == 204
 
@@ -200,8 +200,8 @@ async def test_deleted_agent_hard_deleted_after_all_sessions_removed(user1_clien
     assert resp.status_code == 200
     assert resp.json()["status"] == "deleted"
 
-    with patch("app.services.agent_controller.cleanup_session", new_callable=AsyncMock), \
-         patch("app.services.agent_controller.unregister_agent", new_callable=AsyncMock), \
+    with patch("app.services.agent_supervisor.cleanup_session", new_callable=AsyncMock), \
+         patch("app.services.agent_supervisor.unregister_agent", new_callable=AsyncMock), \
          patch("app.services.redis_service.delete_egress_policy", new_callable=AsyncMock):
         resp = await user1_client.delete(f"/api/sessions/{session_id}")
     assert resp.status_code == 204

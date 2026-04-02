@@ -2,7 +2,7 @@
 
 No authentication. Local access only.
 Edits and applies agent infrastructure configuration: policies, deployments.
-Scaling and idle cleanup are handled by the agent controller.
+Scaling and idle cleanup are handled by the agent supervisor.
 """
 
 import logging
@@ -12,7 +12,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from app.routers import agents, deployments, pages, policies
-from app.services import controller_client, redis_service
+from app.services import supervisor_client, redis_service
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
@@ -21,9 +21,9 @@ logging.basicConfig(level=logging.INFO)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await redis_service.init_redis()
-    await controller_client.init_client()
+    await supervisor_client.init_client()
     yield
-    await controller_client.close_client()
+    await supervisor_client.close_client()
     await redis_service.close_redis()
 
 
