@@ -1,7 +1,12 @@
-"""Auto-scaling background task for agent deployments."""
+"""Auto-scaling and idle cleanup for agent deployments.
+
+Running state is derived from the controller (live K8s status).
+Idle duration is based on Agent.last_activity_at (updated by the API server on every chat message).
+"""
 
 import asyncio
 import logging
+import time
 
 from datetime import datetime, timezone
 
@@ -25,28 +30,30 @@ async def scaling_loop() -> None:
 
 
 async def _check_and_scale() -> None:
+    """Query all active agents, check live status from controller, auto-scale if needed."""
     from aviary_shared.db.models import Agent
 
     async with async_session_factory() as db:
         result = await db.execute(
-            select(Agent).where(
-                Agent.deployment_active.is_(True),
-                Agent.status == "active",
-            )
+            select(Agent).where(Agent.status == "active")
         )
         agents = result.scalars().all()
 
     for agent in agents:
-        if not agent.namespace:
-            continue
+        ns = f"agent-{agent.id}"
         try:
-            await _scale_agent(agent)
+            status = await controller_client.get_deployment_status(ns)
+            replicas = status.get("replicas", 0)
+            if replicas == 0:
+                continue  # Not running, skip
+
+            await _scale_agent(str(agent.id), ns, agent.min_pods, agent.max_pods)
         except Exception:
-            logger.warning("Scaling failed for agent %s", agent.id, exc_info=True)
+            pass
 
 
-async def _scale_agent(agent) -> None:
-    metrics = await controller_client.get_pod_metrics(agent.namespace)
+async def _scale_agent(agent_id: str, ns: str, min_pods: int, max_pods: int) -> None:
+    metrics = await controller_client.get_pod_metrics(ns)
     pods_queried = metrics.get("pods_queried", 0)
     if pods_queried == 0:
         return
@@ -54,29 +61,29 @@ async def _scale_agent(agent) -> None:
     total_active = metrics.get("total_active", 0)
     sessions_per_pod = total_active / pods_queried
 
-    status = await controller_client.get_deployment_status(agent.namespace)
+    status = await controller_client.get_deployment_status(ns)
     current_replicas = status.get("replicas", 1)
 
-    if sessions_per_pod > settings.sessions_per_pod_scale_up and current_replicas < agent.max_pods:
-        new_replicas = min(current_replicas + 1, agent.max_pods)
-        await controller_client.scale_deployment(
-            agent.namespace, new_replicas, agent.min_pods, agent.max_pods,
-        )
-        logger.info("Scaled up agent %s: %d → %d", agent.id, current_replicas, new_replicas)
+    if sessions_per_pod > settings.sessions_per_pod_scale_up and current_replicas < max_pods:
+        new_replicas = min(current_replicas + 1, max_pods)
+        await controller_client.scale_deployment(ns, new_replicas, min_pods, max_pods)
+        logger.info("Scaled up agent %s: %d → %d", agent_id, current_replicas, new_replicas)
 
-    elif sessions_per_pod < settings.sessions_per_pod_scale_down and current_replicas > agent.min_pods:
+    elif sessions_per_pod < settings.sessions_per_pod_scale_down and current_replicas > min_pods:
         total_streaming = metrics.get("total_streaming", 0)
         if total_streaming > 0:
             return
-        new_replicas = max(current_replicas - 1, agent.min_pods)
-        await controller_client.scale_deployment(
-            agent.namespace, new_replicas, agent.min_pods, agent.max_pods,
-        )
-        logger.info("Scaled down agent %s: %d → %d", agent.id, current_replicas, new_replicas)
+        new_replicas = max(current_replicas - 1, min_pods)
+        await controller_client.scale_deployment(ns, new_replicas, min_pods, max_pods)
+        logger.info("Scaled down agent %s: %d → %d", agent_id, current_replicas, new_replicas)
 
 
 async def cleanup_idle_agents() -> int:
-    """Scale down deployments for agents idle longer than the timeout. Returns count."""
+    """Scale down deployments idle longer than the timeout.
+
+    Running state is checked live from the controller.
+    Idle duration is based on Agent.last_activity_at (written by the API server).
+    """
     from aviary_shared.db.models import Agent
 
     timeout_seconds = settings.default_agent_idle_timeout
@@ -84,24 +91,33 @@ async def cleanup_idle_agents() -> int:
 
     async with async_session_factory() as db:
         result = await db.execute(
-            select(Agent).where(
-                Agent.deployment_active.is_(True),
-                Agent.status == "active",
-            )
+            select(Agent).where(Agent.status == "active")
         )
         agents = result.scalars().all()
 
-        cleaned = 0
-        for agent in agents:
-            if agent.last_activity_at and agent.last_activity_at.timestamp() < cutoff:
-                if agent.namespace:
-                    try:
-                        await controller_client.scale_to_zero(agent.namespace)
-                    except Exception:
-                        logger.warning("Failed to scale down agent %s", agent.id, exc_info=True)
-                agent.deployment_active = False
-                cleaned += 1
+    cleaned = 0
+    for agent in agents:
+        ns = f"agent-{agent.id}"
 
-        if cleaned:
-            await db.commit()
-        return cleaned
+        # Check if actually running via controller
+        try:
+            status = await controller_client.get_deployment_status(ns)
+            if (status.get("replicas") or 0) == 0:
+                continue
+        except Exception:
+            continue
+
+        # Check idle duration from DB
+        if not agent.last_activity_at:
+            continue
+        if agent.last_activity_at.timestamp() >= cutoff:
+            continue
+
+        try:
+            await controller_client.scale_to_zero(ns)
+            cleaned += 1
+            logger.info("Idle cleanup: scaled down agent %s", agent.id)
+        except Exception:
+            logger.warning("Failed to scale down idle agent %s", agent.id, exc_info=True)
+
+    return cleaned
