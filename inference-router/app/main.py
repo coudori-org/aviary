@@ -54,6 +54,22 @@ async def proxy_messages(request: Request):
     model = body.get("model", "default")
     model = resolve_model(model, backend)
     body["model"] = model
+
+    # Inject sampling parameters from custom headers (set by runtime Pod)
+    _SAMPLING_HEADERS = {
+        "x-sampling-temperature": ("temperature", float),
+        "x-sampling-top-p": ("top_p", float),
+        "x-sampling-top-k": ("top_k", int),
+        "x-sampling-num-ctx": ("num_ctx", int),
+    }
+    for header, (body_key, cast) in _SAMPLING_HEADERS.items():
+        val = request.headers.get(header)
+        if val is not None:
+            try:
+                body.setdefault(body_key, cast(val))
+            except (ValueError, TypeError):
+                pass
+
     body_bytes = json.dumps(body).encode()
     is_stream = body.get("stream", False)
 
@@ -136,7 +152,6 @@ async def _proxy_vllm(body: dict, req_headers):
         "model": body["model"],
         "messages": oai_messages,
         "temperature": body.get("temperature", 0.7),
-        "max_tokens": body.get("max_tokens", 8192),
         "stream": body.get("stream", False),
     }
 
@@ -240,6 +255,79 @@ async def list_models(backend: str):
             {"id": "meta-llama/Llama-3.3-70B-Instruct", "name": "meta-llama/Llama-3.3-70B-Instruct"},
         ]}
     return {"models": []}
+
+
+@app.get("/v1/backends/{backend}/model-info")
+async def get_model_info(backend: str, model: str):
+    """Return default sampling parameters, context limits, and capabilities for a model."""
+    if backend == "ollama":
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                resp = await client.post(f"{OLLAMA_URL}/api/show", json={"name": model})
+                resp.raise_for_status()
+                data = resp.json()
+
+            # Parse "key value" pairs from parameters text
+            params: dict[str, float] = {}
+            for line in (data.get("parameters") or "").strip().splitlines():
+                parts = line.split()
+                if len(parts) == 2:
+                    try:
+                        params[parts[0]] = float(parts[1])
+                    except ValueError:
+                        pass
+
+            # Extract max context length from model_info
+            model_info = data.get("model_info", {})
+            max_ctx = 0
+            for k, v in model_info.items():
+                if k.endswith(".context_length") and isinstance(v, (int, float)):
+                    max_ctx = max(max_ctx, int(v))
+
+            # Capabilities from Ollama (v0.5+)
+            caps = data.get("capabilities", [])
+
+            return {
+                "model": model,
+                "backend": backend,
+                "defaults": {
+                    "temperature": params.get("temperature"),
+                    "top_p": params.get("top_p"),
+                    "top_k": int(params["top_k"]) if "top_k" in params else None,
+                    "num_ctx": int(params["num_ctx"]) if "num_ctx" in params else None,
+                },
+                "limits": {
+                    "max_context_length": max_ctx or None,
+                },
+                "capabilities": {
+                    "vision": "vision" in caps,
+                    "audio": "audio" in caps,
+                    "tools": "tools" in caps,
+                },
+            }
+        except httpx.HTTPStatusError as e:
+            raise HTTPException(status_code=e.response.status_code, detail=f"Ollama error: {e.response.text}")
+        except Exception as e:
+            raise HTTPException(status_code=502, detail=f"Ollama not reachable: {e}")
+
+    elif backend == "claude":
+        return {
+            "model": model,
+            "backend": backend,
+            "defaults": {"temperature": 1.0, "top_p": None, "top_k": None, "num_ctx": None},
+            "limits": {"max_context_length": 200000},
+            "capabilities": {"vision": True, "audio": False, "tools": True},
+        }
+    elif backend == "vllm":
+        return {
+            "model": model,
+            "backend": backend,
+            "defaults": {"temperature": 0.7, "top_p": None, "top_k": None, "num_ctx": None},
+            "limits": {"max_context_length": None},
+            "capabilities": {"vision": False, "audio": False, "tools": False},
+        }
+    else:
+        raise HTTPException(status_code=400, detail=f"Unknown backend: {backend}")
 
 
 @app.get("/v1/backends/{backend}/health")

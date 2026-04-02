@@ -7,7 +7,9 @@ class ModelConfig(BaseModel):
     backend: str = Field("claude", pattern="^(claude|ollama|vllm)$")
     model: str = "default"
     temperature: float = 0.7
-    maxTokens: int = 8192
+    top_p: float | None = None
+    top_k: int | None = None
+    num_ctx: int | None = None
 
 
 class McpServerConfig(BaseModel):

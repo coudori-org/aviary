@@ -168,6 +168,7 @@ async def update_policy(
     policy["maxMemoryPerSession"] = form.get("max_memory", "4Gi")
     policy["maxCpuPerSession"] = form.get("max_cpu", "4")
     policy["maxConcurrentSessions"] = int(form.get("max_concurrent_sessions", 20))
+    # TODO: enforce in API server by clamping max_tokens before forwarding to controller
     policy["maxTokensPerTurn"] = int(form.get("max_tokens_per_turn", 100000))
     policy["containerImage"] = form.get("container_image", "aviary-runtime:latest")
     policy["maxConcurrentSessionsPerPod"] = int(form.get("max_sessions_per_pod", 10))

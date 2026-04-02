@@ -35,6 +35,20 @@ async def list_models(backend: str, user: User = Depends(get_current_user)):
         return resp.json()
 
 
+@router.get("/{backend}/model-info")
+async def get_model_info(
+    backend: str, model: str, user: User = Depends(get_current_user)
+):
+    """Get model defaults, limits, and capabilities (via inference router)."""
+    async with httpx.AsyncClient(timeout=10) as client:
+        resp = await client.get(
+            f"{settings.inference_router_url}/v1/backends/{backend}/model-info",
+            params={"model": model},
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+
 @router.get("/{backend}/health")
 async def check_backend_health(backend: str, user: User = Depends(get_current_user)):
     """Check connectivity to an inference backend (via inference router)."""

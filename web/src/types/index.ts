@@ -37,7 +37,28 @@ export interface ModelConfig {
   backend: "claude" | "ollama" | "vllm";
   model: string;
   temperature?: number;
-  maxTokens?: number;
+  top_p?: number;
+  top_k?: number;
+  num_ctx?: number;
+}
+
+export interface ModelInfo {
+  model: string;
+  backend: string;
+  defaults: {
+    temperature: number | null;
+    top_p: number | null;
+    top_k: number | null;
+    num_ctx: number | null;
+  };
+  limits: {
+    max_context_length: number | null;
+  };
+  capabilities: {
+    vision: boolean;
+    audio: boolean;
+    tools: boolean;
+  };
 }
 
 export interface McpServer {

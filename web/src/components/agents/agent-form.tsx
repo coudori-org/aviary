@@ -1,12 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { apiFetch } from "@/lib/api";
+import type { ModelInfo } from "@/types";
 
 interface AgentFormData {
   name: string;
@@ -17,7 +18,9 @@ interface AgentFormData {
     backend: string;
     model: string;
     temperature: number;
-    maxTokens: number;
+    top_p: number | null;
+    top_k: number | null;
+    num_ctx: number | null;
   };
   tools: string[];
   visibility: string;
@@ -39,7 +42,9 @@ const defaultData: AgentFormData = {
     backend: "claude",
     model: "default",
     temperature: 0.7,
-    maxTokens: 8192,
+    top_p: null,
+    top_k: null,
+    num_ctx: null,
   },
   tools: [],
   visibility: "private",
@@ -51,12 +56,40 @@ interface ModelOption {
   name: string;
 }
 
+// Discrete context window steps
+const CTX_STEPS = [4096, 8192, 16384, 32768, 65536, 131072, 262144, 524288, 1048576];
+const CTX_LABELS = ["4K", "8K", "16K", "32K", "64K", "128K", "256K", "512K", "1M"];
+
+function ctxValueToIndex(value: number | null, maxCtx: number | null): number {
+  if (value == null) return 3; // default to 32K
+  const available = CTX_STEPS.filter((s) => !maxCtx || s <= maxCtx);
+  let closest = 0;
+  for (let i = 0; i < available.length; i++) {
+    if (Math.abs(available[i] - value) < Math.abs(available[closest] - value)) closest = i;
+  }
+  return closest;
+}
+
+function formatCtxLabel(value: number | null): string {
+  if (value == null) return "Default";
+  const idx = CTX_STEPS.indexOf(value);
+  if (idx >= 0) return CTX_LABELS[idx];
+  if (value >= 1048576) return `${(value / 1048576).toFixed(1)}M`;
+  return `${Math.round(value / 1024)}K`;
+}
+
 export function AgentForm({ initialData, onSubmit, submitLabel }: AgentFormProps) {
-  const [data, setData] = useState<AgentFormData>({ ...defaultData, ...initialData });
+  const [data, setData] = useState<AgentFormData>(() => {
+    const merged = { ...defaultData, ...initialData };
+    merged.model_config = { ...defaultData.model_config, ...initialData?.model_config };
+    return merged;
+  });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [models, setModels] = useState<ModelOption[]>([]);
   const [modelsLoading, setModelsLoading] = useState(false);
+  const [modelInfo, setModelInfo] = useState<ModelInfo | null>(null);
+  const fetchSeq = useRef(0);
 
   const fetchModels = useCallback(async (backend: string) => {
     setModelsLoading(true);
@@ -73,6 +106,38 @@ export function AgentForm({ initialData, onSubmit, submitLabel }: AgentFormProps
   useEffect(() => {
     fetchModels(data.model_config.backend);
   }, [data.model_config.backend, fetchModels]);
+
+  // Fetch model info when model changes, auto-populate defaults
+  useEffect(() => {
+    const { backend, model } = data.model_config;
+    if (model === "default") {
+      setModelInfo(null);
+      return;
+    }
+    const seq = ++fetchSeq.current;
+    (async () => {
+      try {
+        const info = await apiFetch<ModelInfo>(
+          `/inference/${backend}/model-info?model=${encodeURIComponent(model)}`
+        );
+        if (seq !== fetchSeq.current) return; // stale
+        setModelInfo(info);
+        // Auto-populate defaults (only for fields the user hasn't manually set yet on this model)
+        setData((prev) => ({
+          ...prev,
+          model_config: {
+            ...prev.model_config,
+            temperature: info.defaults.temperature ?? prev.model_config.temperature,
+            top_p: info.defaults.top_p ?? prev.model_config.top_p,
+            top_k: info.defaults.top_k != null ? info.defaults.top_k : prev.model_config.top_k,
+            num_ctx: info.defaults.num_ctx ?? prev.model_config.num_ctx,
+          },
+        }));
+      } catch {
+        if (seq === fetchSeq.current) setModelInfo(null);
+      }
+    })();
+  }, [data.model_config.backend, data.model_config.model]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -91,7 +156,7 @@ export function AgentForm({ initialData, onSubmit, submitLabel }: AgentFormProps
     setData((prev) => ({ ...prev, [key]: value }));
   };
 
-  const updateModelConfig = (key: string, value: string | number) => {
+  const updateModelConfig = (key: string, value: string | number | null) => {
     setData((prev) => ({
       ...prev,
       model_config: { ...prev.model_config, [key]: value },
@@ -108,6 +173,11 @@ export function AgentForm({ initialData, onSubmit, submitLabel }: AgentFormProps
       updateField("slug", slug);
     }
   };
+
+  const maxCtx = modelInfo?.limits.max_context_length ?? null;
+  const availableCtxSteps = CTX_STEPS.filter((s) => !maxCtx || s <= maxCtx);
+  const availableCtxLabels = CTX_LABELS.slice(0, availableCtxSteps.length);
+  const isNonClaude = data.model_config.backend !== "claude";
 
   return (
     <form onSubmit={handleSubmit} className="space-y-8">
@@ -188,6 +258,7 @@ export function AgentForm({ initialData, onSubmit, submitLabel }: AgentFormProps
         </div>
 
         <div className="rounded-xl border border-border/60 bg-card p-5 space-y-5">
+          {/* Backend + Model row */}
           <div className="grid gap-5 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="backend">Backend</Label>
@@ -197,6 +268,7 @@ export function AgentForm({ initialData, onSubmit, submitLabel }: AgentFormProps
                 onChange={(e) => {
                   updateModelConfig("backend", e.target.value);
                   updateModelConfig("model", "default");
+                  setModelInfo(null);
                 }}
               >
                 <option value="claude">Claude API</option>
@@ -218,32 +290,148 @@ export function AgentForm({ initialData, onSubmit, submitLabel }: AgentFormProps
                 ))}
               </Select>
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="temperature">Temperature</Label>
-              <Input
-                id="temperature"
-                type="number"
-                min={0}
-                max={2}
-                step={0.1}
-                value={data.model_config.temperature}
-                onChange={(e) => updateModelConfig("temperature", parseFloat(e.target.value))}
-              />
-              <p className="text-[11px] text-muted-foreground/60">0 = deterministic, 1+ = more creative</p>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="maxTokens">Max Tokens</Label>
-              <Input
-                id="maxTokens"
-                type="number"
-                min={1}
-                max={200000}
-                value={data.model_config.maxTokens}
-                onChange={(e) => updateModelConfig("maxTokens", parseInt(e.target.value))}
-              />
-              <p className="text-[11px] text-muted-foreground/60">Maximum response length per turn</p>
-            </div>
           </div>
+
+          {/* Capabilities badges */}
+          {modelInfo && (
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] text-muted-foreground/60">Capabilities:</span>
+              {modelInfo.capabilities.vision && (
+                <span className="inline-flex items-center rounded-md bg-blue-500/10 px-2 py-0.5 text-[11px] font-medium text-blue-400 ring-1 ring-inset ring-blue-500/20">Vision</span>
+              )}
+              {modelInfo.capabilities.audio && (
+                <span className="inline-flex items-center rounded-md bg-purple-500/10 px-2 py-0.5 text-[11px] font-medium text-purple-400 ring-1 ring-inset ring-purple-500/20">Audio</span>
+              )}
+              {modelInfo.capabilities.tools && (
+                <span className="inline-flex items-center rounded-md bg-green-500/10 px-2 py-0.5 text-[11px] font-medium text-green-400 ring-1 ring-inset ring-green-500/20">Tools</span>
+              )}
+              {!modelInfo.capabilities.vision && !modelInfo.capabilities.audio && !modelInfo.capabilities.tools && (
+                <span className="text-[11px] text-muted-foreground/40">Text only</span>
+              )}
+              {maxCtx && (
+                <span className="ml-auto text-[11px] text-muted-foreground/50">
+                  Max context: {formatCtxLabel(maxCtx)}
+                </span>
+              )}
+            </div>
+          )}
+
+          {/* Context Window (non-Claude) */}
+          {isNonClaude && (
+            <div className="space-y-2">
+              <Label>Context Window</Label>
+              <div className="flex items-center gap-3">
+                <input
+                  type="range"
+                  min={0}
+                  max={availableCtxSteps.length - 1}
+                  step={1}
+                  value={ctxValueToIndex(data.model_config.num_ctx, maxCtx)}
+                  onChange={(e) => {
+                    const idx = parseInt(e.target.value);
+                    updateModelConfig("num_ctx", availableCtxSteps[idx]);
+                  }}
+                  className="flex-1 h-2 rounded-full appearance-none bg-secondary cursor-pointer accent-primary"
+                />
+                <span className="w-16 text-center text-sm font-mono text-foreground">
+                  {formatCtxLabel(data.model_config.num_ctx)}
+                </span>
+              </div>
+              <div className="flex justify-between text-[10px] text-muted-foreground/40 px-0.5">
+                {availableCtxLabels.map((label) => (
+                  <span key={label}>{label}</span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Advanced Sampling (non-Claude only) */}
+          {isNonClaude && (
+            <div className="space-y-5 border-t border-border/40 pt-5">
+              <p className="text-[11px] font-medium text-muted-foreground/70 uppercase tracking-wider">Advanced Sampling</p>
+
+              {/* Temperature */}
+              <div className="space-y-2">
+                <Label htmlFor="temperature">Temperature</Label>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="range"
+                    min={0}
+                    max={2}
+                    step={0.05}
+                    value={data.model_config.temperature}
+                    onChange={(e) => updateModelConfig("temperature", parseFloat(e.target.value))}
+                    className="flex-1 h-2 rounded-full appearance-none bg-secondary cursor-pointer accent-primary"
+                  />
+                  <Input
+                    id="temperature"
+                    type="number"
+                    min={0}
+                    max={2}
+                    step={0.05}
+                    value={data.model_config.temperature}
+                    onChange={(e) => {
+                      const v = parseFloat(e.target.value);
+                      if (!isNaN(v)) updateModelConfig("temperature", v);
+                    }}
+                    className="w-20 text-center"
+                  />
+                </div>
+                <p className="text-[11px] text-muted-foreground/60">0 = deterministic, 1+ = more creative</p>
+              </div>
+
+              <div className="grid gap-5 sm:grid-cols-2">
+                {/* top_p */}
+                <div className="space-y-2">
+                  <Label htmlFor="top_p">Top P</Label>
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="range"
+                      min={0}
+                      max={1}
+                      step={0.05}
+                      value={data.model_config.top_p ?? 0.95}
+                      onChange={(e) => updateModelConfig("top_p", parseFloat(e.target.value))}
+                      className="flex-1 h-2 rounded-full appearance-none bg-secondary cursor-pointer accent-primary"
+                    />
+                    <Input
+                      id="top_p"
+                      type="number"
+                      min={0}
+                      max={1}
+                      step={0.05}
+                      value={data.model_config.top_p ?? ""}
+                      onChange={(e) => {
+                        const v = parseFloat(e.target.value);
+                        updateModelConfig("top_p", isNaN(v) ? null : v);
+                      }}
+                      placeholder="auto"
+                      className="w-20 text-center"
+                    />
+                  </div>
+                  <p className="text-[11px] text-muted-foreground/60">Nucleus sampling threshold</p>
+                </div>
+
+                {/* top_k */}
+                <div className="space-y-2">
+                  <Label htmlFor="top_k">Top K</Label>
+                  <Input
+                    id="top_k"
+                    type="number"
+                    min={0}
+                    max={500}
+                    value={data.model_config.top_k ?? ""}
+                    onChange={(e) => {
+                      const v = parseInt(e.target.value);
+                      updateModelConfig("top_k", isNaN(v) ? null : v);
+                    }}
+                    placeholder="auto"
+                  />
+                  <p className="text-[11px] text-muted-foreground/60">Top-K sampling (0 = disabled)</p>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </section>
 

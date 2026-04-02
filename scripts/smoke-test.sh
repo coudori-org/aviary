@@ -126,8 +126,7 @@ AGENT_PAYLOAD=$(cat <<EOF
   "model_config": {
     "backend": "ollama",
     "model": "default",
-    "temperature": 0.7,
-    "maxTokens": 32786
+    "temperature": 0.7
   },
   "tools": [],
   "mcp_servers": [],

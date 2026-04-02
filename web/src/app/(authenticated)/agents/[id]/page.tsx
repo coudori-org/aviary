@@ -123,8 +123,16 @@ export default function AgentDetailPage() {
             <CardContent className="space-y-3">
               <InfoRow label="Backend" value={agent.model_config.backend} />
               <InfoRow label="Model" value={agent.model_config.model} mono />
-              <InfoRow label="Temperature" value={String(agent.model_config.temperature)} />
-              <InfoRow label="Max Tokens" value={String(agent.model_config.maxTokens)} />
+              <InfoRow label="Temperature" value={String(agent.model_config.temperature ?? "-")} />
+              {agent.model_config.top_p != null && (
+                <InfoRow label="Top P" value={String(agent.model_config.top_p)} />
+              )}
+              {agent.model_config.top_k != null && (
+                <InfoRow label="Top K" value={String(agent.model_config.top_k)} />
+              )}
+              {agent.model_config.num_ctx != null && (
+                <InfoRow label="Context Window" value={agent.model_config.num_ctx >= 1024 ? `${Math.round(agent.model_config.num_ctx / 1024)}K` : String(agent.model_config.num_ctx)} />
+              )}
             </CardContent>
           </Card>
 

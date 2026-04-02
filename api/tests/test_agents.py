@@ -13,7 +13,6 @@ async def test_create_agent(user1_client: AsyncClient):
             "backend": "claude",
             "model": "default",
             "temperature": 0.7,
-            "maxTokens": 8192,
         },
         "tools": ["read_file", "write_file"],
         "visibility": "private",

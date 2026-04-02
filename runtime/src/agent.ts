@@ -61,6 +61,10 @@ interface AgentConfig {
 interface ModelConfig {
   model?: string;
   backend?: string;
+  temperature?: number;
+  top_p?: number;
+  top_k?: number;
+  num_ctx?: number;
 }
 
 export function loadAgentConfig(): AgentConfig {
@@ -172,7 +176,13 @@ export async function* processMessage(
   const env: Record<string, string> = {
     ANTHROPIC_BASE_URL: INFERENCE_ROUTER_URL,
     ANTHROPIC_API_KEY: "routed-via-inference-router",
-    ANTHROPIC_CUSTOM_HEADERS: `X-Backend: ${backend}`,
+    ANTHROPIC_CUSTOM_HEADERS: [
+      `X-Backend: ${backend}`,
+      ...(mc.temperature != null ? [`X-Sampling-Temperature: ${mc.temperature}`] : []),
+      ...(mc.top_p != null ? [`X-Sampling-Top-P: ${mc.top_p}`] : []),
+      ...(mc.top_k != null ? [`X-Sampling-Top-K: ${mc.top_k}`] : []),
+      ...(mc.num_ctx != null ? [`X-Sampling-Num-Ctx: ${mc.num_ctx}`] : []),
+    ].join("\n"),
     SESSION_WORKSPACE: workspace,
     CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
     ...Object.fromEntries(MODEL_TIER_KEYS.map((k) => [k, model])),
