@@ -9,7 +9,7 @@ Multi-tenant AI agent platform. Users create/configure agents via Web UI, each r
 docker compose up -d      # Subsequent: just start services
 ```
 
-Services: Web (`:3000`), API (`:8000`), Admin (`:8001`), Keycloak (`:8080`, admin/admin), Vault (`:8200`), Inference Router (`:8090`), Secret Provider (K8s internal), Agent Supervisor (`:9000`).
+Services: Web (`:3000`), API (`:8000`), Admin (`:8001`), Keycloak (`:8080`, admin/admin), Vault (`:8200`), LiteLLM Gateway (`:8090`), Secret Provider (K8s internal), Agent Supervisor (`:9000`).
 Test accounts: `user1@test.com`, `user2@test.com` (all `password`).
 
 ## Architecture
@@ -24,7 +24,7 @@ Admin Console (:8001) → Agent Supervisor (:9000) → K8s API
 PostgreSQL / Redis
 
 Platform services (docker compose):
-  Inference Router (:8090) → Claude API / Ollama / vLLM / Bedrock
+  LiteLLM Gateway (:8090) → Claude API / Ollama / vLLM / Bedrock
   Secret Provider (K8s platform NS) → Vault
 
 Platform services (K8s, platform namespace):
@@ -32,7 +32,7 @@ Platform services (K8s, platform namespace):
   Egress Proxy → per-agent outbound policy enforcement
 
 Agent Pod outbound:
-  LLM calls  → Inference Router (host:8090) → Claude API / Ollama / vLLM / Bedrock
+  LLM calls  → LiteLLM Gateway (host:8090) → Claude API / Ollama / vLLM / Bedrock
   Secrets    → Secret Provider (K8s platform NS) → Vault
   HTTP/HTTPS → Egress Proxy (K8s platform NS, per-agent policy) → External APIs
 ```
@@ -51,13 +51,13 @@ Three backend services with distinct roles:
 
 **Key flows:**
 - Agent creation → API saves config to DB + registers with supervisor (secure defaults) → admin later configures policy/scaling
-- Chat message → WebSocket → API asks supervisor to ensure agent running → Supervisor SSE proxy to agent Pod → claude-agent-sdk → Inference Router → LLM backend
+- Chat message → WebSocket → API asks supervisor to ensure agent running → Supervisor SSE proxy to agent Pod → claude-agent-sdk → LiteLLM Gateway → LLM backend
 - Policy edit → Admin updates DB + updates K8s NetworkPolicy via supervisor. Egress proxy reads policy from DB on every request. Immediate effect, no Pod restart.
 - Agent config edit (instruction, tools) → API updates DB only. Passed to runtime on every message request body. Immediate effect, no Pod restart.
 
 **Pod Strategy (agent-per-pod):** Each agent gets a long-running Deployment with 1-N replicas. Multiple sessions share the same Pod(s), isolated by working directory (`/workspace/sessions/{session_id}/`). Pods auto-scale based on session load and are released after 7 days of inactivity (both managed by the agent supervisor).
 
-**Inference Router** (docker compose, `:8090`): All LLM calls go through a centralized proxy. Backend is determined by the `X-Backend` header injected by the runtime via `ANTHROPIC_CUSTOM_HEADERS` (e.g., `claude` → Claude API, `ollama` → Ollama, `vllm` → vLLM, `bedrock` → Bedrock). Speaks Anthropic Messages API so claude-agent-sdk works transparently. API server also queries it for model listing (`/v1/backends/{backend}/models`).
+**LiteLLM Gateway** (docker compose, `:8090`): All LLM calls go through LiteLLM OSS proxy. Backend is determined by the model name prefix (e.g., `anthropic/claude-sonnet-4-6` → Claude API, `ollama/gemma4:26b` → Ollama, `hosted_vllm/...` → vLLM, `bedrock/...` → Bedrock). Natively compatible with Anthropic SDK (`/v1/messages`), so claude-agent-sdk works transparently. Configuration in `config/litellm/config.yaml`. API server queries it for model listing (`/model/info`). Supports virtual keys, rate limiting, guardrails, and observability via LiteLLM's built-in features.
 
 **Secret Provider** (K8s platform namespace): Session Pods never hold secrets. External API calls go through proxy which injects credentials from Vault.
 
@@ -108,10 +108,10 @@ Two-layer enforcement: (1) K8s NetworkPolicy blocks all egress except DNS, platf
 Egress rules are stored in the agent's `policy` JSONB field in DB (managed exclusively by the admin console). Domain patterns: `"example.com"` (exact), `"*.example.com"` (wildcard subdomain), `".example.com"` (same as `*`), `"*"` (all). Both CIDR and domain types can be mixed in the same `allowedEgress` list. Optional `ports` field restricts to specific ports; empty means all ports allowed.
 
 ### Claude Code Managed Settings
-`runtime/config/managed-settings.json` is installed to `/etc/claude-code/managed-settings.json` (the hardcoded path Claude Code CLI reads on Linux). Currently sets `skipWebFetchPreflight: true` to prevent CLI from calling `api.anthropic.com/api/web/domain_info` before each WebFetch — this endpoint is unreachable in air-gapped/fintech environments where all external traffic must go through the egress proxy. All model tiers (`ANTHROPIC_MODEL`, `ANTHROPIC_SMALL_FAST_MODEL`, `ANTHROPIC_DEFAULT_HAIKU_MODEL`, etc.) are remapped to the agent's configured model in `src/agent.ts` so that CLI internal tasks (WebFetch summarization, subagents) route through the inference router.
+`runtime/config/managed-settings.json` is installed to `/etc/claude-code/managed-settings.json` (the hardcoded path Claude Code CLI reads on Linux). Currently sets `skipWebFetchPreflight: true` to prevent CLI from calling `api.anthropic.com/api/web/domain_info` before each WebFetch — this endpoint is unreachable in air-gapped/fintech environments where all external traffic must go through the egress proxy. All model tiers (`ANTHROPIC_MODEL`, `ANTHROPIC_SMALL_FAST_MODEL`, `ANTHROPIC_DEFAULT_HAIKU_MODEL`, etc.) are remapped to the agent's configured model in `src/agent.ts` so that CLI internal tasks (WebFetch summarization, subagents) route through LiteLLM.
 
 ### K8s Image Loading
-All K8s custom images use `imagePullPolicy: Never`. Loaded via `docker save | docker compose exec -T k8s ctr images import -`. The `setup-dev.sh` handles this for runtime, egress-proxy, agent-supervisor, and secret-provider images. Inference router runs outside K8s and doesn't need image loading.
+All K8s custom images use `imagePullPolicy: Never`. Loaded via `docker save | docker compose exec -T k8s ctr images import -`. The `setup-dev.sh` handles this for runtime, egress-proxy, agent-supervisor, and secret-provider images. LiteLLM runs outside K8s as a docker compose service using the official image and doesn't need image loading.
 
 ### K8s Fixed Node Name
 `--node-name=aviary-node` in docker-compose.yml prevents stale node accumulation on container restart. Without it, PVCs bind to old node names causing scheduling failures.
@@ -163,10 +163,16 @@ docker save aviary-runtime:latest aviary-agent-supervisor:latest | docker compos
 # Repeat pattern for egress-proxy if changed
 ```
 
-**Docker Compose services** (api, admin, inference-router) — hot reload via bind-mount, or rebuild:
+**Docker Compose services** (api, admin) — hot reload via bind-mount, or rebuild:
 
 ```bash
-docker compose up -d --build api admin inference-router
+docker compose up -d --build api admin
+```
+
+**LiteLLM Gateway** — edit `config/litellm/config.yaml` and restart:
+
+```bash
+docker compose restart litellm
 ```
 
 ## Key Environment Variables (API)
@@ -179,7 +185,8 @@ docker compose up -d --build api admin inference-router
 | `REDIS_URL` | Redis for pub/sub, caching, presence |
 | `VAULT_ADDR` / `VAULT_TOKEN` | Vault connection |
 | `AGENT_SUPERVISOR_URL` | Agent Supervisor URL (default: `http://localhost:9000`) |
-| `INFERENCE_ROUTER_URL` | Inference router URL (default: `http://inference-router:8080`) |
+| `LITELLM_URL` | LiteLLM gateway URL (default: `http://litellm:4000`) |
+| `LITELLM_API_KEY` | LiteLLM master key (default: `sk-aviary-dev`) |
 
 ## Key Environment Variables (Admin)
 
@@ -195,7 +202,8 @@ docker compose up -d --build api admin inference-router
 | `AGENT_ID` | Agent UUID |
 | `MAX_CONCURRENT_SESSIONS` | Max sessions per pod (default: 10) |
 | `SECRET_PROVIDER_URL` | Secret provider URL (`http://secret-provider.platform.svc:8080`) |
-| `INFERENCE_ROUTER_URL` | Inference router URL (`http://inference-router.platform.svc:8080`) |
+| `INFERENCE_ROUTER_URL` | LiteLLM gateway URL (`http://litellm.platform.svc:4000`) |
+| `LITELLM_API_KEY` | LiteLLM master key (`sk-aviary-dev`) |
 | `HTTP_PROXY` / `HTTPS_PROXY` | Egress proxy URL (`http://egress-proxy.platform.svc:8080`) |
 | `NO_PROXY` | Bypass proxy for internal services (platform SVCs, localhost) |
 

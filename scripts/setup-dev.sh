@@ -84,8 +84,8 @@ until curl -sf http://localhost:9000/v1/health > /dev/null 2>&1; do
   sleep 2
 done
 echo " ready."
-echo -n "  Inference router..."
-until curl -sf http://localhost:8090/health > /dev/null 2>&1; do
+echo -n "  LiteLLM gateway..."
+until curl -sf http://localhost:8090/health/liveliness > /dev/null 2>&1; do
   sleep 2
 done
 echo " ready."
@@ -110,7 +110,7 @@ echo "  API Health:        http://localhost:8000/api/health"
 echo ""
 echo "Platform Services:"
 echo "  Agent Supervisor:  http://localhost:9000"
-echo "  Inference Router:  http://localhost:8090"
+echo "  LiteLLM Gateway:  http://localhost:8090"
 echo "  Secret Provider:  (K8s internal only)"
 echo ""
 echo "Infrastructure:"
@@ -126,8 +126,10 @@ echo "  user1@test.com / password  (regular_user,   team: engineering, product)"
 echo "  user2@test.com / password  (regular_user,   team: data-science)"
 echo ""
 echo "Hot reload:"
-echo "  Edit files in api/, web/, inference-router/, or secret-provider/"
+echo "  Edit files in api/, web/, or secret-provider/"
 echo "  — changes apply automatically via bind-mount."
+echo "  LiteLLM config: edit config/litellm/config.yaml and restart:"
+echo "    docker compose restart litellm"
 echo "  If you change dependencies:"
 echo "    docker compose up -d --build <service>"
 echo "  To rebuild K8s images (runtime, egress-proxy, agent-supervisor):"

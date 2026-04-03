@@ -1,10 +1,10 @@
 /**
  * Agent runner using the official @anthropic-ai/claude-agent-sdk (TypeScript).
  *
- * All inference is routed through the Inference Router:
+ * All inference is routed through LiteLLM:
  *   claude-agent-sdk -> Claude Code CLI -> Anthropic SDK
- *     -> POST http://inference-router.platform.svc:8080/v1/messages
- *     -> Router inspects model name -> proxies to correct backend
+ *     -> POST http://litellm.platform.svc:4000/v1/messages
+ *     -> LiteLLM routes by model name prefix (anthropic/, ollama/, hosted_vllm/, bedrock/)
  *
  * Multi-turn conversation is maintained via the SDK's session management:
  *   - Aviary session_id is passed directly as CLI session_id
@@ -24,16 +24,17 @@ import { query, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 const CONFIG_DIR = "/agent/config";
 const WORKSPACE_ROOT = "/workspace/sessions";
 
-const INFERENCE_ROUTER_URL =
+const LITELLM_URL =
   process.env.INFERENCE_ROUTER_URL ??
-  "http://inference-router.platform.svc:8080";
+  "http://litellm.platform.svc:4000";
+const LITELLM_API_KEY = process.env.LITELLM_API_KEY ?? "sk-aviary-dev";
 
 // Force SDK to use our bwrap wrapper instead of its bundled binary.
 // TS SDK option is `pathToClaudeCodeExecutable` (not `cliPath` like Python).
 const CLAUDE_CLI_PATH = "/usr/local/bin/claude";
 
 // Model tier env vars — all remapped to agent's configured model so CLI
-// internal tasks (WebFetch summarization, subagents) route through inference router
+// internal tasks (WebFetch summarization, subagents) route through LiteLLM
 const MODEL_TIER_KEYS = [
   "ANTHROPIC_MODEL",
   "ANTHROPIC_SMALL_FAST_MODEL",
@@ -49,6 +50,27 @@ const PASSTHROUGH_KEYS = ["PATH", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "NODE
 
 function sessionWorkspace(sessionId: string): string {
   return path.join(WORKSPACE_ROOT, sessionId);
+}
+
+/** Resolve backend + model into a LiteLLM model name with provider prefix. */
+function resolveModelName(backend: string, model: string): string {
+  if (model === "default") {
+    const defaults: Record<string, string> = {
+      claude: "anthropic/claude-sonnet-4-6",
+      ollama: "ollama/gemma4:26b",
+      vllm: "hosted_vllm/cyankiwi/gemma-4-31B-it-AWQ-4bit",
+      bedrock: "bedrock/anthropic.claude-sonnet-4-5-20250929-v1:0",
+    };
+    return defaults[backend] ?? defaults.claude;
+  }
+  const prefixMap: Record<string, string> = {
+    claude: "anthropic/",
+    ollama: "ollama/",
+    vllm: "hosted_vllm/",
+    bedrock: "bedrock/",
+  };
+  const prefix = prefixMap[backend] ?? "anthropic/";
+  return model.includes("/") ? model : `${prefix}${model}`;
 }
 
 interface AgentConfig {
@@ -170,34 +192,26 @@ export async function* processMessage(
 
   const agentConfig = agentConfigFromApi ?? loadAgentConfig();
   const mc: ModelConfig = modelConfig ?? { backend: "claude", model: "default" };
-  const model = mc.model ?? "default";
   const backend = mc.backend ?? "claude";
+  const resolvedModel = resolveModelName(backend, mc.model ?? "default");
   const canResume = hasSessionHistory(workspace, sessionId);
 
   const env: Record<string, string> = {
-    ANTHROPIC_BASE_URL: INFERENCE_ROUTER_URL,
-    ANTHROPIC_API_KEY: "routed-via-inference-router",
-    ANTHROPIC_CUSTOM_HEADERS: [
-      `X-Backend: ${backend}`,
-      // Only send sampling headers for specific models; "default" uses server-side cached defaults
-      ...(model !== "default" && mc.temperature != null ? [`X-Sampling-Temperature: ${mc.temperature}`] : []),
-      ...(model !== "default" && mc.top_p != null ? [`X-Sampling-Top-P: ${mc.top_p}`] : []),
-      ...(model !== "default" && mc.top_k != null ? [`X-Sampling-Top-K: ${mc.top_k}`] : []),
-      ...(model !== "default" && mc.num_ctx != null ? [`X-Sampling-Num-Ctx: ${mc.num_ctx}`] : []),
-    ].join("\n"),
+    ANTHROPIC_BASE_URL: LITELLM_URL,
+    ANTHROPIC_API_KEY: LITELLM_API_KEY,
     SESSION_WORKSPACE: workspace,
     CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
     ...(mc.max_output_tokens != null
       ? { CLAUDE_CODE_MAX_OUTPUT_TOKENS: String(mc.max_output_tokens) }
       : {}),
-    ...Object.fromEntries(MODEL_TIER_KEYS.map((k) => [k, model])),
+    ...Object.fromEntries(MODEL_TIER_KEYS.map((k) => [k, resolvedModel])),
     ...Object.fromEntries(
       PASSTHROUGH_KEYS.filter((k) => process.env[k]).map((k) => [k, process.env[k]!]),
     ),
   };
 
   const options = {
-    model,
+    model: resolvedModel,
     systemPrompt: agentConfig.instruction,
     cwd: workspace,
     pathToClaudeCodeExecutable: CLAUDE_CLI_PATH,
@@ -285,7 +299,7 @@ export async function* processMessage(
       yield { type: "chunk", content: "[Cancelled by user]" };
       return;
     }
-    const errorMsg = `[${backend}/${model}] Error: ${e}`;
+    const errorMsg = `[${resolvedModel}] Error: ${e}`;
     yield { type: "chunk", content: errorMsg };
   }
 }

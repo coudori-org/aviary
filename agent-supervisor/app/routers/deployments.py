@@ -20,7 +20,7 @@ router = APIRouter()
 _EGRESS_PROXY_URL = "http://egress-proxy.platform.svc:8080"
 _NO_PROXY = (
     "secret-provider.platform.svc,"
-    "inference-router.platform.svc,"
+    "litellm.platform.svc,"
     "egress-proxy.platform.svc,"
     ".svc,.svc.cluster.local,"
     "localhost,127.0.0.1"
@@ -343,7 +343,8 @@ async def _create_deployment(namespace: str, body: EnsureDeploymentRequest) -> N
                                     {"name": "AGENT_ID", "value": body.agent_id},
                                     {"name": "MAX_CONCURRENT_SESSIONS", "value": str(max_sessions)},
                                     {"name": "SECRET_PROVIDER_URL", "value": "http://secret-provider.platform.svc:8080"},
-                                    {"name": "INFERENCE_ROUTER_URL", "value": "http://inference-router.platform.svc:8080"},
+                                    {"name": "INFERENCE_ROUTER_URL", "value": "http://litellm.platform.svc:4000"},
+                                    {"name": "LITELLM_API_KEY", "value": "sk-aviary-dev"},
                                     {"name": "HOME", "value": "/tmp"},
                                     {"name": "HTTP_PROXY", "value": _EGRESS_PROXY_URL},
                                     {"name": "HTTPS_PROXY", "value": _EGRESS_PROXY_URL},

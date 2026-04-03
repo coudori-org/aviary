@@ -26,8 +26,9 @@ class Settings(BaseSettings):
     # Agent Supervisor
     agent_supervisor_url: str = "http://localhost:9000"
 
-    # Platform services
-    inference_router_url: str = "http://inference-router:8080"
+    # LiteLLM Gateway
+    litellm_url: str = "http://litellm:4000"
+    litellm_api_key: str = "sk-aviary-dev"
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 

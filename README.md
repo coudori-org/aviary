@@ -30,8 +30,8 @@ Aviary is an enterprise platform where users can create, configure, and use purp
     │           │   │           Platform Services                │
     │           │   │                                            │
     │           │   │  ┌─────────────────┐  ┌──────────────────┐ │
-    │           │   │  │ Inference Router │  │ Secret Provider │ │
-    │           │   │  │  (LLM gateway)  │  │  (Vault secrets) │ │
+    │           │   │  │ LiteLLM Gateway │  │ Secret Provider │ │
+    │           │   │  │  (LLM proxy)    │  │  (Vault secrets) │ │
     │           │   │  └────────┬────────┘  └──────────────────┘ │
     │           │   │           │                                 │
     │           │   │     ┌─────┴───────────────────┐            │
@@ -61,7 +61,7 @@ Aviary is an enterprise platform where users can create, configure, and use purp
     │   │  │  + bwrap sandbox         │  │  + bwrap sandbox    │ │
     │   │  │  PVC: /workspace         │  │  PVC: /workspace    │ │
     │   │  │                          │  │                     │ │
-    │   │  │  LLM ──▶ Inference Router│  │                     │ │
+    │   │  │  LLM ──▶ LiteLLM Gateway│  │                     │ │
     │   │  │  Secrets ▶ Secret Prov.   │  │  NetworkPolicy:     │ │
     │   │  │  HTTP ──▶ Egress Proxy   │  │    deny-by-default  │ │
     │   │  └──────────────────────────┘  └─────────────────────┘ │
@@ -83,8 +83,8 @@ Aviary is an enterprise platform where users can create, configure, and use purp
 - **Namespace-per-Agent** — NetworkPolicy, ResourceQuota, and ServiceAccount scoped per agent
 - **Egress Proxy** — All outbound HTTP/HTTPS from agent Pods routed through a centralized proxy with per-agent allowlists (CIDR, exact domain, wildcard `*.example.com`); deny-by-default, policy changes take effect immediately without Pod restarts
 - **claude-agent-sdk Powered** — Full [Claude Code](https://docs.anthropic.com/en/docs/claude-code) harness via `ClaudeSDKClient` including tools, sub-agents, MCP servers, file I/O, and shell execution
-- **Inference Router** — Centralized LLM gateway; `X-Backend` header (injected by runtime via `ANTHROPIC_CUSTOM_HEADERS`) determines backend routing transparently
-- **Multi-Backend Inference** — Claude API, Ollama, vLLM, AWS Bedrock; new backends require no NetworkPolicy changes
+- **LiteLLM Gateway** — All LLM calls routed through [LiteLLM](https://github.com/BerriAI/litellm) OSS proxy; backend determined by model name prefix (`anthropic/`, `ollama/`, `hosted_vllm/`, `bedrock/`), natively compatible with Anthropic SDK
+- **Multi-Backend Inference** — Claude API, Ollama, vLLM, AWS Bedrock; add new backends via config, no code or NetworkPolicy changes required
 - **Live Config Updates** — Agent config (instruction, tools) is passed from DB on every message; edits take effect immediately without Pod restarts
 - **OIDC Auth + Team Sync** — Keycloak (dev) / Okta (prod); IdP groups auto-sync to Aviary teams on login
 - **API / Admin Separation** — Separate services for user operations (API) and infrastructure management (Admin Console)
@@ -99,7 +99,7 @@ Aviary is an enterprise platform where users can create, configure, and use purp
 | Web UI | Next.js 15 (App Router), TypeScript, Tailwind CSS, shadcn/ui |
 | API Server | Python 3.12, FastAPI, SQLAlchemy 2.0 (async), Pydantic v2 |
 | Agent Runtime | TypeScript, Node.js 22, claude-agent-sdk, Claude Code CLI |
-| Inference Router | Python 3.12, FastAPI — Anthropic Messages API proxy |
+| LLM Gateway | [LiteLLM](https://github.com/BerriAI/litellm) — unified LLM proxy (Anthropic, OpenAI, Bedrock, Ollama, vLLM) |
 | Egress Proxy | Python 3.12, asyncio — HTTP/HTTPS forward proxy with policy enforcement |
 | Database | PostgreSQL 16 |
 | Cache / PubSub | Redis 7 |
@@ -139,7 +139,7 @@ aviary/
 │   └── app/                 # K8s gateway, agent-centric + K8s-specific APIs
 ├── runtime/                 # Agent Runtime (runs in agent Pods)
 │   └── src/                 # claude-agent-sdk harness, session manager
-├── inference-router/        # LLM Gateway
+├── config/litellm/          # LiteLLM Gateway config
 ├── secret-provider/        # Secret injection proxy
 ├── egress-proxy/            # HTTP/HTTPS egress proxy
 ├── config/                  # Keycloak realm, K3s config
@@ -169,7 +169,7 @@ This single command builds all images, starts all services, runs DB migrations, 
 | Web UI | http://localhost:3000 |
 | API Server | http://localhost:8000 |
 | Admin Console | http://localhost:8001 |
-| Inference Router | http://localhost:8090 |
+| LiteLLM Gateway | http://localhost:8090 |
 | Keycloak Admin | http://localhost:8080 (admin/admin) |
 | Vault | http://localhost:8200 |
 
@@ -191,7 +191,7 @@ docker compose logs -f api    # Tail logs
 
 ### Development
 
-Source code is bind-mounted into containers. Edits to `api/`, `web/`, and `inference-router/` are reflected automatically via hot reload.
+Source code is bind-mounted into containers. Edits to `api/` and `web/` are reflected automatically via hot reload. LiteLLM config changes require `docker compose restart litellm`.
 
 ```bash
 # Rebuild after dependency changes
@@ -251,8 +251,8 @@ API and admin tests covering health, agent CRUD, ACL (visibility, grants, permis
 
 ## Key Design Decisions
 
-### Inference Router
-Session Pods never call LLM backends directly. All inference goes through a centralized router that determines the backend from the `X-Backend` header injected by the runtime via `ANTHROPIC_CUSTOM_HEADERS` (e.g., `claude` → Claude API, `ollama` → Ollama). This centralizes API credentials and preserves full claude-agent-sdk capabilities since the router speaks the Anthropic Messages API natively. The API server also queries the inference router for model listing, ensuring a single enforcement point for access control.
+### LiteLLM Gateway
+Session Pods never call LLM backends directly. All inference goes through a [LiteLLM](https://github.com/BerriAI/litellm) OSS proxy that routes requests based on the model name prefix (e.g., `anthropic/claude-sonnet-4-6` → Claude API, `ollama/gemma4:26b` → Ollama, `hosted_vllm/...` → vLLM). LiteLLM natively supports the Anthropic Messages API (`/v1/messages`), so claude-agent-sdk works transparently without protocol translation. This centralizes API credentials, rate limiting, and observability. New backends are added via config file (`config/litellm/config.yaml`) without code changes.
 
 ### Egress Proxy
 All outbound HTTP/HTTPS from agent Pods is routed through a centralized forward proxy via `HTTP_PROXY`/`HTTPS_PROXY` environment variables. The proxy identifies the source agent by resolving the pod's IP to its K8s namespace, then enforces per-agent egress policies. Supported rule types: CIDR ranges, exact domains, wildcard domains (`*.example.com`), and catch-all. Policies are deny-by-default and changes take effect immediately without Pod restarts.
@@ -276,7 +276,7 @@ The `claude` CLI binary in PATH is a wrapper script that runs the real binary in
 | `api` | 8000 | API Server (user-facing) |
 | `admin` | 8001 | Admin Console (operator-facing, no auth) |
 | `web` | 3000 | Web UI |
-| `inference-router` | 8090 | LLM gateway |
+| `litellm` | 8090 | LLM gateway (LiteLLM) |
 | `secret-provider` | K8s internal | Secret injection (Vault)|
 | `postgres` | 5432 | Database |
 | `redis` | 6379 | Cache, pub/sub, presence |
