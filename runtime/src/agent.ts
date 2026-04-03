@@ -74,45 +74,39 @@ function resolveModelName(backend: string, model: string): string {
 }
 
 /**
- * Pre-flight check: send a minimal streaming request to LiteLLM and inspect
- * the HTTP status before spawning the heavy claude-code CLI subprocess.
- * Auth errors (401), bad model names (404), etc. return immediately with
- * zero token cost. On success the streaming connection is aborted before
- * any output tokens are generated.
+ * Pre-flight check: query LiteLLM's /health endpoint to verify the model's
+ * backend is reachable and properly configured. No inference request is made,
+ * so this does not generate inference logs or consume tokens.
+ *
+ * Catches: unreachable backends, missing cloud credentials (Bedrock/GCP),
+ * model not configured. Note: Anthropic pass-through models may report
+ * healthy even with an invalid API key — validate keys during deployment.
  */
 async function preflightCheck(model: string): Promise<string | null> {
-  let intentionalAbort = false;
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 15_000);
   try {
-    const resp = await fetch(`${LITELLM_URL}/v1/messages`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": LITELLM_API_KEY,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
-        model,
-        max_tokens: 1,
-        messages: [{ role: "user", content: "." }],
-        stream: true,
-      }),
-      signal: controller.signal,
+    const resp = await fetch(`${LITELLM_URL}/health`, {
+      headers: { Authorization: `Bearer ${LITELLM_API_KEY}` },
+      signal: AbortSignal.timeout(10_000),
     });
-    if (!resp.ok) {
-      const body = await resp.text().catch(() => "");
-      return `Backend error (${resp.status}): ${body}`;
+    if (!resp.ok) return `LiteLLM health check failed (${resp.status})`;
+
+    const data = await resp.json() as {
+      healthy_endpoints: Array<{ model: string }>;
+      unhealthy_endpoints: Array<{ model: string; error?: string }>;
+    };
+
+    // Check if our model is explicitly unhealthy
+    const unhealthy = data.unhealthy_endpoints?.find(
+      (e) => model.endsWith(e.model) || e.model === model,
+    );
+    if (unhealthy) {
+      const short = unhealthy.error?.split("\n")[0] ?? "unknown error";
+      return `Backend unhealthy: ${short}`;
     }
-    // Auth/routing OK — abort before LLM generates output tokens
-    intentionalAbort = true;
-    controller.abort();
+
     return null;
   } catch (e: any) {
-    if (intentionalAbort) return null;
-    return `Backend unreachable: ${e.message ?? e}`;
-  } finally {
-    clearTimeout(timeout);
+    return `LiteLLM unreachable: ${e.message ?? e}`;
   }
 }
 
