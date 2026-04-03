@@ -12,7 +12,7 @@ if [[ -f "$ENV_FILE" ]]; then
 fi
 
 PORT="${VLLM_PORT:-8191}"
-MODEL="${VLLM_MODEL:-cyankiwi/gemma-4-26B-A4B-it-AWQ-4bit}"
+MODEL="${VLLM_MODEL:-cyankiwi/gemma-4-31B-it-AWQ-4bit}"
 IMAGE="${VLLM_IMAGE:-vllm/vllm-openai:gemma4}"
 GPU_MEM="${VLLM_GPU_MEM:-0.90}"
 MAX_MODEL_LEN="${VLLM_MAX_MODEL_LEN:-65536}"

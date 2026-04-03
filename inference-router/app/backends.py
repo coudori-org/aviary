@@ -25,7 +25,7 @@ VALID_BACKENDS = {"claude", "ollama", "vllm", "bedrock"}
 DEFAULT_MODELS: dict[str, str] = {
     "claude": os.environ.get("DEFAULT_MODEL_CLAUDE", "claude-sonnet-4-6"),
     "ollama": os.environ.get("DEFAULT_MODEL_OLLAMA", "gemma4:26b"),
-    "vllm": os.environ.get("DEFAULT_MODEL_VLLM", "cyankiwi/gemma-4-26B-A4B-it-AWQ-4bit"),
+    "vllm": os.environ.get("DEFAULT_MODEL_VLLM", "cyankiwi/gemma-4-31B-it-AWQ-4bit"),
     "bedrock": os.environ.get("DEFAULT_MODEL_BEDROCK", "anthropic.claude-sonnet-4-5-20250929-v1:0"),
 }
 
