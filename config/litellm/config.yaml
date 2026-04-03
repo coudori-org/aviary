@@ -13,14 +13,16 @@ model_list:
   # --- Ollama ---
   - model_name: "ollama/gemma4:26b"
     litellm_params:
-      model: "ollama/gemma4:26b"
-      api_base: "http://host.docker.internal:11434"
+      model: "openai/gemma4:26b"
+      api_base: "http://host.docker.internal:11434/v1"
+      api_key: "ollama"
 
   # --- vLLM ---
   - model_name: "hosted_vllm/cyankiwi/gemma-4-31B-it-AWQ-4bit"
     litellm_params:
-      model: "hosted_vllm/cyankiwi/gemma-4-31B-it-AWQ-4bit"
+      model: "openai/Qwen/Qwen3.5-27B-GPTQ-Int4"
       api_base: "http://host.docker.internal:8191/v1"
+      api_key: "vllm"
 
   # --- Bedrock ---
   - model_name: "bedrock/anthropic.claude-sonnet-4-5-20250929-v1:0"
