@@ -140,9 +140,6 @@ export default function ChatPage() {
             setLastEventAt(Date.now());
             handleStreamMsg(msg);
             break;
-          case "heartbeat":
-            setLastEventAt(Date.now());
-            break;
           case "done": {
             finalize();
             const finalContent = flattenText();

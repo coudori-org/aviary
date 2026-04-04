@@ -18,7 +18,6 @@ export type WSMessage =
   | { type: "tool_result"; tool_use_id: string; content: string; is_error?: boolean; parent_tool_use_id?: string }
   | { type: "tool_progress"; tool_use_id: string; tool_name: string; parent_tool_use_id?: string | null; elapsed_time_seconds: number }
   | { type: "thinking"; content: string }
-  | { type: "heartbeat" }
   | { type: "done"; messageId: string }
   | { type: "error"; message: string }
   | { type: "replay_start" }

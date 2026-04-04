@@ -241,9 +241,6 @@ async def _run_stream(
                             current_thinking += thinking_text
                             await redis_service.append_stream_chunk(session_id, chunk_data)
                             await redis_service.publish_message(session_id, chunk_data)
-                        elif chunk_type == "heartbeat":
-                            # Ephemeral — publish for live clients, don't buffer
-                            await redis_service.publish_message(session_id, chunk_data)
 
         # Flush remaining thinking and text, then attach tool results to blocks
         if current_thinking:

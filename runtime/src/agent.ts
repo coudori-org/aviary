@@ -116,7 +116,7 @@ function hasSessionHistory(workspace: string, sessionId: string): boolean {
 }
 
 export interface SSEChunk {
-  type: "chunk" | "tool_use" | "tool_result" | "tool_progress" | "result" | "heartbeat" | "thinking";
+  type: "chunk" | "tool_use" | "tool_result" | "tool_progress" | "result" | "thinking";
   content?: string;
   name?: string;
   input?: unknown;
