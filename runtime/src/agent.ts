@@ -64,42 +64,6 @@ function resolveModelName(backend: string, model: string): string {
   return model.includes("/") ? model : `${prefix}${model}`;
 }
 
-/**
- * Pre-flight check: query LiteLLM's /health endpoint to verify the model's
- * backend is reachable and properly configured. No inference request is made,
- * so this does not generate inference logs or consume tokens.
- *
- * Catches: unreachable backends, missing cloud credentials (Bedrock/GCP),
- * model not configured. Note: Anthropic pass-through models may report
- * healthy even with an invalid API key — validate keys during deployment.
- */
-async function preflightCheck(model: string): Promise<string | null> {
-  try {
-    const resp = await fetch(`${LITELLM_URL}/health`, {
-      headers: { Authorization: `Bearer ${LITELLM_API_KEY}` },
-      signal: AbortSignal.timeout(30_000),
-    });
-    if (!resp.ok) return `LiteLLM health check failed (${resp.status})`;
-
-    const data = await resp.json() as {
-      healthy_endpoints: Array<{ model: string }>;
-      unhealthy_endpoints: Array<{ model: string; error?: string }>;
-    };
-
-    // Check if our model is explicitly unhealthy
-    const unhealthy = data.unhealthy_endpoints?.find(
-      (e) => model.endsWith(e.model) || e.model === model,
-    );
-    if (unhealthy) {
-      const short = unhealthy.error?.split("\n")[0] ?? "unknown error";
-      return `Backend unhealthy: ${short}`;
-    }
-
-    return null;
-  } catch (e: any) {
-    return `LiteLLM unreachable: ${e.message ?? e}`;
-  }
-}
 
 interface AgentConfig {
   instruction?: string;
@@ -254,14 +218,6 @@ export async function* processMessage(
     ...(canResume ? { resume: sessionId } : {}),
     ...(abortController ? { abortController } : {}),
   };
-
-  // Pre-flight: validate model/backend before spawning the heavy CLI subprocess.
-  // Catches auth errors, unreachable backends, and bad model names immediately.
-  const preflightError = await preflightCheck(resolvedModel);
-  if (preflightError) {
-    yield { type: "chunk", content: `[${resolvedModel}] ${preflightError}` };
-    return;
-  }
 
   let fullResponse = "";
 
