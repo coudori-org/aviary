@@ -14,8 +14,8 @@ fi
 PORT="${VLLM_PORT:-8191}"
 GPU_NUM="${VLLM_GPU_NUM:-1}"
 GPU_MEM="${VLLM_GPU_MEM:-0.90}"
-MAX_NUM_SEQS="${VLLM_MAX_NUM_SEQS:-5}"
-MAX_MODEL_LEN="${VLLM_MAX_MODEL_LEN:-65536}"
+MAX_NUM_SEQS="${VLLM_MAX_NUM_SEQS:-8}"
+MAX_MODEL_LEN="${VLLM_MAX_MODEL_LEN:-32768}"
 
 IMAGE=vllm/vllm-openai:gemma4
 MODEL=cyankiwi/gemma-4-31B-it-AWQ-4bit
@@ -47,6 +47,7 @@ docker run -itd \
     --gpu-memory-utilization "$GPU_MEM" \
     --max-num-seqs "$MAX_NUM_SEQS" \
     --reasoning-parser gemma4  \
+    --reasoning-config '{}' \
     --tool-call-parser gemma4  \
     --enable-auto-tool-choice \
     --async-scheduling \
