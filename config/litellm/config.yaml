@@ -30,13 +30,29 @@ model_list:
           - thinking
 
   # --- Ollama ---
-  - model_name: "ollama/gemma4:26b-128k"
+  - model_name: "ollama/gemma4:26b"
     litellm_params:
-      model: "openai/gemma4:26b-128k"
+      model: "openai/gemma4:26b"
       api_base: "http://host.docker.internal:11434/v1"
       api_key: "ollama"
     model_info:
-      max_input_tokens: 122880
+      max_input_tokens: 57344
+      max_output_tokens: 8192
+      max_tokens: 8000
+      _ui:
+        default_model: true
+        capabilities:
+          - vision
+          - tools
+          - thinking
+
+  - model_name: "ollama/qwen3.5:35b"
+    litellm_params:
+      model: "openai/qwen3.5:35b"
+      api_base: "http://host.docker.internal:11434/v1"
+      api_key: "ollama"
+    model_info:
+      max_input_tokens: 57344
       max_output_tokens: 8192
       max_tokens: 8000
       _ui:
