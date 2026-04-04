@@ -5,7 +5,8 @@ model_list:
       model: "anthropic/claude-sonnet-4-6"
       api_key: "os.environ/ANTHROPIC_API_KEY"
     model_info:
-      context_window: 1000000
+      max_model_len: 1048576
+      max_input_tokens: 1040384
       aviary_default_model: true
       aviary_capabilities:
         - vision
@@ -17,7 +18,8 @@ model_list:
       model: "anthropic/claude-opus-4-6"
       api_key: "os.environ/ANTHROPIC_API_KEY"
     model_info:
-      context_window: 1000000
+      max_model_len: 1048576
+      max_input_tokens: 1040384
       aviary_capabilities:
         - vision
         - tools
@@ -29,14 +31,11 @@ model_list:
       model: "openai/gemma4:26b"
       api_base: "http://host.docker.internal:11434/v1"
       api_key: "ollama"
+      num_ctx: 131072
     model_info:
-      context_window: 262144
+      max_model_len: 131072
+      max_input_tokens: 122880
       aviary_default_model: true
-      aviary_defaults:
-        temperature: 1.0
-        top_p: 0.95
-        top_k: 64
-        num_ctx: 131072
       aviary_capabilities:
         - vision
         - tools
@@ -49,13 +48,9 @@ model_list:
       api_base: "http://host.docker.internal:8191/v1"
       api_key: "vllm"
     model_info:
-      context_window: 262144
+      max_model_len: 65536
+      max_input_tokens: 57344
       aviary_default_model: true
-      aviary_defaults:
-        temperature: 1.0
-        top_p: 0.95
-        top_k: 64
-      aviary_active_context_window: 65536
       aviary_capabilities:
         - vision
         - tools
@@ -67,7 +62,8 @@ model_list:
       model: "bedrock/anthropic.claude-sonnet-4-5-20250929-v1:0"
       aws_region_name: "ap-northeast-2"
     model_info:
-      context_window: 1000000
+      max_model_len: 1048576
+      max_input_tokens: 1040384
       aviary_default_model: true
       aviary_capabilities:
         - vision
@@ -78,7 +74,11 @@ general_settings:
   master_key: "os.environ/LITELLM_MASTER_KEY"
 
 litellm_settings:
-  drop_params: true
   request_timeout: 120
   num_retries: 0
   use_chat_completions_url_for_anthropic_messages: true
+
+router_settings:
+  enable_pre_call_checks: true
+  default_litellm_params:
+    max_tokens: 8192

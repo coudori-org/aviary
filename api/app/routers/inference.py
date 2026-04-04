@@ -82,22 +82,10 @@ async def get_model_info(
     models = await _fetch_model_info()
     for m in models:
         if m.get("model_name") == model:
-            info = m.get("model_info", {})
-            defaults = info.get("aviary_defaults", {})
             return {
                 "model": model,
                 "backend": backend,
-                "defaults": {
-                    "temperature": defaults.get("temperature"),
-                    "top_p": defaults.get("top_p"),
-                    "top_k": defaults.get("top_k"),
-                    "num_ctx": defaults.get("num_ctx"),
-                },
-                "limits": {
-                    "max_context_length": info.get("context_window"),
-                    "active_context_length": info.get("aviary_active_context_window"),
-                },
-                "capabilities": info.get("aviary_capabilities", []),
+                "model_info": m.get("model_info", {}),
             }
     raise HTTPException(status_code=404, detail=f"Model not found: {model}")
 
