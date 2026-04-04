@@ -7,8 +7,8 @@ model_list:
     model_info:
       max_model_len: 1048576
       max_input_tokens: 1040384
-      aviary_default_model: true
-      aviary_capabilities:
+      default_model: true
+      capabilities:
         - vision
         - tools
         - thinking
@@ -20,7 +20,7 @@ model_list:
     model_info:
       max_model_len: 1048576
       max_input_tokens: 1040384
-      aviary_capabilities:
+      capabilities:
         - vision
         - tools
         - thinking
@@ -35,8 +35,8 @@ model_list:
     model_info:
       max_model_len: 131072
       max_input_tokens: 122880
-      aviary_default_model: true
-      aviary_capabilities:
+      default_model: true
+      capabilities:
         - vision
         - tools
         - thinking
@@ -50,8 +50,8 @@ model_list:
     model_info:
       max_model_len: 65536
       max_input_tokens: 57344
-      aviary_default_model: true
-      aviary_capabilities:
+      default_model: true
+      capabilities:
         - vision
         - tools
         - thinking
@@ -64,8 +64,8 @@ model_list:
     model_info:
       max_model_len: 1048576
       max_input_tokens: 1040384
-      aviary_default_model: true
-      aviary_capabilities:
+      default_model: true
+      capabilities:
         - vision
         - tools
         - thinking

@@ -39,12 +39,6 @@ export interface ModelConfig {
   max_output_tokens?: number;
 }
 
-export interface ModelInfo {
-  model: string;
-  backend: string;
-  model_info: Record<string, any>;
-}
-
 export interface McpServer {
   name: string;
   command: string;

@@ -1,13 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { apiFetch } from "@/lib/api";
-import type { ModelInfo } from "@/types";
 
 interface AgentFormData {
   name: string;
@@ -48,7 +47,7 @@ const defaultData: AgentFormData = {
 interface ModelOption {
   id: string;
   name: string;
-  is_default?: boolean;
+  model_info: Record<string, any>;
 }
 
 // Capability badge styles — known caps get distinct colors, others get a muted style
@@ -70,17 +69,15 @@ export function AgentForm({ initialData, onSubmit, submitLabel }: AgentFormProps
   const [error, setError] = useState<string | null>(null);
   const [models, setModels] = useState<ModelOption[]>([]);
   const [modelsLoading, setModelsLoading] = useState(false);
-  const [modelInfo, setModelInfo] = useState<ModelInfo | null>(null);
-  const fetchSeq = useRef(0);
 
   const fetchModels = useCallback(async (backend: string, currentModel?: string) => {
     setModelsLoading(true);
     try {
-      const res = await apiFetch<{ models: ModelOption[]; error?: string }>(`/inference/${backend}/models`);
+      const res = await apiFetch<{ models: ModelOption[] }>(`/inference/${backend}/models`);
       setModels(res.models);
       // Auto-select: keep current model if it exists in the list, otherwise pick the default-flagged model or first
       if (!currentModel || !res.models.some((m) => m.id === currentModel)) {
-        const defaultModel = res.models.find((m) => m.is_default) ?? res.models[0];
+        const defaultModel = res.models.find((m) => m.model_info?.default_model) ?? res.models[0];
         if (defaultModel) {
           setData((prev) => ({
             ...prev,
@@ -99,40 +96,22 @@ export function AgentForm({ initialData, onSubmit, submitLabel }: AgentFormProps
     fetchModels(data.model_config.backend, data.model_config.model);
   }, [data.model_config.backend, fetchModels]);
 
-  // Fetch model info when model changes (for capabilities display)
+  // Derive selected model info from models list
+  const selectedModelInfo = models.find((m) => m.id === data.model_config.model)?.model_info ?? {};
+
+  // Auto-set max_output_tokens default when selected model changes
   useEffect(() => {
-    const { backend, model } = data.model_config;
-    if (!model) {
-      setModelInfo(null);
-      return;
-    }
-    const seq = ++fetchSeq.current;
-    (async () => {
-      try {
-        const info = await apiFetch<ModelInfo>(
-          `/inference/${backend}/model-info?model=${encodeURIComponent(model)}`
-        );
-        if (seq !== fetchSeq.current) return; // stale
-        setModelInfo(info);
-        // Auto-set max_output_tokens default based on model limit
-        const mi = info.model_info ?? {};
-        const maxLen = mi.max_model_len as number | undefined;
-        const maxInput = mi.max_input_tokens as number | undefined;
-        const limit = maxLen != null && maxInput != null && maxLen > maxInput
-          ? maxLen - maxInput : null;
-        setData((prev) => {
-          const maxLimit = limit != null && limit > 0 ? limit : 4096;
-          const defaultVal = Math.min(4096, maxLimit);
-          return {
-            ...prev,
-            model_config: { ...prev.model_config, max_output_tokens: defaultVal },
-          };
-        });
-      } catch {
-        if (seq === fetchSeq.current) setModelInfo(null);
-      }
-    })();
-  }, [data.model_config.backend, data.model_config.model]);
+    const maxLen = selectedModelInfo.max_model_len as number | undefined;
+    const maxInput = selectedModelInfo.max_input_tokens as number | undefined;
+    const limit = maxLen != null && maxInput != null && maxLen > maxInput
+      ? maxLen - maxInput : null;
+    const maxLimit = limit != null && limit > 0 ? limit : 4096;
+    const defaultVal = Math.min(4096, maxLimit);
+    setData((prev) => ({
+      ...prev,
+      model_config: { ...prev.model_config, max_output_tokens: defaultVal },
+    }));
+  }, [data.model_config.model, selectedModelInfo.max_model_len, selectedModelInfo.max_input_tokens]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -258,7 +237,6 @@ export function AgentForm({ initialData, onSubmit, submitLabel }: AgentFormProps
                 onChange={(e) => {
                   updateModelConfig("backend", e.target.value);
                   updateModelConfig("model", "");
-                  setModelInfo(null);
                 }}
               >
                 <option value="claude">Claude API</option>
@@ -282,10 +260,10 @@ export function AgentForm({ initialData, onSubmit, submitLabel }: AgentFormProps
           </div>
 
           {/* Capabilities badges */}
-          {modelInfo && (modelInfo.model_info?.aviary_capabilities as string[] ?? []).length > 0 && (
+          {(selectedModelInfo.capabilities as string[] ?? []).length > 0 && (
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-[11px] text-muted-foreground/60">Capabilities:</span>
-              {(modelInfo.model_info.aviary_capabilities as string[]).map((cap) => {
+              {(selectedModelInfo.capabilities as string[]).map((cap) => {
                 const style = CAP_STYLES[cap] ?? CAP_STYLES._default;
                 return (
                   <span key={cap} className={`inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset ${style}`}>
@@ -298,9 +276,8 @@ export function AgentForm({ initialData, onSubmit, submitLabel }: AgentFormProps
 
           {/* Max Output Tokens */}
           {(() => {
-            const mi = modelInfo?.model_info ?? {};
-            const maxLen = mi.max_model_len as number | undefined;
-            const maxInput = mi.max_input_tokens as number | undefined;
+            const maxLen = selectedModelInfo.max_model_len as number | undefined;
+            const maxInput = selectedModelInfo.max_input_tokens as number | undefined;
             const limit = maxLen != null && maxInput != null && maxLen > maxInput
               ? maxLen - maxInput : null;
             const maxVal = limit != null && limit > 0 ? limit : 4096;

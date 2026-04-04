@@ -135,23 +135,6 @@ if [ -z "$MODEL" ]; then
   exit 1
 fi
 
-# Fetch model defaults (temperature, top_p, top_k, num_ctx)
-MODEL_DEFAULTS=$(curl -sf "${API_URL}/api/inference/${BACKEND}/model-info?model=${MODEL}" \
-  -H "Authorization: Bearer ${ACCESS_TOKEN}" \
-  | python3 -c "
-import sys, json
-info = json.load(sys.stdin)
-d = info.get('defaults', {})
-cfg = {}
-if d.get('temperature') is not None: cfg['temperature'] = d['temperature']
-if d.get('top_p') is not None: cfg['top_p'] = d['top_p']
-if d.get('top_k') is not None: cfg['top_k'] = d['top_k']
-if d.get('num_ctx') is not None: cfg['num_ctx'] = d['num_ctx']
-# Flatten as JSON key-value pairs (without braces) for embedding
-parts = [f'\"{k}\": {json.dumps(v)}' for k, v in cfg.items()]
-print(', '.join(parts))
-" 2>/dev/null || echo "")
-
 header "3/6" "Create test agent (${BACKEND}/${MODEL})"
 
 SLUG="smoke-test-$(date +%s)"
@@ -163,7 +146,7 @@ AGENT_PAYLOAD=$(cat <<EOF
   "instruction": "You are a test assistant. Reply briefly to any message.",
   "model_config": {
     "backend": "${BACKEND}",
-    "model": "${MODEL}"${MODEL_DEFAULTS:+, ${MODEL_DEFAULTS}}
+    "model": "${MODEL}"
   },
   "tools": [],
   "mcp_servers": [],

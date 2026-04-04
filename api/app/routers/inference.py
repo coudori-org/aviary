@@ -52,7 +52,11 @@ async def list_backends(user: User = Depends(get_current_user)):
 
 @router.get("/{backend}/models")
 async def list_models(backend: str, user: User = Depends(get_current_user)):
-    """List available models for a backend (filtered from LiteLLM model list)."""
+    """List available models for a backend (filtered from LiteLLM model list).
+
+    Each item includes the full model_info dict from LiteLLM config so that
+    clients can derive capabilities, token limits, etc. without a second call.
+    """
     prefix = _BACKEND_TO_PREFIX.get(backend)
     if not prefix:
         raise HTTPException(status_code=400, detail=f"Unknown backend: {backend}")
@@ -62,32 +66,12 @@ async def list_models(backend: str, user: User = Depends(get_current_user)):
             {
                 "id": m["model_name"],
                 "name": m["model_name"],
-                "is_default": bool(m.get("model_info", {}).get("aviary_default_model")),
+                "model_info": m.get("model_info", {}),
             }
             for m in models
             if m.get("model_name", "").startswith(prefix)
         ]
     }
-
-
-@router.get("/{backend}/model-info")
-async def get_model_info(
-    backend: str, model: str, user: User = Depends(get_current_user)
-):
-    """Get model metadata from LiteLLM.
-
-    Custom fields (aviary_defaults, aviary_capabilities) are declared in
-    config/litellm/config.yaml under each model's model_info section.
-    """
-    models = await _fetch_model_info()
-    for m in models:
-        if m.get("model_name") == model:
-            return {
-                "model": model,
-                "backend": backend,
-                "model_info": m.get("model_info", {}),
-            }
-    raise HTTPException(status_code=404, detail=f"Model not found: {model}")
 
 
 @router.get("/{backend}/health")
