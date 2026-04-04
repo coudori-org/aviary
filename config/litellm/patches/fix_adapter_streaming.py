@@ -35,29 +35,35 @@ Loaded at Python startup via .pth file. Remove when upstream issues are fixed.
 import json
 import re
 
-# Matches <|\" when followed by a word character. The " belongs to the
-# leaked token (not JSON structure) and should be removed with it.
+# Matches the "no-thinking" wrapper: <|\"|"VALUE<|\"|
+_WRAPPER_RE = re.compile(r'<\|\\"\|"(.*?)<\|\\"\|')
+# Matches <|\" when followed by a word character (thinking-on pattern).
 _TOKEN_QUOTE_BEFORE_WORD = re.compile(r'<\|\\"(?=\w)')
 
 
 def _clean_tool_json(raw: str) -> str:
     """Strip Gemma4 special token fragments from accumulated tool call JSON.
 
-    vLLM's Gemma4 tool parser leaks <|channel>/<channel|> token fragments
-    into streaming argument deltas. The corruption pattern wraps string
-    values: ``<|\\value<|\\"|`` or ``<|\\value<|\\"``.
+    vLLM's Gemma4 tool parser leaks ``<|channel>`` / ``<channel|>`` token
+    fragments into streaming argument deltas. Two patterns:
 
-    Applied only when json.loads() fails on the raw string, so clean JSON
-    from other backends passes through untouched.
+    * Thinking ON:  ``<|\\value<|\\"|`` / ``<|\\"value<|\\"``
+    * Thinking OFF: ``<|\\"|"value<|\\"|`` (full wrapper around each value)
+
+    Applied only when json.loads() fails, so clean JSON passes through.
     """
     try:
         json.loads(raw)
-        return raw  # already valid — no cleanup needed
+        return raw
     except (json.JSONDecodeError, ValueError):
         pass
-    # Order matters: remove longer patterns first
-    cleaned = raw.replace('<|\\"|', '')  # end-of-value with trailing pipe
+    # Step 1: no-thinking wrapper: <|\"|"VALUE<|\"| -> VALUE
+    cleaned = _WRAPPER_RE.sub(r'\1', raw)
+    # Step 2: thinking-on end pattern: <|\"|  (5 chars)
+    cleaned = cleaned.replace('<|\\"|', '')
+    # Step 3: thinking-on start with quote: <|\" + word char
     cleaned = _TOKEN_QUOTE_BEFORE_WORD.sub('', cleaned)
+    # Step 4: remaining token prefixes: <|\  (3 chars)
     cleaned = cleaned.replace('<|\\', '')
     return cleaned
 
