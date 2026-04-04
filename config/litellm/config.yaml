@@ -74,6 +74,7 @@ general_settings:
   master_key: "os.environ/LITELLM_MASTER_KEY"
 
 litellm_settings:
+  drop_params: true
   request_timeout: 120
   num_retries: 0
   use_chat_completions_url_for_anthropic_messages: true
