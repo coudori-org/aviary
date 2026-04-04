@@ -18,7 +18,7 @@ router = APIRouter()
 _PREFIX_TO_BACKEND = {
     "anthropic": "claude",
     "ollama": "ollama",
-    "hosted_vllm": "vllm",
+    "vllm": "vllm",
     "bedrock": "bedrock",
 }
 _BACKEND_TO_PREFIX = {v: f"{k}/" for k, v in _PREFIX_TO_BACKEND.items()}
@@ -59,7 +59,11 @@ async def list_models(backend: str, user: User = Depends(get_current_user)):
     models = await _fetch_model_info()
     return {
         "models": [
-            {"id": m["model_name"], "name": m["model_name"]}
+            {
+                "id": m["model_name"],
+                "name": m["model_name"],
+                "is_default": bool(m.get("model_info", {}).get("aviary_default_model")),
+            }
             for m in models
             if m.get("model_name", "").startswith(prefix)
         ]
@@ -70,19 +74,30 @@ async def list_models(backend: str, user: User = Depends(get_current_user)):
 async def get_model_info(
     backend: str, model: str, user: User = Depends(get_current_user)
 ):
-    """Get model metadata from LiteLLM."""
+    """Get model metadata from LiteLLM.
+
+    Custom fields (aviary_defaults, aviary_capabilities) are declared in
+    config/litellm/config.yaml under each model's model_info section.
+    """
     models = await _fetch_model_info()
     for m in models:
         if m.get("model_name") == model:
             info = m.get("model_info", {})
+            defaults = info.get("aviary_defaults", {})
             return {
                 "model": model,
                 "backend": backend,
-                "defaults": {},
-                "limits": {
-                    "max_context_length": info.get("max_input_tokens"),
+                "defaults": {
+                    "temperature": defaults.get("temperature"),
+                    "top_p": defaults.get("top_p"),
+                    "top_k": defaults.get("top_k"),
+                    "num_ctx": defaults.get("num_ctx"),
                 },
-                "capabilities": [],
+                "limits": {
+                    "max_context_length": info.get("context_window"),
+                    "active_context_length": info.get("aviary_active_context_window"),
+                },
+                "capabilities": info.get("aviary_capabilities", []),
             }
     raise HTTPException(status_code=404, detail=f"Model not found: {model}")
 

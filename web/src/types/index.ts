@@ -54,6 +54,7 @@ export interface ModelInfo {
   };
   limits: {
     max_context_length: number | null;
+    active_context_length: number | null;
   };
   capabilities: string[];
 }

@@ -4,7 +4,7 @@
  * All inference is routed through LiteLLM:
  *   claude-agent-sdk -> Claude Code CLI -> Anthropic SDK
  *     -> POST http://litellm.platform.svc:4000/v1/messages
- *     -> LiteLLM routes by model name prefix (anthropic/, ollama/, hosted_vllm/, bedrock/)
+ *     -> LiteLLM routes by model name prefix (anthropic/, ollama/, vllm/, bedrock/)
  *
  * Multi-turn conversation is maintained via the SDK's session management:
  *   - Aviary session_id is passed directly as CLI session_id
@@ -54,19 +54,10 @@ function sessionWorkspace(sessionId: string): string {
 
 /** Resolve backend + model into a LiteLLM model name with provider prefix. */
 function resolveModelName(backend: string, model: string): string {
-  if (model === "default") {
-    const defaults: Record<string, string> = {
-      claude: "anthropic/claude-sonnet-4-6",
-      ollama: "ollama/gemma4:26b",
-      vllm: "hosted_vllm/cyankiwi/gemma-4-31B-it-AWQ-4bit",
-      bedrock: "bedrock/anthropic.claude-sonnet-4-5-20250929-v1:0",
-    };
-    return defaults[backend] ?? defaults.claude;
-  }
   const prefixMap: Record<string, string> = {
     claude: "anthropic/",
     ollama: "ollama/",
-    vllm: "hosted_vllm/",
+    vllm: "vllm/",
     bedrock: "bedrock/",
   };
   const prefix = prefixMap[backend] ?? "anthropic/";
@@ -228,9 +219,13 @@ export async function* processMessage(
   }
 
   const agentConfig = agentConfigFromApi ?? loadAgentConfig();
-  const mc: ModelConfig = modelConfig ?? { backend: "claude", model: "default" };
-  const backend = mc.backend ?? "claude";
-  const resolvedModel = resolveModelName(backend, mc.model ?? "default");
+  const mc: ModelConfig = modelConfig ?? {};
+  if (!mc.model || !mc.backend) {
+    yield { type: "chunk", content: "Error: model and backend are required in model_config." };
+    return;
+  }
+  const backend = mc.backend;
+  const resolvedModel = resolveModelName(backend, mc.model);
   const canResume = hasSessionHistory(workspace, sessionId);
 
   const env: Record<string, string> = {

@@ -4,11 +4,24 @@ model_list:
     litellm_params:
       model: "anthropic/claude-sonnet-4-6"
       api_key: "os.environ/ANTHROPIC_API_KEY"
+    model_info:
+      context_window: 1000000
+      aviary_default_model: true
+      aviary_capabilities:
+        - vision
+        - tools
+        - thinking
 
   - model_name: "anthropic/claude-opus-4-6"
     litellm_params:
       model: "anthropic/claude-opus-4-6"
       api_key: "os.environ/ANTHROPIC_API_KEY"
+    model_info:
+      context_window: 1000000
+      aviary_capabilities:
+        - vision
+        - tools
+        - thinking
 
   # --- Ollama ---
   - model_name: "ollama/gemma4:26b"
@@ -16,19 +29,50 @@ model_list:
       model: "openai/gemma4:26b"
       api_base: "http://host.docker.internal:11434/v1"
       api_key: "ollama"
+    model_info:
+      context_window: 262144
+      aviary_default_model: true
+      aviary_defaults:
+        temperature: 1.0
+        top_p: 0.95
+        top_k: 64
+        num_ctx: 131072
+      aviary_capabilities:
+        - vision
+        - tools
+        - thinking
 
   # --- vLLM ---
-  - model_name: "hosted_vllm/cyankiwi/gemma-4-31B-it-AWQ-4bit"
+  - model_name: "vllm/gemma-4-31B-it-AWQ-4bit"
     litellm_params:
-      model: "openai/Qwen/Qwen3.5-27B-GPTQ-Int4"
+      model: "openai/cyankiwi/gemma-4-31B-it-AWQ-4bit"
       api_base: "http://host.docker.internal:8191/v1"
       api_key: "vllm"
+    model_info:
+      context_window: 262144
+      aviary_default_model: true
+      aviary_defaults:
+        temperature: 1.0
+        top_p: 0.95
+        top_k: 64
+      aviary_active_context_window: 65536
+      aviary_capabilities:
+        - vision
+        - tools
+        - thinking
 
   # --- Bedrock ---
   - model_name: "bedrock/anthropic.claude-sonnet-4-5-20250929-v1:0"
     litellm_params:
       model: "bedrock/anthropic.claude-sonnet-4-5-20250929-v1:0"
       aws_region_name: "ap-northeast-2"
+    model_info:
+      context_window: 1000000
+      aviary_default_model: true
+      aviary_capabilities:
+        - vision
+        - tools
+        - thinking
 
 general_settings:
   master_key: "os.environ/LITELLM_MASTER_KEY"
@@ -37,3 +81,5 @@ litellm_settings:
   drop_params: true
   request_timeout: 120
   num_retries: 0
+  use_chat_completions_url_for_anthropic_messages: true
+  set_verbose: true

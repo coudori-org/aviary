@@ -83,7 +83,7 @@ check_health() {
 
 check_health "API"              "${API_URL}/api/health"
 check_health "Keycloak"         "${KEYCLOAK_URL}/realms/${REALM}/.well-known/openid-configuration"
-check_health "Inference Router"  "http://localhost:8090/health"
+check_health "LiteLLM Gateway"   "http://localhost:8090/health/liveliness"
 
 # ── 2. Keycloak Token ──────────────────────────────────
 header "2/6" "Authenticate as ${TEST_USER}"
@@ -118,7 +118,41 @@ else
 fi
 
 # ── 3. Create Test Agent ───────────────────────────────
-header "3/6" "Create test agent (${BACKEND}/default)"
+
+# Resolve default model for the backend from LiteLLM
+MODEL=$(curl -sf "${API_URL}/api/inference/${BACKEND}/models" \
+  -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+  | python3 -c "
+import sys, json
+models = json.load(sys.stdin).get('models', [])
+default = next((m for m in models if m.get('is_default')), models[0] if models else None)
+print(default['id'] if default else '')
+")
+
+if [ -z "$MODEL" ]; then
+  fail "No models available for backend: ${BACKEND}"
+  ERRORS=1
+  exit 1
+fi
+
+# Fetch model defaults (temperature, top_p, top_k, num_ctx)
+MODEL_DEFAULTS=$(curl -sf "${API_URL}/api/inference/${BACKEND}/model-info?model=${MODEL}" \
+  -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+  | python3 -c "
+import sys, json
+info = json.load(sys.stdin)
+d = info.get('defaults', {})
+cfg = {}
+if d.get('temperature') is not None: cfg['temperature'] = d['temperature']
+if d.get('top_p') is not None: cfg['top_p'] = d['top_p']
+if d.get('top_k') is not None: cfg['top_k'] = d['top_k']
+if d.get('num_ctx') is not None: cfg['num_ctx'] = d['num_ctx']
+# Flatten as JSON key-value pairs (without braces) for embedding
+parts = [f'\"{k}\": {json.dumps(v)}' for k, v in cfg.items()]
+print(', '.join(parts))
+" 2>/dev/null || echo "")
+
+header "3/6" "Create test agent (${BACKEND}/${MODEL})"
 
 SLUG="smoke-test-$(date +%s)"
 AGENT_PAYLOAD=$(cat <<EOF
@@ -129,7 +163,7 @@ AGENT_PAYLOAD=$(cat <<EOF
   "instruction": "You are a test assistant. Reply briefly to any message.",
   "model_config": {
     "backend": "${BACKEND}",
-    "model": "default"
+    "model": "${MODEL}"${MODEL_DEFAULTS:+, ${MODEL_DEFAULTS}}
   },
   "tools": [],
   "mcp_servers": [],

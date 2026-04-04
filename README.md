@@ -83,7 +83,7 @@ Aviary is an enterprise platform where users can create, configure, and use purp
 - **Namespace-per-Agent** — NetworkPolicy, ResourceQuota, and ServiceAccount scoped per agent
 - **Egress Proxy** — All outbound HTTP/HTTPS from agent Pods routed through a centralized proxy with per-agent allowlists (CIDR, exact domain, wildcard `*.example.com`); deny-by-default, policy changes take effect immediately without Pod restarts
 - **claude-agent-sdk Powered** — Full [Claude Code](https://docs.anthropic.com/en/docs/claude-code) harness via `ClaudeSDKClient` including tools, sub-agents, MCP servers, file I/O, and shell execution
-- **LiteLLM Gateway** — All LLM calls routed through [LiteLLM](https://github.com/BerriAI/litellm) OSS proxy; backend determined by model name prefix (`anthropic/`, `ollama/`, `hosted_vllm/`, `bedrock/`), natively compatible with Anthropic SDK
+- **LiteLLM Gateway** — All LLM calls routed through [LiteLLM](https://github.com/BerriAI/litellm) OSS proxy; backend determined by model name prefix (`anthropic/`, `ollama/`, `vllm/`, `bedrock/`), natively compatible with Anthropic SDK
 - **Multi-Backend Inference** — Claude API, Ollama, vLLM, AWS Bedrock; add new backends via config, no code or NetworkPolicy changes required
 - **Live Config Updates** — Agent config (instruction, tools) is passed from DB on every message; edits take effect immediately without Pod restarts
 - **OIDC Auth + Team Sync** — Keycloak (dev) / Okta (prod); IdP groups auto-sync to Aviary teams on login
@@ -252,7 +252,7 @@ API and admin tests covering health, agent CRUD, ACL (visibility, grants, permis
 ## Key Design Decisions
 
 ### LiteLLM Gateway
-Session Pods never call LLM backends directly. All inference goes through a [LiteLLM](https://github.com/BerriAI/litellm) OSS proxy that routes requests based on the model name prefix (e.g., `anthropic/claude-sonnet-4-6` → Claude API, `ollama/gemma4:26b` → Ollama, `hosted_vllm/...` → vLLM). LiteLLM natively supports the Anthropic Messages API (`/v1/messages`), so claude-agent-sdk works transparently without protocol translation. This centralizes API credentials, rate limiting, and observability. New backends are added via config file (`config/litellm/config.yaml`) without code changes.
+Session Pods never call LLM backends directly. All inference goes through a [LiteLLM](https://github.com/BerriAI/litellm) OSS proxy that routes requests based on the model name prefix (e.g., `anthropic/claude-sonnet-4-6` → Claude API, `ollama/gemma4:26b` → Ollama, `vllm/...` → vLLM). LiteLLM natively supports the Anthropic Messages API (`/v1/messages`), so claude-agent-sdk works transparently without protocol translation. This centralizes API credentials, rate limiting, and observability. New backends are added via config file (`config/litellm/config.yaml`) without code changes.
 
 ### Egress Proxy
 All outbound HTTP/HTTPS from agent Pods is routed through a centralized forward proxy via `HTTP_PROXY`/`HTTPS_PROXY` environment variables. The proxy identifies the source agent by resolving the pod's IP to its K8s namespace, then enforces per-agent egress policies. Supported rule types: CIDR ranges, exact domains, wildcard domains (`*.example.com`), and catch-all. Policies are deny-by-default and changes take effect immediately without Pod restarts.

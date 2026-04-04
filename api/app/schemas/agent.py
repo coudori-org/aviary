@@ -4,8 +4,8 @@ from pydantic import BaseModel, Field
 
 
 class ModelConfig(BaseModel):
-    backend: str = Field("claude", pattern="^(claude|ollama|vllm)$")
-    model: str = "default"
+    backend: str = Field(..., pattern="^(claude|ollama|vllm|bedrock)$")
+    model: str = Field(..., min_length=1)
     temperature: float | None = None
     top_p: float | None = None
     top_k: int | None = None

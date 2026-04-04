@@ -9,10 +9,10 @@
 #   ./scripts/quick-rebuild.sh k8s              # All K8s images
 #   ./scripts/quick-rebuild.sh compose          # Rebuild docker compose services
 #   ./scripts/quick-rebuild.sh full             # docker compose down -v + setup-dev.sh
-#   ./scripts/quick-rebuild.sh smoke            # Just run smoke test (no rebuild)
+#   ./scripts/quick-rebuild.sh smoke            # Just run smoke test
 #
-# Add --smoke to any command to run smoke test after rebuild:
-#   ./scripts/quick-rebuild.sh runtime --smoke
+# Add --smoke --backend <name> to run smoke test after rebuild:
+#   ./scripts/quick-rebuild.sh runtime --smoke --backend ollama
 # ─────────────────────────────────────────────────────────
 set -euo pipefail
 
@@ -40,13 +40,9 @@ BUILD_ARGS=()
 [ -n "${UV_INDEX_URL:-}" ]        && BUILD_ARGS+=(--build-arg "UV_INDEX_URL=$UV_INDEX_URL")
 [ -n "${NPM_CONFIG_REGISTRY:-}" ] && BUILD_ARGS+=(--build-arg "NPM_CONFIG_REGISTRY=$NPM_CONFIG_REGISTRY")
 
-NO_SMOKE=false
-
 for arg in "$@"; do
   if [ "$arg" = "--smoke" ]; then
     RUN_SMOKE=true
-  elif [ "$arg" = "--no-smoke" ]; then
-    NO_SMOKE=true
   elif [ "${prev_arg:-}" = "--backend" ]; then
     SMOKE_BACKEND="$arg"
   fi
@@ -119,7 +115,6 @@ case "$TARGET" in
     echo -e "${BOLD}Full rebuild (down -v + setup-dev.sh)...${NC}"
     docker compose down -v
     ./scripts/setup-dev.sh
-    [ "$NO_SMOKE" = false ] && RUN_SMOKE=true
     ;;
   smoke)
     RUN_SMOKE=true
@@ -139,8 +134,7 @@ case "$TARGET" in
     echo ""
     echo "Options:"
     echo "  --smoke              Run smoke test after rebuild (requires --backend)"
-    echo "  --no-smoke           Skip smoke test (for 'full' target)"
-    echo "  --backend <name>     Inference backend for smoke test (ollama|vllm, required)"
+    echo "  --backend <name>     Inference backend for smoke test (ollama|vllm)"
     exit 0
     ;;
 esac
