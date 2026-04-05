@@ -155,13 +155,20 @@ services:
     volumes:
       - ./config/litellm/config.yaml:/app/config.yaml
       - ./config/litellm/patches/fix_adapter_streaming.py:/usr/lib/python3.13/site-packages/aviary_fix_adapter_streaming.py
+      - ./config/litellm/patches/aviary_user_api_key.py:/usr/lib/python3.13/site-packages/aviary_user_api_key.py
       - ./config/litellm/patches/aviary_patches.pth:/usr/lib/python3.13/site-packages/aviary_patches.pth
     environment:
       LITELLM_MASTER_KEY: "sk-aviary-dev"
-      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
       AWS_ACCESS_KEY_ID: "${AWS_ACCESS_KEY_ID:-}"
       AWS_SECRET_ACCESS_KEY: "${AWS_SECRET_ACCESS_KEY:-}"
       AWS_REGION: "${AWS_REGION:-ap-northeast-2}"
+      VAULT_ADDR: "http://vault:8200"
+      VAULT_TOKEN: "dev-root-token"
+      OIDC_ISSUER: "http://localhost:8080/realms/aviary"
+      OIDC_INTERNAL_ISSUER: "http://keycloak:8080/realms/aviary"
+    depends_on:
+      vault:
+        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:4000/health/liveliness || exit 1"]
       interval: 10s

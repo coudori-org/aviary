@@ -218,8 +218,13 @@ export async function* processMessage(
   const env: Record<string, string> = {
     ANTHROPIC_BASE_URL: LITELLM_URL,
     ANTHROPIC_API_KEY: LITELLM_API_KEY,
+    // Propagate user JWT so LiteLLM hook can inject per-user Anthropic API key
+    ...(agentConfig.user_token
+      ? { ANTHROPIC_CUSTOM_HEADERS: `X-Aviary-User-Token: ${agentConfig.user_token}` }
+      : {}),
     SESSION_WORKSPACE: workspace,
     CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
+    CLAUDE_CODE_MAX_RETRIES: "2",
     ...(mc.max_output_tokens != null
       ? { CLAUDE_CODE_MAX_OUTPUT_TOKENS: String(mc.max_output_tokens) }
       : {}),

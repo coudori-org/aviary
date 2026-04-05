@@ -3,7 +3,7 @@ model_list:
   - model_name: "anthropic/claude-sonnet-4-6"
     litellm_params:
       model: "anthropic/claude-sonnet-4-6"
-      api_key: "os.environ/ANTHROPIC_API_KEY"
+      api_key: "sk-placeholder"
     model_info:
       max_input_tokens: 1015808
       max_output_tokens: 32768
@@ -18,7 +18,7 @@ model_list:
   - model_name: "anthropic/claude-opus-4-6"
     litellm_params:
       model: "anthropic/claude-opus-4-6"
-      api_key: "os.environ/ANTHROPIC_API_KEY"
+      api_key: "sk-placeholder"
     model_info:
       max_input_tokens: 1015808
       max_output_tokens: 32768
