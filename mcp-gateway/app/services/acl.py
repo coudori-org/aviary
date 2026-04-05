@@ -5,7 +5,7 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aviary_shared.db.models import McpToolAcl, TeamMember, User
+from aviary_shared.db.models import McpServer, McpToolAcl, TeamMember, User
 
 
 async def check_tool_access(
@@ -18,7 +18,8 @@ async def check_tool_access(
 
     Returns the permission level ('use' or 'view') if granted, None if denied.
 
-    Resolution order (default-deny):
+    Resolution order (default-deny, with platform-provided bypass):
+    0. Platform-provided server → full access ('use') for all authenticated users
     1. Platform admin → full access ('use')
     2. Direct user ACL on specific tool
     3. Direct user ACL on server (tool_id IS NULL)
@@ -26,6 +27,12 @@ async def check_tool_access(
     5. Team ACL on server (highest permission wins)
     6. Deny (return None)
     """
+    # 0. Platform-provided servers are accessible to all authenticated users
+    result = await db.execute(select(McpServer).where(McpServer.id == server_id))
+    server = result.scalar_one_or_none()
+    if server and server.is_platform_provided:
+        return "use"
+
     # Resolve internal user_id from external_id (OIDC sub)
     result = await db.execute(select(User).where(User.external_id == user_external_id))
     user = result.scalar_one_or_none()
@@ -105,13 +112,21 @@ async def get_accessible_servers(
     result = await db.execute(select(User).where(User.external_id == user_external_id))
     user = result.scalar_one_or_none()
     if user is None:
-        return []
+        # Even unauthenticated: platform-provided servers are always visible
+        result = await db.execute(
+            select(McpServer.id).where(McpServer.is_platform_provided.is_(True))
+        )
+        return list(result.scalars().all())
 
     if user.is_platform_admin:
-        from aviary_shared.db.models import McpServer
-
         result = await db.execute(select(McpServer.id))
         return list(result.scalars().all())
+
+    # Platform-provided servers are always accessible
+    result = await db.execute(
+        select(McpServer.id).where(McpServer.is_platform_provided.is_(True))
+    )
+    server_ids = set(result.scalars().all())
 
     # Direct user ACL
     result = await db.execute(

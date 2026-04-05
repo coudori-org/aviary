@@ -44,11 +44,17 @@ async def _accessible_server_ids(db: AsyncSession, user: User) -> set[uuid.UUID]
         result = await db.execute(select(McpServer.id))
         return set(result.scalars().all())
 
+    # Platform-provided servers are always accessible
+    result = await db.execute(
+        select(McpServer.id).where(McpServer.is_platform_provided.is_(True))
+    )
+    ids = set(result.scalars().all())
+
     # Direct user ACL
     result = await db.execute(
         select(McpToolAcl.server_id).where(McpToolAcl.user_id == user.id).distinct()
     )
-    ids = set(result.scalars().all())
+    ids.update(result.scalars().all())
 
     # Team ACL
     result = await db.execute(
@@ -69,6 +75,12 @@ async def _accessible_server_ids(db: AsyncSession, user: User) -> set[uuid.UUID]
 async def _check_tool_access(db: AsyncSession, user: User, server_id: uuid.UUID, tool_id: uuid.UUID | None = None) -> bool:
     """Check if user has 'use' permission for a tool or server."""
     if user.is_platform_admin:
+        return True
+
+    # Platform-provided servers are accessible to all users
+    result = await db.execute(select(McpServer).where(McpServer.id == server_id))
+    srv = result.scalar_one_or_none()
+    if srv and srv.is_platform_provided:
         return True
 
     # Direct user - specific tool

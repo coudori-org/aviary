@@ -272,6 +272,7 @@ class McpServer(Base):
     )
     connection_config: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default="{}")
     tags: Mapped[list] = mapped_column(JSONB, server_default="[]")
+    is_platform_provided: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="active", server_default="active")
     last_discovered_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=func.now())

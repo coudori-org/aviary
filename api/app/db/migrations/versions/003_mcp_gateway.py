@@ -26,6 +26,7 @@ def upgrade() -> None:
         sa.Column("transport_type", sa.String(20), server_default="streamable_http", nullable=False),
         sa.Column("connection_config", JSONB, server_default="{}", nullable=False),
         sa.Column("tags", JSONB, server_default="[]"),
+        sa.Column("is_platform_provided", sa.Boolean, server_default="false", nullable=False),
         sa.Column("status", sa.String(20), server_default="active", nullable=False),
         sa.Column("last_discovered_at", sa.TIMESTAMP(timezone=True), nullable=True),
         sa.Column("created_at", sa.TIMESTAMP(timezone=True), server_default=sa.text("now()")),
