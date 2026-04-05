@@ -9,10 +9,20 @@ export default function NewAgentPage() {
   const router = useRouter();
 
   const handleSubmit = async (data: any) => {
+    const { mcp_tool_ids, ...agentData } = data;
     const agent = await apiFetch<any>("/agents", {
       method: "POST",
-      body: JSON.stringify(data),
+      body: JSON.stringify(agentData),
     });
+
+    // Bind MCP tools if any were selected
+    if (mcp_tool_ids && mcp_tool_ids.length > 0) {
+      await apiFetch(`/mcp/agents/${agent.id}/tools`, {
+        method: "PUT",
+        body: JSON.stringify({ tool_ids: mcp_tool_ids }),
+      });
+    }
+
     router.push(`/agents/${agent.id}`);
   };
 

@@ -7,6 +7,8 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { apiFetch } from "@/lib/api";
+import { ToolSelector } from "./tool-selector";
+import type { McpToolInfo } from "@/types";
 
 interface AgentFormData {
   name: string;
@@ -19,6 +21,7 @@ interface AgentFormData {
     max_output_tokens: number;
   };
   tools: string[];
+  mcp_tool_ids: string[];
   visibility: string;
   category: string;
 }
@@ -40,6 +43,7 @@ const defaultData: AgentFormData = {
     max_output_tokens: 4000,
   },
   tools: [],
+  mcp_tool_ids: [],
   visibility: "private",
   category: "",
 };
@@ -70,6 +74,8 @@ export function AgentForm({ initialData, onSubmit, submitLabel }: AgentFormProps
   const [error, setError] = useState<string | null>(null);
   const [allModels, setAllModels] = useState<ModelOption[]>([]);
   const [modelsLoading, setModelsLoading] = useState(false);
+  const [toolSelectorOpen, setToolSelectorOpen] = useState(false);
+  const [boundToolNames, setBoundToolNames] = useState<Map<string, string>>(new Map());
 
   // Fetch all models once on mount
   useEffect(() => {
@@ -316,6 +322,57 @@ export function AgentForm({ initialData, onSubmit, submitLabel }: AgentFormProps
           })()}
 
         </div>
+      </section>
+
+      {/* Tools & Integrations */}
+      <section className="space-y-5">
+        <div className="mb-1">
+          <h2 className="text-sm font-semibold text-foreground">Tools & Integrations</h2>
+          <p className="text-xs text-muted-foreground">Connect external tools via MCP servers</p>
+        </div>
+
+        <div className="rounded-xl border border-border/60 bg-card p-5 space-y-4">
+          {data.mcp_tool_ids.length > 0 ? (
+            <div className="flex flex-wrap gap-2">
+              {data.mcp_tool_ids.map((id) => (
+                <span
+                  key={id}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary ring-1 ring-inset ring-primary/20"
+                >
+                  {boundToolNames.get(id) || id.slice(0, 8)}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const next = data.mcp_tool_ids.filter((t) => t !== id);
+                      updateField("mcp_tool_ids", next);
+                    }}
+                    className="ml-0.5 text-primary/60 hover:text-primary"
+                  >
+                    &times;
+                  </button>
+                </span>
+              ))}
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground">No tools connected yet.</p>
+          )}
+
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setToolSelectorOpen(true)}
+          >
+            Browse Tools
+          </Button>
+        </div>
+
+        <ToolSelector
+          selectedToolIds={data.mcp_tool_ids}
+          onChange={(ids) => updateField("mcp_tool_ids", ids)}
+          open={toolSelectorOpen}
+          onClose={() => setToolSelectorOpen(false)}
+        />
       </section>
 
       {/* Access & category */}
