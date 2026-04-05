@@ -34,8 +34,8 @@
     </div>
   </div>
 
-  <!-- MCP Credentials (Vault) -->
-  <h3 style="font-size: 16px; font-weight: 600; margin-bottom: 12px;">MCP Credentials (Vault)</h3>
+  <!-- Credentials (Vault) -->
+  <h3 style="font-size: 16px; font-weight: 600; margin-bottom: 12px;">Credentials (Vault)</h3>
 
   <div id="credentials-container" style="margin-bottom: 16px;">
     {% if credentials %}
@@ -51,7 +51,17 @@
         {% for cred in credentials %}
         <tr id="cred-row-{{ cred.key }}">
           <td class="mono">{{ cred.key }}</td>
-          <td class="mono text-sm">{{ cred.value }}</td>
+          <td class="mono text-sm">
+            <span style="display: inline-flex; align-items: center; gap: 6px;">
+              <span class="cred-masked" data-raw="{{ cred.value }}">{{ '•' * 16 }}</span>
+              <button type="button" class="btn-icon" title="Show/Hide" onclick="toggleReveal(this)">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                  <circle cx="12" cy="12" r="3"/>
+                </svg>
+              </button>
+            </span>
+          </td>
           <td>
             <button class="btn btn-sm" onclick="editKey('{{ cred.key }}')">Edit</button>
             <button class="btn btn-sm" style="color: red;" onclick="deleteKey('{{ cred.key }}')">Delete</button>
@@ -61,7 +71,7 @@
       </tbody>
     </table>
     {% else %}
-    <div class="empty" id="empty-msg">No credentials stored. Add one below to enable MCP tool authentication.</div>
+    <div class="empty" id="empty-msg">No credentials stored. Add one below to enable tool and API key authentication.</div>
     {% endif %}
   </div>
 
@@ -71,11 +81,11 @@
     <div style="display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap;">
       <div style="flex: 1; min-width: 150px;">
         <label class="text-sm" for="cred-key">Key</label><br>
-        <input type="text" id="cred-key" placeholder="e.g. github" style="width: 100%; padding: 6px; font-family: monospace;">
+        <input type="text" id="cred-key" placeholder="e.g. github, anthropic-api-key" style="width: 100%; padding: 6px; font-family: monospace;">
       </div>
       <div style="flex: 2; min-width: 250px;">
         <label class="text-sm" for="cred-value">Token / API Key</label><br>
-        <input type="text" id="cred-value" placeholder="ghp_xxxx or API key" style="width: 100%; padding: 6px; font-family: monospace;">
+        <input type="password" id="cred-value" placeholder="ghp_xxxx or sk-ant-..." style="width: 100%; padding: 6px; font-family: monospace;">
       </div>
       <button class="btn btn-sm" style="background: var(--accent); color: white;" onclick="saveKey()">Save</button>
       <button class="btn btn-sm" id="cancel-edit-btn" style="display:none;" onclick="cancelEdit()">Cancel</button>
@@ -88,6 +98,19 @@
 <script>
 const userId = '{{ user.id }}';
 let editingKey = null;
+
+function toggleReveal(btn) {
+  const span = btn.parentElement.querySelector('.cred-masked');
+  const raw = span.dataset.raw;
+  const svg = btn.querySelector('svg');
+  if (span.textContent === raw) {
+    span.textContent = '••••••••••••••••';
+    svg.innerHTML = '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>';
+  } else {
+    span.textContent = raw;
+    svg.innerHTML = '<path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/>';
+  }
+}
 
 async function saveKey() {
   const key = document.getElementById('cred-key').value.trim();

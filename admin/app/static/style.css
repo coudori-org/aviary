@@ -145,6 +145,8 @@ select { cursor: pointer; }
 .btn-danger { background: transparent; border-color: var(--danger); color: var(--danger); }
 .btn-danger:hover { background: rgba(239, 68, 68, 0.1); }
 .btn-sm { padding: 4px 10px; font-size: 12px; }
+.btn-icon { background: none; border: none; padding: 2px; cursor: pointer; color: var(--text-dim); display: inline-flex; align-items: center; }
+.btn-icon:hover { color: var(--text-secondary); }
 .btn-group { display: flex; gap: 8px; }
 
 /* Egress rules */
