@@ -112,7 +112,12 @@ case "$TARGET" in
     docker compose up -d --build
     ;;
   full)
-    echo -e "${BOLD}Full rebuild (down -v + setup-dev.sh)...${NC}"
+    echo -e "${BOLD}Full rebuild (DB preserved)...${NC}"
+    docker compose down
+    ./scripts/setup-dev.sh
+    ;;
+  full-clean)
+    echo -e "${BOLD}Full clean rebuild (DB + volumes wiped)...${NC}"
     docker compose down -v
     ./scripts/setup-dev.sh
     ;;
@@ -129,7 +134,8 @@ case "$TARGET" in
     echo "  secret-provider    Rebuild secret-provider + load to K8s + restart"
     echo "  k8s                All K8s images (runtime + agent-supervisor + egress + secret-provider)"
     echo "  compose            Rebuild docker compose services (hot-reload)"
-    echo "  full               Complete teardown + setup-dev.sh"
+    echo "  full               Full rebuild, DB preserved"
+    echo "  full-clean         Full rebuild, DB + volumes wiped"
     echo "  smoke              Just run smoke test"
     echo ""
     echo "Options:"
