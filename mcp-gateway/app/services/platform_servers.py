@@ -1,87 +1,53 @@
 """Auto-register platform-provided MCP servers on startup.
 
 Reads from a static registry and ensures each server exists in the DB
-with is_platform_provided=True. Triggers tool discovery for new servers.
+with is_platform_provided=True. Triggers tool discovery via MCP SDK client.
 """
 
 import logging
 from datetime import datetime, timezone
 
-import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from aviary_shared.db.models import McpServer, McpTool
+from app.mcp.connection_pool import pool
 
 logger = logging.getLogger(__name__)
 
 # Platform-provided MCP servers — auto-registered on gateway startup.
-# These are internal Docker Compose services, not user-registered.
 PLATFORM_SERVERS = [
     {
         "name": "github",
         "description": "Git and GitHub operations — clone, pull, push, branches, PRs, issues",
         "transport_type": "streamable_http",
-        "connection_config": {"url": "http://mcp-github:8001/mcp"},
+        "connection_config": {"url": "http://mcp-github:8000/mcp/"},
         "tags": ["git", "github", "vcs"],
     },
     {
         "name": "jira",
         "description": "Jira project management — issues, sprints, transitions, search",
         "transport_type": "streamable_http",
-        "connection_config": {"url": "http://mcp-jira:8002/mcp"},
+        "connection_config": {"url": "http://mcp-jira:8000/mcp/"},
         "tags": ["jira", "project-management", "tickets"],
     },
     {
         "name": "confluence",
         "description": "Confluence wiki — pages, spaces, search, content management",
         "transport_type": "streamable_http",
-        "connection_config": {"url": "http://mcp-confluence:8003/mcp"},
+        "connection_config": {"url": "http://mcp-confluence:8000/mcp/"},
         "tags": ["confluence", "wiki", "documentation"],
     },
 ]
 
 
 async def _discover_tools_for_server(db: AsyncSession, server: McpServer) -> int:
-    """Connect to a backend MCP server and populate tools in DB."""
-    url = server.connection_config.get("url")
-    if not url:
-        return 0
-
-    headers = server.connection_config.get("headers", {})
-
+    """Connect to a backend MCP server via MCP SDK and populate tools in DB."""
     try:
-        async with httpx.AsyncClient() as client:
-            # Initialize
-            resp = await client.post(
-                url,
-                json={
-                    "jsonrpc": "2.0", "method": "initialize", "id": 1,
-                    "params": {
-                        "protocolVersion": "2025-03-26",
-                        "capabilities": {},
-                        "clientInfo": {"name": "aviary-mcp-gateway", "version": "0.1.0"},
-                    },
-                },
-                headers={**headers, "Content-Type": "application/json"},
-                timeout=10,
-            )
-            resp.raise_for_status()
-
-            # List tools
-            resp = await client.post(
-                url,
-                json={"jsonrpc": "2.0", "method": "tools/list", "id": 2, "params": {}},
-                headers={**headers, "Content-Type": "application/json"},
-                timeout=10,
-            )
-            resp.raise_for_status()
-            data = resp.json()
+        raw_tools = await pool.list_tools(server)
     except Exception:
         logger.warning("Failed to discover tools from %s — will retry on next startup", server.name)
         return 0
-
-    raw_tools = data.get("result", {}).get("tools", [])
 
     # Upsert tools
     result = await db.execute(
@@ -135,14 +101,12 @@ async def register_platform_servers(db: AsyncSession) -> None:
             await db.flush()
             logger.info("Registered platform MCP server: %s", spec["name"])
         else:
-            # Update connection config and flags (in case they changed)
             server.connection_config = spec["connection_config"]
             server.description = spec["description"]
             server.tags = spec["tags"]
             server.is_platform_provided = True
             await db.flush()
 
-        # Discover tools
         count = await _discover_tools_for_server(db, server)
         if count > 0:
             logger.info("Discovered %d tools for %s", count, spec["name"])

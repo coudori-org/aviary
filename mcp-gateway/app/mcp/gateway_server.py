@@ -1,12 +1,22 @@
-"""MCP Gateway Server — dynamic tools/list and tools/call with ACL filtering.
+"""MCP Gateway Server — dynamic tools/list and tools/call with ACL filtering
+and transparent credential injection from Vault.
 
 Uses the low-level mcp.server.Server API (not FastMCP decorators) to handle
 tool requests dynamically based on agent bindings and user ACL.
+
+Credential injection:
+  config/credential-tools.yaml maps {qualified_tool_name}.args.{param} → vault_key.
+  - tools/list: injected params are stripped from inputSchema (invisible to Claude)
+  - tools/call: injected params are fetched from Vault and merged into arguments
+    before proxying to the backend MCP server.
 """
 
+import copy
 import logging
+import os
 import uuid
 
+import yaml
 from mcp.server import Server
 from mcp.types import (
     CallToolResult,
@@ -20,11 +30,73 @@ from aviary_shared.db.models import McpAgentToolBinding, McpServer, McpTool
 from app.db.session import async_session_factory
 from app.mcp.connection_pool import pool
 from app.services.acl import check_tool_access
+from app.services.vault_client import get_mcp_credential
 
 logger = logging.getLogger(__name__)
 
 TOOL_NAME_SEPARATOR = "__"
 
+# ── Load secret injection config ─────────────────────────────
+# Structure:
+#   servers:
+#     github:
+#       args: { github_token: { vault_key: github } }
+#       tools:                                        # optional per-tool override
+#         some_tool: { args: { ... } }
+_CONFIG_PATH = os.path.join(
+    os.path.dirname(__file__), "..", "..", "config", "secret-injection.yaml"
+)
+_INJECTION_CONFIG: dict[str, dict] = {}
+try:
+    with open(_CONFIG_PATH) as f:
+        _raw = yaml.safe_load(f)
+    _INJECTION_CONFIG = _raw.get("servers", {}) if _raw else {}
+    logger.info("Loaded secret injection config for %d servers", len(_INJECTION_CONFIG))
+except FileNotFoundError:
+    logger.warning("secret-injection.yaml not found at %s", _CONFIG_PATH)
+
+
+def _get_injected_args(server_name: str, tool_name: str) -> dict[str, dict]:
+    """Return {arg_name: {vault_key: ...}} for a tool.
+
+    Merges server-level args with per-tool overrides (tool wins).
+    """
+    server_cfg = _INJECTION_CONFIG.get(server_name, {})
+    if not server_cfg:
+        return {}
+
+    # Start with server-level args
+    result = dict(server_cfg.get("args", {}))
+
+    # Merge per-tool overrides
+    tool_cfg = server_cfg.get("tools", {}).get(tool_name, {})
+    if tool_cfg:
+        result.update(tool_cfg.get("args", {}))
+
+    return result
+
+
+def _strip_injected_from_schema(schema: dict, injected_args: dict[str, dict]) -> dict:
+    """Remove injected argument names from a JSON Schema so Claude never sees them."""
+    if not injected_args:
+        return schema
+    schema = copy.deepcopy(schema)
+    props = schema.get("properties", {})
+    required = schema.get("required", [])
+    for arg_name in injected_args:
+        props.pop(arg_name, None)
+        if arg_name in required:
+            required = [r for r in required if r != arg_name]
+    if props:
+        schema["properties"] = props
+    if required:
+        schema["required"] = required
+    elif "required" in schema:
+        del schema["required"]
+    return schema
+
+
+# ── Server factory ───────────────────────────────────────────
 
 def create_gateway_server() -> Server:
     """Create and configure the MCP gateway server instance."""
@@ -34,11 +106,9 @@ def create_gateway_server() -> Server:
     async def list_tools() -> list[Tool]:
         """Return tools bound to the agent, filtered by user ACL.
 
-        The agent_id and user_external_id are injected into the request context
-        by the Streamable HTTP handler (see proxy router).
+        Injected arguments (from credential-tools.yaml) are stripped from
+        inputSchema so Claude doesn't know about them.
         """
-        # These are set by the ASGI middleware/handler before the MCP session starts.
-        # For now, we read them from server._request_context which is set per-request.
         ctx = getattr(server, "_request_context", {})
         agent_id = ctx.get("agent_id")
         user_external_id = ctx.get("user_external_id")
@@ -51,7 +121,6 @@ def create_gateway_server() -> Server:
         tools: list[Tool] = []
 
         async with async_session_factory() as db:
-            # Fetch all tool bindings for this agent, with tool and server eagerly loaded
             result = await db.execute(
                 select(McpAgentToolBinding)
                 .where(McpAgentToolBinding.agent_id == agent_uuid)
@@ -68,7 +137,6 @@ def create_gateway_server() -> Server:
                 if srv.status != "active":
                     continue
 
-                # ACL check
                 perm = await check_tool_access(
                     db, user_external_id, srv.id, tool.id
                 )
@@ -76,19 +144,25 @@ def create_gateway_server() -> Server:
                     continue
 
                 qualified_name = f"{srv.name}{TOOL_NAME_SEPARATOR}{tool.name}"
-                tools.append(
-                    Tool(
-                        name=qualified_name,
-                        description=tool.description or "",
-                        inputSchema=tool.input_schema or {},
-                    )
-                )
+
+                # Strip vault-injected args from schema
+                injected = _get_injected_args(srv.name, tool.name)
+                schema = _strip_injected_from_schema(tool.input_schema or {}, injected)
+
+                tools.append(Tool(
+                    name=qualified_name,
+                    description=tool.description or "",
+                    inputSchema=schema,
+                ))
 
         return tools
 
     @server.call_tool()
     async def call_tool(name: str, arguments: dict | None) -> list[TextContent]:
-        """Route a tool call to the correct backend MCP server."""
+        """Route a tool call to the correct backend MCP server.
+
+        Vault-managed arguments are fetched and injected before proxying.
+        """
         ctx = getattr(server, "_request_context", {})
         agent_id = ctx.get("agent_id")
         user_external_id = ctx.get("user_external_id")
@@ -96,14 +170,12 @@ def create_gateway_server() -> Server:
         if not agent_id or not user_external_id:
             return [TextContent(type="text", text="Error: missing authentication context")]
 
-        # Parse composite name: "github__create_issue" → server="github", tool="create_issue"
         if TOOL_NAME_SEPARATOR not in name:
             return [TextContent(type="text", text=f"Error: invalid tool name format: {name}")]
 
         server_name, tool_name = name.split(TOOL_NAME_SEPARATOR, 1)
 
         async with async_session_factory() as db:
-            # Look up the server and tool
             result = await db.execute(
                 select(McpServer).where(McpServer.name == server_name)
             )
@@ -124,7 +196,6 @@ def create_gateway_server() -> Server:
             if mcp_tool is None:
                 return [TextContent(type="text", text=f"Error: unknown tool: {tool_name}")]
 
-            # Verify binding exists
             agent_uuid = uuid.UUID(agent_id)
             result = await db.execute(
                 select(McpAgentToolBinding).where(
@@ -135,19 +206,31 @@ def create_gateway_server() -> Server:
             if result.scalar_one_or_none() is None:
                 return [TextContent(type="text", text=f"Error: tool {name} not bound to agent")]
 
-            # ACL check
             perm = await check_tool_access(
                 db, user_external_id, mcp_server.id, mcp_tool.id
             )
             if perm != "use":
                 return [TextContent(type="text", text=f"Error: permission denied for tool {name}")]
 
-        # Forward to backend MCP server (user token NOT forwarded)
+        # ── Inject vault credentials into arguments ──
+        final_args = dict(arguments or {})
+        injected = _get_injected_args(server_name, tool_name)
+        for arg_name, mapping in injected.items():
+            vault_key = mapping["vault_key"]
+            token = await get_mcp_credential(user_external_id, vault_key)
+            if not token:
+                return [TextContent(
+                    type="text",
+                    text=f"Error: no '{vault_key}' credential found for your account. "
+                         f"Ask your admin to configure it.",
+                )]
+            final_args[arg_name] = token
+
+        # ── Forward to backend MCP server ──
         try:
             call_result: CallToolResult = await pool.call_tool(
-                mcp_server, tool_name, arguments or {}
+                mcp_server, tool_name, final_args,
             )
-            # Convert CallToolResult content to TextContent list
             contents = []
             for item in call_result.content:
                 if hasattr(item, "text"):

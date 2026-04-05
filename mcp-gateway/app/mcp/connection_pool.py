@@ -1,7 +1,6 @@
 """Connection pool for backend MCP servers."""
 
 import logging
-import uuid
 from contextlib import asynccontextmanager
 from collections.abc import AsyncGenerator
 
@@ -28,9 +27,10 @@ class McpConnectionPool:
         transport = server.transport_type
         config = server.connection_config
 
+        headers = config.get("headers", {})
+
         if transport == "streamable_http":
             url = config["url"]
-            headers = config.get("headers", {})
             async with streamablehttp_client(url=url, headers=headers) as (
                 read_stream,
                 write_stream,
@@ -42,7 +42,6 @@ class McpConnectionPool:
 
         elif transport == "sse":
             url = config["url"]
-            headers = config.get("headers", {})
             async with sse_client(url=url, headers=headers) as (
                 read_stream,
                 write_stream,
@@ -72,7 +71,10 @@ class McpConnectionPool:
             raise
 
     async def call_tool(
-        self, server: McpServer, tool_name: str, arguments: dict
+        self,
+        server: McpServer,
+        tool_name: str,
+        arguments: dict,
     ) -> CallToolResult:
         """Forward a tool call to a backend MCP server."""
         try:

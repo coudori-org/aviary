@@ -11,6 +11,10 @@ class Settings(BaseSettings):
     oidc_client_id: str = "aviary-web"
     oidc_audience: str | None = None
 
+    # Vault
+    vault_addr: str = "http://vault:8200"
+    vault_token: str = "dev-root-token"
+
     # Server
     mcp_gateway_port: int = 8100
 
