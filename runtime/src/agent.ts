@@ -70,6 +70,7 @@ interface AgentConfig {
   tools?: string[];
   policy?: Record<string, unknown>;
   mcp_servers?: Record<string, unknown>;
+  user_token?: string;
 }
 
 interface ModelConfig {
@@ -97,6 +98,32 @@ export function loadAgentConfig(): AgentConfig {
   }
 
   return config;
+}
+
+const MCP_GATEWAY_URL = process.env.MCP_GATEWAY_URL;
+
+function buildMcpServers(agentConfig: AgentConfig): Record<string, any> | undefined {
+  const servers: Record<string, any> = {};
+
+  // Legacy stdio servers from ConfigMap / API
+  if (agentConfig.mcp_servers) {
+    Object.assign(servers, agentConfig.mcp_servers);
+  }
+
+  // MCP Gateway — single HTTP endpoint for all platform-managed tools.
+  // URL comes from K8s env var; auth token comes from API per-request.
+  if (MCP_GATEWAY_URL && agentConfig.user_token) {
+    const agentId = process.env.AGENT_ID || "";
+    servers["aviary-gateway"] = {
+      type: "http",
+      url: `${MCP_GATEWAY_URL}/mcp/v1/${agentId}`,
+      headers: {
+        Authorization: `Bearer ${agentConfig.user_token}`,
+      },
+    };
+  }
+
+  return Object.keys(servers).length > 0 ? servers : undefined;
 }
 
 function hasSessionHistory(workspace: string, sessionId: string): boolean {
@@ -210,7 +237,7 @@ export async function* processMessage(
     permissionMode: "bypassPermissions" as const,
     allowedTools: agentConfig.tools,
     disallowedTools: ["WebSearch"],
-    mcpServers: agentConfig.mcp_servers as Record<string, any> | undefined,
+    mcpServers: buildMcpServers(agentConfig),
     env,
     // TS SDK doesn't expose sessionId as an option, but CLI supports --session-id.
     // Use extraArgs to inject it on first message, resume on subsequent messages.

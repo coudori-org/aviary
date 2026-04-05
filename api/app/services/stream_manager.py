@@ -16,7 +16,6 @@ import uuid
 import httpx
 from sqlalchemy import select
 
-from app.config import settings
 from app.db.models import SessionParticipant
 from app.db.session import async_session_factory
 from app.services import agent_supervisor, redis_service, session_service
@@ -30,21 +29,17 @@ _active_streams: dict[str, asyncio.Task] = {}
 def _build_mcp_config(
     agent_id: str, user_token: str, legacy_mcp_servers: list
 ) -> dict:
-    """Build MCP servers config with the gateway entry + legacy stdio servers."""
-    config = {}
+    """Build MCP servers config with legacy stdio servers + gateway auth token.
+
+    The MCP Gateway URL is NOT included here — the runtime constructs it
+    from its own MCP_GATEWAY_URL env var (K8s service DNS). The API server
+    only passes the user token so the runtime can authenticate.
+    """
+    config: dict = {}
 
     # Legacy stdio servers (backward compatibility)
     for srv in legacy_mcp_servers:
         config[srv["name"]] = {"command": srv["command"], "args": srv.get("args", [])}
-
-    # MCP Gateway — inject user's OIDC JWT for authentication
-    config["aviary-gateway"] = {
-        "type": "http",
-        "url": f"{settings.mcp_gateway_url}/mcp/v1/{agent_id}",
-        "headers": {
-            "Authorization": f"Bearer {user_token}",
-        },
-    }
 
     return config
 
@@ -206,6 +201,7 @@ async def _run_stream(
                                 agent_id, user_token, agent_mcp_servers
                             ),
                             "policy": agent_policy,
+                            "user_token": user_token,
                         },
                     },
                     timeout=300,
