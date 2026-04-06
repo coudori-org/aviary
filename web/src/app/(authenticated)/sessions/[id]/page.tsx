@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { marked } from "marked";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/components/providers/auth-provider";
@@ -280,6 +281,130 @@ export default function ChatPage() {
     wsRef.current.send(JSON.stringify({ type: "cancel" }));
   }, []);
 
+  const handleCapture = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+
+    // Open a new window with just the chat content and trigger print (Save as PDF)
+    const win = window.open("", "_blank");
+    if (!win) return;
+
+    // Collect all stylesheets from the current page
+    const styles = Array.from(document.querySelectorAll('style, link[rel="stylesheet"]'))
+      .map((node) => node.outerHTML)
+      .join("\n");
+
+    win.document.write(`<!DOCTYPE html><html><head>${styles}
+      <style>
+        body { background: #09090b; margin: 0; padding: 24px; }
+        @media print {
+          body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+        }
+      </style>
+    </head><body>${el.innerHTML}</body></html>`);
+    win.document.close();
+
+    // Let styles settle, then trigger print
+    setTimeout(() => { win.print(); }, 500);
+  }, []);
+
+  const handleExportText = useCallback(() => {
+    if (messages.length === 0) return;
+
+    type Block = Record<string, unknown>;
+
+    function renderToolTree(tools: Block[], indent: number): string {
+      return tools.map((t) => {
+        const parts: string[] = [];
+        const name = t.name ?? "unknown";
+        const err = t.is_error ? " [ERROR]" : "";
+        parts.push(`<div class="tool-block" style="margin-left:${indent * 12}px">`);
+        parts.push(`<strong>Tool: ${name}</strong>${err}`);
+        const input = t.input as Record<string, unknown> | undefined;
+        if (input && Object.keys(input).length > 0) {
+          parts.push(`<pre>${JSON.stringify(input, null, 2)}</pre>`);
+        }
+        if (t.result != null) {
+          const result = String(t.result);
+          const short = result.length > 2000 ? result.slice(0, 2000) + "\n..." : result;
+          parts.push(`<pre>${short.replace(/</g, "&lt;")}</pre>`);
+        }
+        const children = t.children as Block[] | undefined;
+        if (children && children.length > 0) {
+          parts.push(renderToolTree(children, indent + 1));
+        }
+        parts.push("</div>");
+        return parts.join("\n");
+      }).join("\n");
+    }
+
+    function renderBlocks(blocks: Block[]): string {
+      // Build tree from flat blocks (same logic as message-bubble)
+      const toolMap = new Map<string, Block & { children: Block[] }>();
+      const roots: Block[] = [];
+      for (const b of blocks) {
+        if (b.type === "tool_call") {
+          const node = { ...b, children: [] as Block[] };
+          toolMap.set(String(b.tool_use_id ?? b.id ?? ""), node);
+          if (b.parent_tool_use_id) {
+            const parent = toolMap.get(String(b.parent_tool_use_id));
+            if (parent) { parent.children.push(node); continue; }
+          }
+          roots.push(node);
+        } else {
+          roots.push(b);
+        }
+      }
+
+      return roots.map((b) => {
+        if (b.type === "thinking") {
+          const text = String(b.content ?? "").slice(0, 300);
+          const ellipsis = String(b.content ?? "").length > 300 ? "..." : "";
+          return `<div class="thinking">Thinking: ${text}${ellipsis}</div>`;
+        }
+        if (b.type === "tool_call") return renderToolTree([b], 0);
+        return String(b.content ?? "");
+      }).join("\n\n");
+    }
+
+    const lines = messages.map((msg) => {
+      const role = msg.sender_type === "user" ? "User" : "Agent";
+      const header = `### ${role}\n`;
+      const blocks = msg.metadata?.blocks as Block[] | undefined;
+      const body = blocks && blocks.length > 0 ? renderBlocks(blocks) : msg.content;
+      return header + "\n" + body;
+    }).join("\n\n---\n\n");
+
+    const title = session?.title || "Chat Export";
+    const md = `# ${title}\n\n${lines}`;
+
+    const win = window.open("", "_blank");
+    if (!win) return;
+
+    win.document.write(`<!DOCTYPE html><html><head>
+      <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; max-width: 800px; margin: 40px auto; padding: 0 20px; line-height: 1.5; color: #222; font-size: 12px; }
+        h1 { border-bottom: 2px solid #eee; padding-bottom: 6px; font-size: 18px; }
+        h3 { margin-bottom: 2px; font-size: 13px; }
+        hr { border: none; border-top: 1px solid #ddd; margin: 16px 0; }
+        p { margin: 4px 0; }
+        code { background: #f4f4f4; padding: 1px 3px; border-radius: 3px; font-size: 0.85em; }
+        pre { background: #f4f4f4; padding: 8px; border-radius: 4px; font-size: 10px; line-height: 1.4; white-space: pre-wrap; word-break: break-all; }
+        strong { font-weight: 600; }
+        .thinking { background: #f9f9f0; border-left: 3px solid #d4c87a; padding: 4px 8px; margin: 4px 0; font-size: 10px; color: #666; line-height: 1.4; white-space: pre-wrap; }
+        .tool-block { font-size: 10px; color: #555; margin: 2px 0; }
+        .tool-block pre { font-size: 9px; margin: 2px 0; padding: 4px 6px; }
+        @media print {
+          body { margin: 10px; }
+        }
+      </style>
+    </head><body></body></html>`);
+    win.document.close();
+
+    win.document.body.innerHTML = marked.parse(md) as string;
+    setTimeout(() => { win.print(); }, 500);
+  }, [messages, session]);
+
   if (loading) {
     return (
       <div className="flex h-full items-center justify-center">
@@ -350,9 +475,27 @@ export default function ChatPage() {
               </button>
             )}
           </div>
-          <div className="flex items-center gap-2">
-            <span className={`h-2 w-2 rounded-full transition-colors duration-300 ${statusStyle.dot}`} />
-            <span className={`text-xs font-medium transition-colors duration-300 ${statusStyle.text}`}>{STATUS_LABELS[displayStatus]}</span>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={handleCapture}
+              disabled={messages.length === 0}
+              className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors disabled:opacity-30 disabled:pointer-events-none"
+              title="Print chat"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+            </button>
+            <button
+              onClick={handleExportText}
+              disabled={messages.length === 0}
+              className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors disabled:opacity-30 disabled:pointer-events-none"
+              title="Export chat as text"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+            </button>
+            <div className="flex items-center gap-2">
+              <span className={`h-2 w-2 rounded-full transition-colors duration-300 ${statusStyle.dot}`} />
+              <span className={`text-xs font-medium transition-colors duration-300 ${statusStyle.text}`}>{STATUS_LABELS[displayStatus]}</span>
+            </div>
           </div>
         </div>
       </header>

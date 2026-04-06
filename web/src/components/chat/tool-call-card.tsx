@@ -17,7 +17,13 @@ function inputSummary(name: string, input: Record<string, unknown>): string {
     return String(input.description ?? input.file_path ?? input.path ?? "").replace(/^.*\//, "");
   }
   if (name === "Bash") return String(input.description ?? input.command ?? "").slice(0, 60);
-  if (name === "Grep" || name === "Glob") return String(input.description ?? input.pattern ?? "").slice(0, 60);
+  if (name === "Grep") {
+    if (input.description) return String(input.description).slice(0, 60);
+    const target = input.glob || input.path;
+    const parts = [input.pattern && `/${input.pattern}/`, target && `in ${target}`].filter(Boolean);
+    return parts.join(" ").slice(0, 60);
+  }
+  if (name === "Glob") return String(input.description ?? input.pattern ?? "").slice(0, 60);
   if (name === "WebFetch") return String(input.description ?? input.url ?? "").slice(0, 60);
   if (name === "Agent") return String(input.description ?? "").slice(0, 60);
   if (name === "TodoWrite") {
