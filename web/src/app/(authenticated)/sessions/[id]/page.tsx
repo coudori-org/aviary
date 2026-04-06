@@ -124,6 +124,15 @@ export default function ChatPage() {
           case "status":
             setConnStatus(msg.status);
             setStatusMessage(msg.message || null);
+            if (msg.status === "disconnected") {
+              // Connection lost — discard in-flight streaming state and reload
+              // messages from DB so any partially/fully saved response appears.
+              resetBlocks();
+              setIsStreaming(false);
+              apiFetch<SessionDetail>(`/sessions/${params.id}`)
+                .then((data) => { if (!cancelled) setMessages(data.messages); })
+                .catch(() => {});
+            }
             break;
           case "user_message":
             setMessages((prev) => [...prev, {
@@ -145,7 +154,7 @@ export default function ChatPage() {
             const savedBlocks = getBlocksMeta();
             const metadata: Record<string, unknown> = savedBlocks.length > 0 ? { blocks: savedBlocks } : {};
             resetBlocks();
-            if (finalContent) {
+            if (finalContent || savedBlocks.length > 0) {
               setMessages((msgs) => {
                 if (msgs.some((m) => m.id === msg.messageId)) return msgs;
                 return [...msgs, {
