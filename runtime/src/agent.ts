@@ -237,7 +237,7 @@ export async function* processMessage(
   const options = {
     model: resolvedModel,
     systemPrompt: agentConfig.instruction,
-    cwd: workspace,
+    cwd: "/home/usr",
     pathToClaudeCodeExecutable: CLAUDE_CLI_PATH,
     permissionMode: "bypassPermissions" as const,
     allowedTools: agentConfig.tools,

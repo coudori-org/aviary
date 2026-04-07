@@ -49,6 +49,10 @@ RUN CLAUDE_BIN=$(which claude-real) && \
     cp /app/scripts/claude-sandbox.sh "$(dirname "$CLAUDE_BIN")/claude" && \
     chmod +x "$(dirname "$CLAUDE_BIN")/claude"
 
+# Create /home/usr mount point for bwrap sandbox.
+# bwrap bind-mounts the session workspace here so HOME=/home/usr inside the sandbox.
+RUN mkdir -p /home/usr
+
 # Use built-in non-root `node` user (UID 1000)
 # Claude Code CLI refuses --dangerously-skip-permissions as root
 RUN chown -R node:node /app

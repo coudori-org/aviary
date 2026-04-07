@@ -94,7 +94,13 @@ Uses the `query()` function from `@anthropic-ai/claude-agent-sdk` (TypeScript). 
 Each runtime Pod runs a `SessionManager` that tracks active sessions, enforces concurrency limits (`MAX_CONCURRENT_SESSIONS` env var, default 10), and serializes messages per-session. The readiness probe returns 503 when at capacity, preventing new session routing.
 
 ### Session Isolation (bubblewrap)
-The `claude` binary in PATH is a wrapper script (`scripts/claude-sandbox.sh`). The real binary is renamed to `claude-real` at build time (see Dockerfile). SDK must use `pathToClaudeCodeExecutable: "/usr/local/bin/claude"` to bypass the bundled binary and use the wrapper. (node:22-slim puts npm global binaries in `/usr/local/bin/`, unlike the old python:3.12-slim + nodesource setup which used `/usr/bin/`.) When the SDK invokes `claude`, the wrapper reads `SESSION_WORKSPACE` from env (set per-session in `src/agent.ts`) and runs `claude-real` inside a bwrap mount namespace where `/workspace/sessions/` is an empty tmpfs with only the current session's directory bind-mounted back. `$SESSION_WORKSPACE/.claude` is bind-mounted to `/tmp/.claude` (HOME=/tmp) so CLI session data persists on PVC. Other sessions' files don't exist. PID namespace is also isolated.
+The `claude` binary in PATH is a wrapper script (`scripts/claude-sandbox.sh`). The real binary is renamed to `claude-real` at build time (see Dockerfile). SDK must use `pathToClaudeCodeExecutable: "/usr/local/bin/claude"` to bypass the bundled binary and use the wrapper. (node:22-slim puts npm global binaries in `/usr/local/bin/`, unlike the old python:3.12-slim + nodesource setup which used `/usr/bin/`.) When the SDK invokes `claude`, the wrapper reads `SESSION_WORKSPACE` from env (set per-session in `src/agent.ts`) and runs `claude-real` inside a bwrap mount namespace where:
+- `/workspace/sessions/` is an empty tmpfs (hides ALL sessions)
+- `$SESSION_WORKSPACE` is bind-mounted to `/home/usr` (HOME and cwd)
+- `/tmp` is bind-mounted to `/tmp/{sessionId}/` on the host (per-session tmp isolation)
+- PID namespace is isolated
+
+CLI session data (`.claude/`) persists on PVC at `$SESSION_WORKSPACE/.claude`, naturally accessible at `/home/usr/.claude` inside the sandbox. Other sessions' files and tmp directories are invisible.
 
 ### Auto-Scaling and Idle Cleanup
 Both run as background tasks in the agent supervisor (`agent-supervisor/app/scaling.py`):
