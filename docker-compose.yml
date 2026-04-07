@@ -107,18 +107,6 @@ services:
 
   # ── Platform MCP Servers ────────────────────────────────────
 
-  mcp-github:
-    build:
-      context: ./mcp-servers
-      args:
-        MCP_SERVER_NAME: github
-    healthcheck:
-      test: ["CMD-SHELL", "python -c \"import socket; s=socket.create_connection(('localhost',8000),2); s.close()\""]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-      start_period: 5s
-
   mcp-jira:
     build:
       context: ./mcp-servers
@@ -288,8 +276,6 @@ services:
       db-migrate:
         condition: service_completed_successfully
       vault:
-        condition: service_healthy
-      mcp-github:
         condition: service_healthy
       mcp-jira:
         condition: service_healthy

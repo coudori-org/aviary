@@ -31,8 +31,7 @@ async def activate_agent(agent_id: uuid.UUID, db: AsyncSession = Depends(get_db)
     try:
         await supervisor_client.create_namespace(
             agent_id=str(agent.id), owner_id=str(agent.owner_id),
-            instruction=agent.instruction, tools=agent.tools,
-            policy=agent.policy or {}, mcp_servers=agent.mcp_servers or [],
+            policy=agent.policy or {},
         )
     except Exception:
         pass  # Already exists
@@ -41,8 +40,7 @@ async def activate_agent(agent_id: uuid.UUID, db: AsyncSession = Depends(get_db)
     try:
         await supervisor_client.ensure_deployment(
             namespace=ns, agent_id=str(agent.id), owner_id=str(agent.owner_id),
-            instruction=agent.instruction, tools=agent.tools,
-            policy=agent.policy or {}, mcp_servers=agent.mcp_servers or [],
+            policy=agent.policy or {},
             min_pods=agent.min_pods, max_pods=agent.max_pods,
         )
     except Exception as e:

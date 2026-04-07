@@ -81,10 +81,10 @@
     <div style="display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap;">
       <div style="flex: 1; min-width: 150px;">
         <label class="text-sm" for="cred-key">Key</label><br>
-        <input type="text" id="cred-key" placeholder="e.g. github, anthropic-api-key" style="width: 100%; padding: 6px; font-family: monospace;">
+        <input type="text" id="cred-key" placeholder="e.g. github-token, anthropic-api-key" style="width: 100%; padding: 6px; font-family: monospace;">
       </div>
       <div style="flex: 2; min-width: 250px;">
-        <label class="text-sm" for="cred-value">Token / API Key</label><br>
+        <label class="text-sm" for="cred-value">Value</label><br>
         <input type="password" id="cred-value" placeholder="ghp_xxxx or sk-ant-..." style="width: 100%; padding: 6px; font-family: monospace;">
       </div>
       <button class="btn btn-sm" style="background: var(--accent); color: white;" onclick="saveKey()">Save</button>
@@ -146,7 +146,7 @@ function cancelEdit() {
   document.getElementById('cred-key').value = '';
   document.getElementById('cred-key').readOnly = false;
   document.getElementById('cred-value').value = '';
-  document.getElementById('cred-value').placeholder = 'ghp_xxxx or API key';
+  document.getElementById('cred-value').placeholder = 'ghp_xxxx, sk-ant-xxx, ...';
   document.getElementById('form-title').textContent = 'Add Credential';
   document.getElementById('cancel-edit-btn').style.display = 'none';
 }

@@ -46,26 +46,14 @@ def _namespace(agent_id: str) -> str:
 
 
 async def create_namespace(
-    agent_id: str, owner_id: str, instruction: str,
-    tools: list, policy: dict, mcp_servers: list,
+    agent_id: str, owner_id: str, policy: dict,
 ) -> str:
     resp = await _get_client().post("/v1/namespaces", json={
         "agent_id": agent_id, "owner_id": owner_id,
-        "instruction": instruction, "tools": tools,
-        "policy": policy, "mcp_servers": mcp_servers,
+        "policy": policy,
     })
     resp.raise_for_status()
     return resp.json()["namespace"]
-
-
-async def update_namespace_config(
-    namespace: str, instruction: str, tools: list, policy: dict, mcp_servers: list,
-) -> None:
-    resp = await _get_client().put(f"/v1/namespaces/{namespace}/config", json={
-        "instruction": instruction, "tools": tools,
-        "policy": policy, "mcp_servers": mcp_servers,
-    })
-    resp.raise_for_status()
 
 
 async def update_network_policy(namespace: str, policy: dict) -> None:
@@ -84,14 +72,12 @@ async def delete_namespace(agent_id: str) -> None:
 
 
 async def ensure_deployment(
-    namespace: str, agent_id: str, owner_id: str, instruction: str,
-    tools: list, policy: dict, mcp_servers: list,
-    min_pods: int = 1, max_pods: int = 3,
+    namespace: str, agent_id: str, owner_id: str,
+    policy: dict, min_pods: int = 1, max_pods: int = 3,
 ) -> dict:
     resp = await _get_client().post(f"/v1/deployments/{namespace}/ensure", json={
         "agent_id": agent_id, "owner_id": owner_id,
-        "instruction": instruction, "tools": tools,
-        "policy": policy, "mcp_servers": mcp_servers,
+        "policy": policy,
         "min_pods": min_pods, "max_pods": max_pods,
     })
     resp.raise_for_status()

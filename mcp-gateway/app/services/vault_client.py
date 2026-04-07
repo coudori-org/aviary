@@ -2,7 +2,7 @@
 
 Convention: credentials are stored at
   secret/aviary/credentials/{user_external_id}/{key_name}
-with a JSON body containing at least {"token": "..."}.
+with a JSON body {"value": "<secret_string>"}.
 """
 
 import logging
@@ -38,7 +38,7 @@ async def get_mcp_credential(user_external_id: str, server_name: str) -> str | N
                 return None
             resp.raise_for_status()
             data = resp.json()
-            return data["data"]["data"].get("token")
+            return data["data"]["data"].get("value")
     except Exception:
         logger.warning("Failed to fetch credential from Vault: %s", vault_path, exc_info=True)
         return None

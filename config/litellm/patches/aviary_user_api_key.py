@@ -199,7 +199,7 @@ async def _get_vault_api_key(sub: str) -> str | None:
                 _api_key_cache[sub] = (None, now)
                 return None
             resp.raise_for_status()
-            token = resp.json()["data"]["data"].get("token")
+            token = resp.json()["data"]["data"].get("value")
             _api_key_cache[sub] = (token, now)
             return token
     except httpx.HTTPError as exc:

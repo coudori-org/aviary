@@ -16,6 +16,12 @@ FROM node:22-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git curl ca-certificates bubblewrap \
+    && rm -rf /var/lib/apt/lists/* \
+    && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+       -o /usr/share/keyrings/githubcli-archive-keyring.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+       > /etc/apt/sources.list.d/github-cli.list \
+    && apt-get update && apt-get install -y --no-install-recommends gh \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Claude Code CLI globally + undici for proxy support
@@ -48,6 +54,14 @@ COPY config/managed-settings.json /etc/claude-code/managed-settings.json
 RUN CLAUDE_BIN=$(which claude-real) && \
     cp /app/scripts/claude-sandbox.sh "$(dirname "$CLAUDE_BIN")/claude" && \
     chmod +x "$(dirname "$CLAUDE_BIN")/claude"
+
+# Create /home/usr mount point for bwrap sandbox.
+# bwrap bind-mounts the session workspace here so HOME=/home/usr inside the sandbox.
+RUN mkdir -p /home/usr
+
+# Global git config — available inside bwrap via --ro-bind / /
+RUN git config --system user.name "aviary" \
+    && git config --system user.email "aviary-agent@aviary.com"
 
 # Use built-in non-root `node` user (UID 1000)
 # Claude Code CLI refuses --dangerously-skip-permissions as root

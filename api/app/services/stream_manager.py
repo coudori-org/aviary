@@ -18,7 +18,7 @@ from sqlalchemy import select
 
 from app.db.models import SessionParticipant
 from app.db.session import async_session_factory
-from app.services import agent_supervisor, redis_service, session_service
+from app.services import agent_supervisor, redis_service, session_service, vault_service
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +44,25 @@ def _build_mcp_config(
     return config
 
 
+async def _fetch_user_credentials(user_external_id: str) -> dict[str, str]:
+    """Fetch user credentials from Vault for injection into agent sandbox.
+
+    Returns a dict of credential_name → token. Missing credentials are silently
+    skipped (user may not have configured them).
+    """
+    credentials: dict[str, str] = {}
+    # GitHub token — enables git/gh CLI authentication inside the sandbox
+    try:
+        secret = await vault_service.read_secret(
+            f"aviary/credentials/{user_external_id}/github-token"
+        )
+        if token := secret.get("value"):
+            credentials["github_token"] = token
+    except Exception:
+        pass  # No GitHub token configured for this user
+    return credentials
+
+
 async def start_stream(
     session_id: str,
     agent_id: str,
@@ -54,6 +73,7 @@ async def start_stream(
     agent_policy: dict,
     content: str,
     user_token: str = "",
+    user_external_id: str = "",
 ) -> None:
     """Launch a background task that streams the agent response."""
     # Cancel any existing stream for this session
@@ -70,7 +90,7 @@ async def start_stream(
             session_id, agent_id,
             agent_model_config, agent_instruction,
             agent_tools, agent_mcp_servers, agent_policy,
-            content, user_token,
+            content, user_token, user_external_id,
         )
     )
     _active_streams[session_id] = task
@@ -138,6 +158,7 @@ async def _run_stream(
     agent_policy: dict,
     content: str,
     user_token: str = "",
+    user_external_id: str = "",
 ) -> None:
     """Execute the agent response stream as a background task."""
     session_uuid = uuid.UUID(session_id)
@@ -168,6 +189,11 @@ async def _run_stream(
             return
     except Exception:
         logger.warning("Failed to ensure agent running for session %s", session_id, exc_info=True)
+
+    # Fetch user credentials from Vault for sandbox injection
+    credentials: dict[str, str] = {}
+    if user_external_id:
+        credentials = await _fetch_user_credentials(user_external_id)
 
     full_response = ""
     blocks_meta: list[dict] = []  # Ordered blocks (thinking + text + tool_call) for UI replay
@@ -202,6 +228,7 @@ async def _run_stream(
                             ),
                             "policy": agent_policy,
                             "user_token": user_token,
+                            **({"credentials": credentials} if credentials else {}),
                         },
                     },
                     timeout=300,

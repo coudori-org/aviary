@@ -181,7 +181,7 @@ async def _vault_put_key(user_external_id: str, key: str, value: str) -> None:
         resp = await client.post(
             url,
             headers={"X-Vault-Token": settings.vault_token, "Content-Type": "application/json"},
-            json={"data": {"token": value}},
+            json={"data": {"value": value}},
             timeout=10,
         )
         resp.raise_for_status()
@@ -394,7 +394,7 @@ async def list_user_credentials(user_id: uuid.UUID, db: AsyncSession = Depends(g
         key = key.rstrip("/")
         data = await _vault_get_key(user.external_id, key)
         if data:
-            token = data.get("token", "")
+            token = data.get("value", "")
             # Mask token for display (show first 8 and last 4 chars)
             if len(token) > 16:
                 masked = token[:8] + "..." + token[-4:]

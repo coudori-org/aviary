@@ -31,14 +31,14 @@ interface MessageRequestBody {
   content: string;
   session_id: string;
   model_config_data?: Record<string, unknown> | null;
-  agent_config?: Record<string, unknown> | null;
+  agent_config: Record<string, unknown>;
 }
 
 app.post("/message", async (req, res) => {
   const body = req.body as MessageRequestBody;
 
-  if (!body.content || !body.session_id) {
-    res.status(400).json({ error: "content and session_id are required" });
+  if (!body.content || !body.session_id || !body.agent_config) {
+    res.status(400).json({ error: "content, session_id, and agent_config are required" });
     return;
   }
 

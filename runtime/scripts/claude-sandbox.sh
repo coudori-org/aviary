@@ -25,9 +25,11 @@ if [ ! -d "$SESSION_WORKSPACE" ]; then
     mkdir -p "$SESSION_WORKSPACE"
 fi
 
-# Persist CLI session data (~/.claude/) on PVC so that resume works across restarts
-CLAUDE_DATA_DIR="$SESSION_WORKSPACE/.claude"
-mkdir -p "$CLAUDE_DATA_DIR"
+# Per-session /tmp isolation: physical path /tmp/{sessionId}/, not shared tmpfs.
+# Each session gets its own /tmp that persists across messages but is invisible
+# to other sessions.
+SESSION_TMP="/tmp/$(basename "$SESSION_WORKSPACE")"
+mkdir -p "$SESSION_TMP"
 
 # Ensure Node.js fetch() respects proxy env vars inside the sandbox.
 # NODE_OPTIONS with --require is set here (not just in pod env) to guarantee
@@ -41,12 +43,11 @@ exec bwrap \
     --ro-bind / / \
     --dev /dev \
     --proc /proc \
-    --tmpfs /tmp \
+    --bind "$SESSION_TMP" /tmp \
     --tmpfs /workspace/sessions \
-    --bind "$SESSION_WORKSPACE" "$SESSION_WORKSPACE" \
-    --bind "$CLAUDE_DATA_DIR" /tmp/.claude \
+    --bind "$SESSION_WORKSPACE" /home/usr \
     --unshare-pid \
     --die-with-parent \
-    --setenv HOME /tmp \
+    --setenv HOME /home/usr \
     -- \
     "$REAL_CLAUDE" "$@"

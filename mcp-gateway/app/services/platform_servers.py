@@ -18,13 +18,6 @@ logger = logging.getLogger(__name__)
 # Platform-provided MCP servers — auto-registered on gateway startup.
 PLATFORM_SERVERS = [
     {
-        "name": "github",
-        "description": "Git and GitHub operations — clone, pull, push, branches, PRs, issues",
-        "transport_type": "streamable_http",
-        "connection_config": {"url": "http://mcp-github:8000/mcp/"},
-        "tags": ["git", "github", "vcs"],
-    },
-    {
         "name": "jira",
         "description": "Jira project management — issues, sprints, transitions, search",
         "transport_type": "streamable_http",

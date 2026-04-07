@@ -39,8 +39,8 @@ TOOL_NAME_SEPARATOR = "__"
 # ── Load secret injection config ─────────────────────────────
 # Structure:
 #   servers:
-#     github:
-#       args: { github_token: { vault_key: github } }
+#     jira:
+#       args: { jira_token: { vault_key: jira } }
 #       tools:                                        # optional per-tool override
 #         some_tool: { args: { ... } }
 _CONFIG_PATH = os.path.join(
