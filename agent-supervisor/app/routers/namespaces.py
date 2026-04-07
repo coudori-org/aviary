@@ -75,10 +75,7 @@ async def _apply_network_policy(namespace: str, policy: dict) -> None:
 class CreateNamespaceRequest(BaseModel):
     agent_id: str
     owner_id: str
-    instruction: str
-    tools: list
     policy: dict
-    mcp_servers: list
 
 
 @router.post("/namespaces")
@@ -101,23 +98,10 @@ async def create_namespace(body: CreateNamespaceRequest):
             },
         })
 
-        # 2. ConfigMap
-        await k8s_apply("POST", f"/api/v1/namespaces/{ns_name}/configmaps", {
-            "apiVersion": "v1",
-            "kind": "ConfigMap",
-            "metadata": {"name": "agent-config", "namespace": ns_name},
-            "data": {
-                "instruction.md": body.instruction,
-                "tools.json": json.dumps(body.tools),
-                "policy.json": json.dumps(body.policy),
-                "mcp-servers.json": json.dumps(body.mcp_servers),
-            },
-        })
-
-        # 3. NetworkPolicy
+        # 2. NetworkPolicy
         await _apply_network_policy(ns_name, body.policy)
 
-        # 4. ResourceQuota
+        # 3. ResourceQuota
         max_pods = body.policy.get("maxPods", 3)
         await k8s_apply("POST", f"/api/v1/namespaces/{ns_name}/resourcequotas", {
             "apiVersion": "v1",
@@ -135,7 +119,7 @@ async def create_namespace(body: CreateNamespaceRequest):
             },
         })
 
-        # 5. ServiceAccount
+        # 4. ServiceAccount
         await k8s_apply("POST", f"/api/v1/namespaces/{ns_name}/serviceaccounts", {
             "apiVersion": "v1",
             "kind": "ServiceAccount",
@@ -146,33 +130,6 @@ async def create_namespace(body: CreateNamespaceRequest):
         logger.info("Created K8s resources for agent %s in namespace %s", body.agent_id, ns_name)
         return {"namespace": ns_name}
 
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
-
-
-class UpdateConfigRequest(BaseModel):
-    instruction: str
-    tools: list
-    policy: dict
-    mcp_servers: list
-
-
-@router.put("/namespaces/{namespace}/config")
-async def update_config(namespace: str, body: UpdateConfigRequest):
-    """Update the agent ConfigMap in K8s."""
-    try:
-        await k8s_apply("PUT", f"/api/v1/namespaces/{namespace}/configmaps/agent-config", {
-            "apiVersion": "v1",
-            "kind": "ConfigMap",
-            "metadata": {"name": "agent-config", "namespace": namespace},
-            "data": {
-                "instruction.md": body.instruction,
-                "tools.json": json.dumps(body.tools),
-                "policy.json": json.dumps(body.policy),
-                "mcp-servers.json": json.dumps(body.mcp_servers),
-            },
-        })
-        return {"ok": True}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 

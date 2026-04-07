@@ -147,20 +147,6 @@ async def update_agent(
         agent.icon = body.icon
 
     await db.flush()
-
-    # Sync to K8s
-    ns = f"agent-{agent.id}"
-    try:
-        await supervisor_client.update_namespace_config(
-            namespace=ns,
-            instruction=agent.instruction,
-            tools=agent.tools,
-            policy=agent.policy,
-            mcp_servers=agent.mcp_servers,
-        )
-    except Exception:
-        logger.warning("K8s config sync failed for agent %s", agent.id, exc_info=True)
-
     await db.refresh(agent)
     return AgentResponse.from_agent(agent)
 

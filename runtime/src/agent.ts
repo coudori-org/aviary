@@ -21,7 +21,6 @@ import * as path from "node:path";
 import { execSync } from "node:child_process";
 import { query, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 
-const CONFIG_DIR = "/agent/config";
 const WORKSPACE_ROOT = "/workspace/sessions";
 
 const LITELLM_URL =
@@ -77,27 +76,6 @@ interface ModelConfig {
   model?: string;
   backend?: string;
   max_output_tokens?: number;
-}
-
-export function loadAgentConfig(): AgentConfig {
-  const config: AgentConfig = {};
-
-  const files: Array<[keyof AgentConfig, string, boolean]> = [
-    ["instruction", "instruction.md", false],
-    ["tools", "tools.json", true],
-    ["policy", "policy.json", true],
-    ["mcp_servers", "mcp-servers.json", true],
-  ];
-
-  for (const [key, filename, isJson] of files) {
-    const filePath = path.join(CONFIG_DIR, filename);
-    if (fs.existsSync(filePath)) {
-      const content = fs.readFileSync(filePath, "utf-8");
-      (config as any)[key] = isJson ? JSON.parse(content) : content;
-    }
-  }
-
-  return config;
 }
 
 const MCP_GATEWAY_URL = process.env.MCP_GATEWAY_URL;
@@ -179,7 +157,7 @@ export async function* processMessage(
   sessionId: string,
   content: string,
   modelConfig?: ModelConfig | null,
-  agentConfigFromApi?: AgentConfig | null,
+  agentConfig: AgentConfig,
   abortController?: AbortController,
 ): AsyncGenerator<SSEChunk> {
   const workspace = sessionWorkspace(sessionId);
@@ -205,7 +183,6 @@ export async function* processMessage(
     }
   }
 
-  const agentConfig = agentConfigFromApi ?? loadAgentConfig();
   const mc: ModelConfig = modelConfig ?? {};
   if (!mc.model || !mc.backend) {
     yield { type: "chunk", content: "Error: model and backend are required in model_config." };

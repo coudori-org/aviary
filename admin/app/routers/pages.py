@@ -127,19 +127,6 @@ async def update_agent_config(
     agent.visibility = visibility
     await db.flush()
 
-    # Sync config to K8s
-    ns = f"agent-{agent.id}"
-    try:
-        await supervisor_client.update_namespace_config(
-            namespace=ns,
-            instruction=agent.instruction,
-            tools=agent.tools,
-            policy=agent.policy,
-            mcp_servers=agent.mcp_servers,
-        )
-    except Exception:
-            logger.warning("K8s config sync failed for agent %s", agent.id, exc_info=True)
-
     return RedirectResponse(f"/agents/{agent_id}?flash=Configuration+saved", status_code=303)
 
 
@@ -231,16 +218,14 @@ async def activate_agent(agent_id: uuid.UUID, db: AsyncSession = Depends(get_db)
         try:
             await supervisor_client.create_namespace(
                 agent_id=str(agent.id), owner_id=str(agent.owner_id),
-                instruction=agent.instruction, tools=agent.tools,
-                policy=agent.policy or {}, mcp_servers=agent.mcp_servers or [],
+                policy=agent.policy or {},
             )
         except Exception:
             pass  # Already exists
 
         await supervisor_client.ensure_deployment(
             namespace=ns, agent_id=str(agent.id), owner_id=str(agent.owner_id),
-            instruction=agent.instruction, tools=agent.tools,
-            policy=agent.policy or {}, mcp_servers=agent.mcp_servers or [],
+            policy=agent.policy or {},
             min_pods=agent.min_pods, max_pods=agent.max_pods,
         )
         return RedirectResponse(f"/agents/{agent_id}?flash=Agent+activated", status_code=303)

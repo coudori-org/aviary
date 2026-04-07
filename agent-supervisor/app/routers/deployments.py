@@ -1,7 +1,6 @@
 """Deployment lifecycle: Deployment + Service + PVC per agent."""
 
 import asyncio
-import json
 import logging
 import time
 from typing import Any
@@ -31,10 +30,7 @@ _NODE_OPTIONS = "--require /app/scripts/proxy-bootstrap.js"
 class EnsureDeploymentRequest(BaseModel):
     agent_id: str
     owner_id: str
-    instruction: str
-    tools: list
     policy: dict
-    mcp_servers: list
     min_pods: int = 1
     max_pods: int = 3
     model_config_data: dict | None = None
@@ -71,10 +67,7 @@ async def ensure_deployment(namespace: str, body: EnsureDeploymentRequest):
         await create_namespace(CreateNamespaceRequest(
             agent_id=body.agent_id,
             owner_id=body.owner_id,
-            instruction=body.instruction,
-            tools=body.tools,
             policy=body.policy,
-            mcp_servers=body.mcp_servers,
         ))
 
     # Create PVC
@@ -353,7 +346,6 @@ async def _create_deployment(namespace: str, body: EnsureDeploymentRequest) -> N
                                 ],
                                 "volumeMounts": [
                                     {"name": "agent-workspace", "mountPath": "/workspace"},
-                                    {"name": "agent-config", "mountPath": "/agent/config", "readOnly": True},
                                 ],
                                 "resources": {
                                     "requests": {"cpu": "1", "memory": "1Gi"},
@@ -374,10 +366,6 @@ async def _create_deployment(namespace: str, body: EnsureDeploymentRequest) -> N
                             {
                                 "name": "agent-workspace",
                                 "persistentVolumeClaim": {"claimName": "agent-workspace"},
-                            },
-                            {
-                                "name": "agent-config",
-                                "configMap": {"name": "agent-config"},
                             },
                         ],
                     },
