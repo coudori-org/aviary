@@ -73,6 +73,10 @@ spec:
               value: "10"
             - name: DATABASE_URL
               value: "postgresql+asyncpg://aviary:aviary@host.k8s.internal:5432/aviary"
+            - name: OIDC_ISSUER
+              value: "http://localhost:8080/realms/aviary"
+            - name: OIDC_INTERNAL_ISSUER
+              value: "http://host.k8s.internal:8080/realms/aviary"
           livenessProbe:
             httpGet:
               path: /v1/health

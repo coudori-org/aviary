@@ -18,7 +18,9 @@ from app.services import acl_service, agent_supervisor
 logger = logging.getLogger(__name__)
 
 
-async def create_agent(db: AsyncSession, user: User, data: AgentCreate) -> Agent:
+async def create_agent(
+    db: AsyncSession, user: User, data: AgentCreate, user_token: str = ""
+) -> Agent:
     """Create a new agent. Infrastructure provisioning is delegated to the supervisor."""
     # Check slug uniqueness
     existing = await db.execute(select(Agent).where(Agent.slug == data.slug))
@@ -51,6 +53,7 @@ async def create_agent(db: AsyncSession, user: User, data: AgentCreate) -> Agent
                 "tools": data.tools,
                 "mcp_servers": [s.model_dump() for s in data.mcp_servers],
             },
+            user_token=user_token,
         )
     except Exception:
         logger.warning(

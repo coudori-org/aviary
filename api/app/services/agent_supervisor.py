@@ -38,56 +38,79 @@ def _get_client() -> httpx.AsyncClient:
     return _client
 
 
-async def register_agent(agent_id: str, owner_id: str, config: dict) -> None:
+async def register_agent(
+    agent_id: str, owner_id: str, config: dict, user_token: str = ""
+) -> None:
     """Register a new agent. Supervisor provisions resources with secure defaults.
 
     config keys: instruction, tools, mcp_servers
     """
-    resp = await _get_client().post(f"/v1/agents/{agent_id}/register", json={
-        "owner_id": owner_id,
-        "instruction": config.get("instruction", ""),
-        "tools": config.get("tools", []),
-        "mcp_servers": config.get("mcp_servers", []),
-    })
+    resp = await _get_client().post(
+        f"/v1/agents/{agent_id}/register",
+        json={
+            "owner_id": owner_id,
+            "instruction": config.get("instruction", ""),
+            "tools": config.get("tools", []),
+            "mcp_servers": config.get("mcp_servers", []),
+            "user_token": user_token,
+        },
+        headers={"Authorization": f"Bearer {user_token}"} if user_token else {},
+    )
     resp.raise_for_status()
 
 
-async def unregister_agent(agent_id: str) -> None:
+async def unregister_agent(agent_id: str, user_token: str = "") -> None:
     """Remove all agent resources."""
-    resp = await _get_client().delete(f"/v1/agents/{agent_id}")
+    resp = await _get_client().delete(
+        f"/v1/agents/{agent_id}",
+        headers={"Authorization": f"Bearer {user_token}"} if user_token else {},
+    )
     resp.raise_for_status()
 
 
-async def ensure_agent_running(agent_id: str, owner_id: str, config: dict) -> None:
+async def ensure_agent_running(
+    agent_id: str, owner_id: str, config: dict, user_token: str = ""
+) -> None:
     """Ensure agent is running. Lazily creates resources if needed.
 
     config keys: instruction, tools, mcp_servers
     """
-    resp = await _get_client().post(f"/v1/agents/{agent_id}/run", json={
-        "owner_id": owner_id,
-        "instruction": config.get("instruction", ""),
-        "tools": config.get("tools", []),
-        "mcp_servers": config.get("mcp_servers", []),
-    })
+    resp = await _get_client().post(
+        f"/v1/agents/{agent_id}/run",
+        json={
+            "owner_id": owner_id,
+            "instruction": config.get("instruction", ""),
+            "tools": config.get("tools", []),
+            "mcp_servers": config.get("mcp_servers", []),
+            "user_token": user_token,
+        },
+        headers={"Authorization": f"Bearer {user_token}"} if user_token else {},
+    )
     resp.raise_for_status()
 
 
-async def check_agent_ready(agent_id: str) -> bool:
+async def check_agent_ready(agent_id: str, user_token: str = "") -> bool:
     """Check if agent has ready instances."""
     try:
-        resp = await _get_client().get(f"/v1/agents/{agent_id}/ready")
+        resp = await _get_client().get(
+            f"/v1/agents/{agent_id}/ready",
+            headers={"Authorization": f"Bearer {user_token}"} if user_token else {},
+        )
         resp.raise_for_status()
         return resp.json().get("ready", False)
     except Exception:
         return False
 
 
-async def wait_for_agent_ready(agent_id: str, timeout: int = 90) -> bool:
+async def wait_for_agent_ready(
+    agent_id: str, timeout: int = 90, user_token: str = ""
+) -> bool:
     """Block until agent is ready or timeout."""
     resp = await _get_client().get(
         f"/v1/agents/{agent_id}/wait",
         params={"timeout": timeout},
         timeout=timeout + 10,
+        headers={"Authorization": f"Bearer {user_token}"} if user_token else {},
     )
     resp.raise_for_status()
     return resp.json()["ready"]
@@ -98,24 +121,30 @@ def get_stream_url(agent_id: str, session_id: str) -> str:
     return f"{settings.agent_supervisor_url}/v1/agents/{agent_id}/sessions/{session_id}/message"
 
 
-async def abort_session(agent_id: str, session_id: str) -> None:
+async def abort_session(
+    agent_id: str, session_id: str, user_token: str = ""
+) -> None:
     """Abort an active session's stream."""
     try:
         resp = await _get_client().post(
             f"/v1/agents/{agent_id}/sessions/{session_id}/abort",
             timeout=5,
+            headers={"Authorization": f"Bearer {user_token}"} if user_token else {},
         )
         resp.raise_for_status()
     except Exception:
         logger.warning("Failed to abort session %s (agent %s)", session_id, agent_id)
 
 
-async def cleanup_session(agent_id: str, session_id: str) -> None:
+async def cleanup_session(
+    agent_id: str, session_id: str, user_token: str = ""
+) -> None:
     """Clean up session workspace. Best-effort."""
     try:
         resp = await _get_client().delete(
             f"/v1/agents/{agent_id}/sessions/{session_id}",
             timeout=10,
+            headers={"Authorization": f"Bearer {user_token}"} if user_token else {},
         )
         resp.raise_for_status()
     except Exception:

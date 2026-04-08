@@ -10,6 +10,11 @@ class Settings(BaseSettings):
     # Database
     database_url: str = "postgresql+asyncpg://aviary:aviary@localhost:5432/aviary"
 
+    # OIDC — required for JWT validation on all agent-centric API calls
+    oidc_issuer: str = "http://localhost:8080/realms/aviary"
+    oidc_internal_issuer: str | None = None
+    oidc_audience: str | None = None
+
     # Scaling
     scaling_check_interval: int = 30
     sessions_per_pod_scale_up: int = 3

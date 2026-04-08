@@ -290,6 +290,8 @@ source = { editable = "shared" }
 dependencies = [
     { name = "alembic" },
     { name = "asyncpg" },
+    { name = "httpx" },
+    { name = "python-jose", extra = ["cryptography"] },
     { name = "sqlalchemy", extra = ["asyncio"] },
 ]
 
@@ -297,6 +299,8 @@ dependencies = [
 requires-dist = [
     { name = "alembic", specifier = ">=1.14.0" },
     { name = "asyncpg", specifier = ">=0.30.0" },
+    { name = "httpx", specifier = ">=0.28.0" },
+    { name = "python-jose", extras = ["cryptography"], specifier = ">=3.3.0" },
     { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0.36" },
 ]
 

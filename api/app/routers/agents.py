@@ -3,7 +3,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth.dependencies import get_current_user
+from app.auth.dependencies import get_current_user, get_raw_token
 from app.db.models import User
 from app.db.session import get_db
 from app.schemas.agent import AgentCreate, AgentListResponse, AgentResponse, AgentUpdate
@@ -31,11 +31,12 @@ async def list_agents(
 async def create_agent(
     body: AgentCreate,
     user: User = Depends(get_current_user),
+    token: str = Depends(get_raw_token),
     db: AsyncSession = Depends(get_db),
 ):
     """Create a new agent."""
     try:
-        agent = await agent_service.create_agent(db, user, body)
+        agent = await agent_service.create_agent(db, user, body, user_token=token)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
     return AgentResponse.from_orm_agent(agent)
@@ -45,6 +46,7 @@ async def create_agent(
 async def get_agents_status(
     ids: str = Query(..., description="Comma-separated agent IDs"),
     user: User = Depends(get_current_user),
+    token: str = Depends(get_raw_token),
     db: AsyncSession = Depends(get_db),
 ):
     """Batch check agent readiness for sidebar display."""
@@ -70,7 +72,7 @@ async def get_agents_status(
                 pass
 
         try:
-            ready = await agent_supervisor.check_agent_ready(aid)
+            ready = await agent_supervisor.check_agent_ready(aid, user_token=token)
             result = "ready" if ready else "offline"
         except Exception:
             result = "offline"

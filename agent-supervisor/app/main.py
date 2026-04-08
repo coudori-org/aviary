@@ -14,13 +14,14 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app.routers import agents, deployments, namespaces, streaming
-from app import scaling
+from app import auth, scaling
 
 logging.basicConfig(level=logging.INFO)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    await auth.init_oidc()
     scaling_task = asyncio.create_task(scaling.scaling_loop())
     cleanup_task = asyncio.create_task(scaling.idle_cleanup_loop())
 

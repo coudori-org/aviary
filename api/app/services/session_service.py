@@ -169,7 +169,9 @@ async def count_active_sessions(db: AsyncSession, agent_id: uuid.UUID) -> int:
     return result.scalar() or 0
 
 
-async def delete_session(db: AsyncSession, session: Session) -> None:
+async def delete_session(
+    db: AsyncSession, session: Session, user_token: str = ""
+) -> None:
     """Full session deletion: cancel stream, clean Redis, hard-delete from DB,
     and conditionally tear down agent resources if this was the last session
     of a soft-deleted agent."""
@@ -180,7 +182,7 @@ async def delete_session(db: AsyncSession, session: Session) -> None:
 
     # 1. Cancel any active stream for this session
     if stream_manager.is_streaming(session_id_str):
-        await stream_manager.cancel_stream(session_id_str, str(agent_id))
+        await stream_manager.cancel_stream(session_id_str, str(agent_id), user_token=user_token)
 
     # 2. Clean up all Redis keys for this session
     await redis_service.delete_all_session_keys(session_id_str)
@@ -194,7 +196,7 @@ async def delete_session(db: AsyncSession, session: Session) -> None:
     agent = result.scalar_one_or_none()
     if agent:
         # 4. Session workspace cleanup (best-effort)
-        await agent_supervisor.cleanup_session(str(agent_id), session_id_str)
+        await agent_supervisor.cleanup_session(str(agent_id), session_id_str, user_token=user_token)
 
         # 5. If owning agent is soft-deleted and this was the last session, clean up
         if agent.status == "deleted":
@@ -203,7 +205,9 @@ async def delete_session(db: AsyncSession, session: Session) -> None:
                 await agent_service.cleanup_agent_resources(db, agent)
 
 
-async def ensure_agent_ready(db: AsyncSession, agent: Agent) -> None:
+async def ensure_agent_ready(
+    db: AsyncSession, agent: Agent, user_token: str = ""
+) -> None:
     """Ensure agent is running via agent supervisor.
 
     Fully delegated — the supervisor handles all resource provisioning
@@ -217,4 +221,5 @@ async def ensure_agent_ready(db: AsyncSession, agent: Agent) -> None:
             "tools": agent.tools,
             "mcp_servers": agent.mcp_servers or [],
         },
+        user_token=user_token,
     )
