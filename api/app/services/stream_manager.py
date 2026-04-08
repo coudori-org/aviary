@@ -26,6 +26,66 @@ logger = logging.getLogger(__name__)
 _active_streams: dict[str, asyncio.Task] = {}
 
 
+def _rebuild_blocks_from_chunks(chunks: list[dict]) -> tuple[str, list[dict]]:
+    """Reconstruct full_response text and blocks_meta from buffered Redis chunks.
+
+    Used by cancel_stream to save partial progress on abort.
+    """
+    full_text = ""
+    blocks: list[dict] = []
+    current_thinking = ""
+    current_text = ""
+    tool_results: dict[str, dict] = {}
+
+    for chunk in chunks:
+        ct = chunk.get("type")
+        if ct == "chunk":
+            current_text += chunk.get("content", "")
+            full_text += chunk.get("content", "")
+        elif ct == "thinking":
+            current_thinking += chunk.get("content", "")
+        elif ct == "tool_use":
+            if current_thinking:
+                blocks.append({"type": "thinking", "content": current_thinking})
+                current_thinking = ""
+            if current_text:
+                blocks.append({"type": "text", "content": current_text})
+                current_text = ""
+            tool_block: dict = {
+                "type": "tool_call",
+                "name": chunk.get("name"),
+                "input": chunk.get("input"),
+                "tool_use_id": chunk.get("tool_use_id"),
+            }
+            if chunk.get("parent_tool_use_id"):
+                tool_block["parent_tool_use_id"] = chunk["parent_tool_use_id"]
+            blocks.append(tool_block)
+        elif ct == "tool_result":
+            tid = chunk.get("tool_use_id")
+            result_content = chunk.get("content", "")
+            if isinstance(result_content, str) and len(result_content) > 10240:
+                result_content = result_content[:10240] + "\n... (truncated)"
+            if tid:
+                tool_results[tid] = {
+                    "content": result_content,
+                    "is_error": chunk.get("is_error", False),
+                }
+
+    if current_thinking:
+        blocks.append({"type": "thinking", "content": current_thinking})
+    if current_text:
+        blocks.append({"type": "text", "content": current_text})
+
+    for block in blocks:
+        if block.get("type") == "tool_call" and block.get("tool_use_id") in tool_results:
+            tr = tool_results[block["tool_use_id"]]
+            block["result"] = tr["content"]
+            if tr.get("is_error"):
+                block["is_error"] = True
+
+    return full_text, blocks
+
+
 def _build_mcp_config(
     agent_id: str, user_token: str, legacy_mcp_servers: list
 ) -> dict:
@@ -121,17 +181,54 @@ async def cancel_stream(session_id: str, agent_id: str | None = None) -> bool:
     # 2. Cancel the asyncio background task
     task.cancel()
 
-    # 3. Save partial response and broadcast cancellation
+    # 3. Save partial response (with blocks + A2A sub-agent events)
     message_id: str | None = None
     try:
         partial = await redis_service.get_stream_chunks(session_id)
-        partial_text = "".join(
-            chunk.get("content", "") for chunk in partial if chunk.get("type") == "chunk"
-        )
-        if partial_text:
+        if partial:
+            partial_text, blocks_meta = _rebuild_blocks_from_chunks(partial)
+
+            # Fetch sub-agent events for any A2A tool calls
+            for block in list(blocks_meta):
+                if (
+                    block.get("type") == "tool_call"
+                    and block.get("name", "").startswith("mcp__a2a__ask_")
+                ):
+                    tool_use_id = block.get("tool_use_id")
+                    if tool_use_id:
+                        events = await redis_service.get_a2a_events(
+                            session_id, tool_use_id
+                        )
+                        a2a_results: dict[str, dict] = {}
+                        for evt in events:
+                            if evt.get("type") == "tool_use":
+                                blocks_meta.append({
+                                    "type": "tool_call",
+                                    "name": evt.get("name"),
+                                    "input": evt.get("input", {}),
+                                    "tool_use_id": evt.get("tool_use_id"),
+                                    "parent_tool_use_id": evt.get("parent_tool_use_id"),
+                                })
+                            elif evt.get("type") == "tool_result":
+                                tid = evt.get("tool_use_id")
+                                if tid:
+                                    a2a_results[tid] = {
+                                        "content": evt.get("content", ""),
+                                        "is_error": evt.get("is_error", False),
+                                    }
+                        for b in blocks_meta:
+                            tid = b.get("tool_use_id")
+                            if tid and tid in a2a_results:
+                                b["result"] = a2a_results[tid]["content"]
+                                if a2a_results[tid].get("is_error"):
+                                    b["is_error"] = True
+                        await redis_service.clear_a2a_events(session_id, tool_use_id)
+
+            meta = {"blocks": blocks_meta} if blocks_meta else None
             async with async_session_factory() as db:
                 msg = await session_service.save_message(
-                    db, uuid.UUID(session_id), "agent", partial_text
+                    db, uuid.UUID(session_id), "agent",
+                    partial_text or "[Cancelled]", metadata=meta,
                 )
                 await db.commit()
                 message_id = str(msg.id)
