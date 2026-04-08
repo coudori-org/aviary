@@ -5,8 +5,9 @@ import type { StreamBlock, TextBlock, ThinkingBlock, ToolCallBlock, TodoItem } f
 import type { WSMessage } from "@/lib/websocket";
 
 /**
- * Convert a flat list of blocks into a tree where subagent tool calls are
- * nested inside their parent Agent tool call's `children` array.
+ * Convert a flat list of blocks into a tree where blocks with parent_tool_use_id
+ * are nested inside their parent tool call's `children` array.
+ * Only tool_call blocks use parent_tool_use_id (sub-agent tool calls).
  */
 function buildTree(flat: StreamBlock[]): StreamBlock[] {
   const toolMap = new Map<string, ToolCallBlock>();

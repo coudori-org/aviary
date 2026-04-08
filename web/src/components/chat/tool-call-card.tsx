@@ -2,7 +2,7 @@
 
 import { memo, useState } from "react";
 import { cn } from "@/lib/utils";
-import type { ToolCallBlock } from "@/types";
+import type { StreamBlock, ToolCallBlock } from "@/types";
 
 /** Format elapsed seconds */
 function fmtElapsed(s?: number): string {
@@ -191,11 +191,11 @@ export const ToolCallCard = memo(function ToolCallCard({ block }: ToolCallCardPr
         </svg>
       </button>
 
-      {/* Nested subagent tool calls — always visible */}
+      {/* Nested sub-agent content — always visible */}
       {hasChildren && (
         <div className="border-t border-border/20 px-3 py-2 space-y-1">
           {block.children!.map((child) => (
-            <ToolCallCard key={child.id} block={child} />
+            <ChildBlock key={child.id} block={child} />
           ))}
         </div>
       )}
@@ -232,3 +232,11 @@ export const ToolCallCard = memo(function ToolCallCard({ block }: ToolCallCardPr
     </div>
   );
 });
+
+/** Render a child block inside a sub-agent tool card. */
+function ChildBlock({ block }: { block: StreamBlock }) {
+  if (block.type === "tool_call") {
+    return <ToolCallCard block={block} />;
+  }
+  return null;
+}
