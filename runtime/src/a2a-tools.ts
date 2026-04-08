@@ -199,21 +199,8 @@ function handleJsonRpc(
   }
 
   if (method === "tools/call") {
-    const toolName = (params as any)?.name as string;
-    const toolArgs = ((params as any)?.arguments ?? {}) as Record<string, unknown>;
-    const tool = tools.find((t) => t.name === toolName);
-    if (!tool) {
-      return Promise.resolve({
-        jsonrpc: "2.0",
-        id,
-        result: { content: [{ type: "text", text: `Unknown tool: ${toolName}` }], isError: true },
-      });
-    }
-    return tool.handler(toolArgs).then((result) => ({
-      jsonrpc: "2.0",
-      id,
-      result,
-    }));
+    // Handled separately via SSE to send progress notifications
+    return Promise.resolve({ __stream_tool_call: true, id, params } as any);
   }
 
   return Promise.resolve({
@@ -255,6 +242,53 @@ export async function startA2AServer(
       try {
         const parsed = JSON.parse(body);
         const response = await handleJsonRpc(tools, parsed);
+
+        // tools/call: respond via SSE with periodic progress to prevent MCP 60s timeout
+        if (response && (response as any).__stream_tool_call) {
+          const { id, params: rpcParams } = response as any;
+          const toolName = rpcParams?.name as string;
+          const toolArgs = (rpcParams?.arguments ?? {}) as Record<string, unknown>;
+          const progressToken = rpcParams?._meta?.progressToken;
+          const tool = tools.find((t) => t.name === toolName);
+
+          res.writeHead(200, {
+            "Content-Type": "text/event-stream",
+            "Cache-Control": "no-cache",
+          });
+
+          if (!tool) {
+            const errResult = { jsonrpc: "2.0", id, result: { content: [{ type: "text", text: `Unknown tool: ${toolName}` }], isError: true } };
+            res.write(`event: message\ndata: ${JSON.stringify(errResult)}\n\n`);
+            res.end();
+            return;
+          }
+
+          // Send progress notifications every 30s while tool executes
+          let progress = 0;
+          const progressInterval = progressToken ? setInterval(() => {
+            progress++;
+            const notification = {
+              jsonrpc: "2.0",
+              method: "notifications/progress",
+              params: { progressToken, progress, total: 0 },
+            };
+            res.write(`event: message\ndata: ${JSON.stringify(notification)}\n\n`);
+          }, 30_000) : null;
+
+          try {
+            const result = await tool.handler(toolArgs);
+            const finalResponse = { jsonrpc: "2.0", id, result };
+            res.write(`event: message\ndata: ${JSON.stringify(finalResponse)}\n\n`);
+          } catch (e: any) {
+            const errResponse = { jsonrpc: "2.0", id, result: { content: [{ type: "text", text: `Error: ${e.message}` }], isError: true } };
+            res.write(`event: message\ndata: ${JSON.stringify(errResponse)}\n\n`);
+          } finally {
+            if (progressInterval) clearInterval(progressInterval);
+            res.end();
+          }
+          return;
+        }
+
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(JSON.stringify(response));
       } catch {

@@ -103,8 +103,10 @@ case "$TARGET" in
     docker compose up -d --build
     ;;
   full)
-    echo -e "${BOLD}Full rebuild (DB preserved)...${NC}"
+    echo -e "${BOLD}Full rebuild (DB preserved, K8s reset)...${NC}"
     docker compose down
+    # Remove K8s volume (image cache + cluster state) but preserve DB
+    docker volume rm "$(basename "$PROJECT_DIR")_k8sdata" 2>/dev/null || true
     ./scripts/setup-dev.sh
     ;;
   full-clean)

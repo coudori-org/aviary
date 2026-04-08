@@ -142,7 +142,7 @@ async def proxy_session_message(agent_id: str, session_id: str, request: Request
         try:
             async with _get_k8s_client() as client:
                 async with client.stream(
-                    "POST", proxy_path, json=body, timeout=300
+                    "POST", proxy_path, json=body, timeout=None
                 ) as resp:
                     if resp.status_code != 200:
                         error_body = await resp.aread()

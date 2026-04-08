@@ -236,7 +236,7 @@ async def _run_stream(
                             **({"accessible_agents": accessible_agents} if accessible_agents else {}),
                         },
                     },
-                    timeout=300,
+                    timeout=None,
                 ) as resp:
                     async for line in resp.aiter_lines():
                         if not line.startswith("data: "):

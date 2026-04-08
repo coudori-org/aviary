@@ -127,7 +127,7 @@ async def a2a_message(
                             "is_sub_agent": True,
                         },
                     },
-                    timeout=300,
+                    timeout=None,
                 ) as resp:
                     if resp.status_code != 200:
                         error_body = await resp.aread()
