@@ -12,7 +12,7 @@ import * as crypto from "node:crypto";
 
 const API_URL = process.env.AVIARY_API_URL || "";
 const INTERNAL_API_KEY = process.env.AVIARY_INTERNAL_API_KEY || "sk-aviary-internal";
-const A2A_TIMEOUT = parseInt(process.env.A2A_CALL_TIMEOUT_SECONDS ?? "120", 10) * 1000;
+const A2A_TIMEOUT = parseInt(process.env.A2A_CALL_TIMEOUT_SECONDS ?? "1800", 10) * 1000;
 
 const SUB_AGENT_PREFIX = `[SUB-AGENT MODE]
 You are being invoked as a sub-agent by another agent to perform a specific task.
