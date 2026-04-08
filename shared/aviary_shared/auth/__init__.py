@@ -1,5 +1,5 @@
 from aviary_shared.auth.oidc import OIDCValidator, TokenClaims
-from aviary_shared.auth.acl import ROLE_HIERARCHY, ROLE_PERMISSIONS, has_permission, resolve_agent_role
+from aviary_shared.auth.acl import ROLE_HIERARCHY, ROLE_PERMISSIONS, has_permission
 
 __all__ = [
     "OIDCValidator",
@@ -7,5 +7,4 @@ __all__ = [
     "ROLE_HIERARCHY",
     "ROLE_PERMISSIONS",
     "has_permission",
-    "resolve_agent_role",
 ]

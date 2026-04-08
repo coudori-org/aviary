@@ -27,13 +27,8 @@ Guidelines:
 
 export interface AccessibleAgent {
   slug: string;
-  agent_id: string;
   name: string;
   description: string | null;
-  instruction: string;
-  model_config_data: Record<string, unknown>;
-  tools: string[];
-  mcp_servers: Record<string, unknown>;
 }
 
 export interface A2AContext {

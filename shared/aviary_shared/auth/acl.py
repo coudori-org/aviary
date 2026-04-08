@@ -84,19 +84,6 @@ async def resolve_agent_role(
     return None
 
 
-async def resolve_agent_role_by_id(
-    db: AsyncSession, user_id: uuid.UUID, agent_id: uuid.UUID
-) -> str | None:
-    """Convenience: resolve role by agent_id (loads Agent from DB)."""
-    result = await db.execute(
-        select(Agent).where(Agent.id == agent_id, Agent.status == "active")
-    )
-    agent = result.scalar_one_or_none()
-    if agent is None:
-        return None
-    return await resolve_agent_role(db, user_id, agent)
-
-
 def has_permission(role: str | None, permission: str) -> bool:
     """Check if a role grants a specific permission."""
     if role is None:

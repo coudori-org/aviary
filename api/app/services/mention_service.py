@@ -50,13 +50,8 @@ async def resolve_mentioned_agents(
 
         result.append(AccessibleAgent(
             slug=agent.slug,
-            agent_id=str(agent.id),
             name=agent.name,
             description=agent.description,
-            instruction=agent.instruction,
-            model_config_data=agent.model_config_json,
-            tools=agent.tools,
-            mcp_servers=agent.mcp_servers,
         ))
 
     return result
