@@ -17,6 +17,7 @@ import { ChatEmptyState } from "@/features/chat/components/chat-empty-state";
 import { Spinner } from "@/components/ui/spinner";
 import { computeTimeDividerLabel } from "@/features/chat/lib/relative-time";
 import { useChatWidth } from "@/features/chat/hooks/use-chat-width";
+import { highlightText, clearHighlights } from "@/features/chat/lib/highlight-text";
 import { cn } from "@/lib/utils";
 import type { Message, StreamBlock } from "@/types";
 
@@ -33,6 +34,13 @@ interface MessageListProps {
   hasMore: boolean;
   loadingEarlier: boolean;
   onLoadEarlier: () => void;
+  /** Block id of the active in-chat search match. The list scrolls
+   *  the matching `[data-search-target]` element into view; the ring
+   *  is painted by the block component via the search context. */
+  highlightedTargetId?: string | null;
+  /** Live search query. When non-empty, the list inserts `<mark>`
+   *  spans around every occurrence in the rendered DOM. */
+  searchQuery?: string;
 }
 
 /**
@@ -63,12 +71,66 @@ interface MessageListProps {
  */
 export const MessageList = forwardRef<HTMLDivElement, MessageListProps>(
   function MessageList(
-    { messages, blocks, isStreaming, isReady, hasMore, loadingEarlier, onLoadEarlier },
+    {
+      messages,
+      blocks,
+      isStreaming,
+      isReady,
+      hasMore,
+      loadingEarlier,
+      onLoadEarlier,
+      highlightedTargetId,
+      searchQuery,
+    },
     forwardedRef,
   ) {
     const scrollRef = useRef<HTMLDivElement>(null);
     useImperativeHandle(forwardedRef, () => scrollRef.current as HTMLDivElement);
     const { widthClass } = useChatWidth();
+
+    // Scroll the active search target into view. Re-runs on `messages`
+    // so a target that just arrived via paginated prepend lands too.
+    useEffect(() => {
+      if (!highlightedTargetId) return;
+      const scrollEl = scrollRef.current;
+      if (!scrollEl) return;
+      const el = scrollEl.querySelector(
+        `[data-search-target="${CSS.escape(highlightedTargetId)}"]`,
+      ) as HTMLElement | null;
+      el?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, [highlightedTargetId, messages]);
+
+    // DOM-walk text highlighter. ResizeObserver re-applies on content
+    // reflow (prepend, tool group expand) — marks are inline so they
+    // don't feedback-loop into the observer.
+    useEffect(() => {
+      const scrollEl = scrollRef.current;
+      if (!scrollEl) return;
+      if (!searchQuery) {
+        clearHighlights(scrollEl);
+        return;
+      }
+
+      let raf = 0;
+      const reapply = () => {
+        if (raf) cancelAnimationFrame(raf);
+        raf = requestAnimationFrame(() => {
+          clearHighlights(scrollEl);
+          highlightText(scrollEl, searchQuery);
+        });
+      };
+      reapply();
+
+      const inner = scrollEl.firstElementChild;
+      if (!inner) return;
+      const observer = new ResizeObserver(reapply);
+      observer.observe(inner);
+      return () => {
+        if (raf) cancelAnimationFrame(raf);
+        observer.disconnect();
+        clearHighlights(scrollEl);
+      };
+    }, [searchQuery, messages]);
 
     // Track identity of first/last message + previous scroll height so we
     // can discriminate append vs prepend vs initial mount in one effect.

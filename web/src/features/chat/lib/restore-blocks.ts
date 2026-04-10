@@ -4,20 +4,22 @@ import { buildBlockTree } from "./build-block-tree";
 /**
  * Restore saved block metadata into a StreamBlock tree.
  *
- * Used by MessageBubble when rendering historical messages — these are
- * stored as flat JSON in `message.metadata.blocks` and need to be
- * rehydrated to the same shape live streaming blocks have.
+ * Pass `messageId` so generated text/thinking ids are namespaced
+ * (`{msgId}-text-0`, ...) and globally unique — chat search uses these
+ * as DOM lookup keys. Tool blocks use the DB-unique `tool_use_id`.
  */
 export function restoreBlocks(
   raw: Array<Record<string, unknown>>,
   cancelled = false,
+  messageId?: string,
 ): StreamBlock[] {
+  const prefix = messageId ? `${messageId}-` : "";
   const flat: StreamBlock[] = raw.map((block, i) => {
     if (block.type === "tool_call") {
       const hasResult = block.result != null;
       return {
         type: "tool_call" as const,
-        id: String(block.tool_use_id ?? `saved-${i}`),
+        id: String(block.tool_use_id ?? `${prefix}saved-${i}`),
         name: String(block.name ?? "unknown"),
         input: (block.input as Record<string, unknown>) ?? {},
         status: "complete" as const,
@@ -40,13 +42,13 @@ export function restoreBlocks(
     if (block.type === "thinking") {
       return {
         type: "thinking" as const,
-        id: `thinking-${i}`,
+        id: `${prefix}thinking-${i}`,
         content: String(block.content ?? ""),
       };
     }
     return {
       type: "text" as const,
-      id: `text-${i}`,
+      id: `${prefix}text-${i}`,
       content: String(block.content ?? ""),
     };
   });

@@ -8,6 +8,8 @@ import { ToolCallCard } from "@/features/chat/components/blocks/tool-call-card";
 import { ToolGroupChip } from "@/features/chat/components/blocks/tool-group-chip";
 import { ThinkingChip } from "@/features/chat/components/blocks/thinking-chip";
 import { MessageCopyButton } from "./message-copy-button";
+import { useChatSearchTargetId } from "@/features/chat/hooks/chat-search-context";
+import { cn } from "@/lib/utils";
 import type { Message } from "@/types";
 
 interface AgentBubbleProps {
@@ -37,12 +39,20 @@ export function AgentBubble({ message, showAvatar = true }: AgentBubbleProps) {
   const savedBlocks = message.metadata?.blocks as Array<Record<string, unknown>> | undefined;
   const hasBlocks = Array.isArray(savedBlocks) && savedBlocks.length > 0;
   const isCancelled = message.metadata?.cancelled === true;
+  const activeTargetId = useChatSearchTargetId();
 
   const items = useMemo(() => {
     if (!hasBlocks) return [];
-    const restored = restoreBlocks(savedBlocks!, isCancelled);
+    const restored = restoreBlocks(savedBlocks!, isCancelled, message.id);
     return groupConsecutiveToolCalls(restored);
-  }, [hasBlocks, savedBlocks, isCancelled]);
+  }, [hasBlocks, savedBlocks, isCancelled, message.id]);
+
+  const textBubbleClass = (targetId: string) =>
+    cn(
+      "rounded-xl rounded-tl-sm bg-elevated shadow-2 px-4 py-3 transition-shadow",
+      activeTargetId === targetId &&
+        "ring-2 ring-info/60 ring-offset-2 ring-offset-canvas",
+    );
 
   return (
     <div className="flex gap-3 group animate-fade-in">
@@ -67,12 +77,13 @@ export function AgentBubble({ message, showAvatar = true }: AgentBubbleProps) {
               return <ToolCallCard key={block.id} block={block} />;
             }
             if (block.type === "thinking") {
-              return <ThinkingChip key={block.id} content={block.content} />;
+              return <ThinkingChip key={block.id} targetId={block.id} content={block.content} />;
             }
             return (
               <div
                 key={block.id}
-                className="rounded-xl rounded-tl-sm bg-elevated shadow-2 px-4 py-3"
+                data-search-target={block.id}
+                className={textBubbleClass(block.id)}
               >
                 <div className="markdown-body break-words type-body text-fg-secondary">
                   <MarkdownContent content={block.content} />
@@ -81,7 +92,10 @@ export function AgentBubble({ message, showAvatar = true }: AgentBubbleProps) {
             );
           })
         ) : (
-          <div className="rounded-xl rounded-tl-sm bg-elevated shadow-2 px-4 py-3">
+          <div
+            data-search-target={`${message.id}/body`}
+            className={textBubbleClass(`${message.id}/body`)}
+          >
             <div className="markdown-body break-words type-body text-fg-secondary">
               <MarkdownContent content={message.content} />
             </div>

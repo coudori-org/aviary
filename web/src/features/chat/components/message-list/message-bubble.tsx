@@ -18,7 +18,13 @@ interface MessageBubbleProps {
  */
 export function MessageBubble({ message, showAvatar = true }: MessageBubbleProps) {
   if (message.sender_type === "user") {
-    return <UserBubble content={message.content} showAvatar={showAvatar} />;
+    return (
+      <UserBubble
+        content={message.content}
+        showAvatar={showAvatar}
+        targetId={`${message.id}/user`}
+      />
+    );
   }
   return <AgentBubble message={message} showAvatar={showAvatar} />;
 }

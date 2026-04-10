@@ -447,7 +447,43 @@ info tint (`bg-info/[0.025]`) + canvas-inset pre 블록으로 위계 정리.
 
 ## CHAT-10 🔥 In-chat 검색 (Cmd+F 가로채기)
 
-**상태**: pending
+**상태**: accepted
+
+**v1 범위**:
+- `⌘F` / `Ctrl+F` 가로채기 → 헤더 아래 sticky search bar 슬라이드 다운
+- **Backend search endpoint** `GET /sessions/{id}/search?q=`:
+  Postgres `jsonb_array_elements`로 metadata.blocks를 unnest해서
+  block 단위 매치를 정확히 반환. 각 row에 `target_id` 포함 (block의 type에 따라
+  `tool_use_id` / `{msgId}-text-{i}` / `{msgId}-thinking-{i}` / `{msgId}/user` /
+  `{msgId}/body`). User 메시지와 legacy block-less agent 메시지는 plain content match.
+  Latest-first, top-to-bottom within message, 1000 cap
+- **정확한 카운트** "i of N" — backend가 block 단위로 셈해서 unloaded 영역도 카운트에 포함.
+  `+` suffix 불필요
+- **Navigation 단위는 block**: backend가 준 매치 리스트를 그대로 walk
+- 자동 페이지 로드: 활성 매치의 message가 loaded window에 없으면 effect가
+  `loadEarlier()` loop로 끌어옴 → 도달하면 ring + scroll
+- **`data-search-target`** attribute로 각 블록 식별.
+  `restoreBlocks(savedBlocks, cancelled, msgId)`로 block.id를 globally unique하게
+  → backend SQL이 같은 형식으로 target_id 생성
+- **Text 하이라이트**: DOM walk (TreeWalker) → `<mark class="chat-search-highlight">`.
+  rgba(255,210,70,0.55) + 1px outline. ResizeObserver로 prepend/expand 시 재적용
+- **자동 expand**: `ChatSearchContext`로 query 전파. `ToolCallCard` / `ToolGroupChip` /
+  `ThinkingChip` 모두 query 매치 시 자동 expand (수동 expand와 OR)
+- 키보드: Enter (next), Shift+Enter (prev), Esc (close)
+- 최소 query 길이 2자
+
+**파일**:
+- 신규 `web/src/features/chat/hooks/use-chat-search.ts`
+- 신규 `web/src/features/chat/hooks/chat-search-context.tsx`
+- 신규 `web/src/features/chat/components/chat-search-bar.tsx`
+- 신규 `web/src/features/chat/lib/highlight-text.ts` (DOM walk)
+- 신규 `web/src/features/chat/lib/match-block.ts` (공유 매치 헬퍼)
+- `restore-blocks.ts` — `messageId` 파라미터 추가
+- `chat-view.tsx`, `message-list.tsx`, `message-bubble.tsx`, `user-bubble.tsx`,
+  `agent-bubble.tsx`, `tool-call-card.tsx`, `tool-group-chip.tsx`, `thinking-chip.tsx`
+- `globals.css` (`mark.chat-search-highlight` 스타일)
+- Backend: `api/app/routers/sessions.py` (`/sessions/{id}/search` 엔드포인트),
+  `api/app/schemas/session.py` (`SessionSearchResponse`)
 
 **Deferred (1차 시도 후 롤백)**: DOM walk 기반 v1을 구현했으나 채택 전 롤백.
 이 기능의 구현 방식 (DOM walk vs source data search vs 백엔드 API)이 다음

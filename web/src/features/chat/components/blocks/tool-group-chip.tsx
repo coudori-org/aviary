@@ -1,11 +1,13 @@
 "use client";
 
-import { Fragment, memo, useState } from "react";
+import { Fragment, memo, useMemo, useState } from "react";
 import { ChevronRight } from "@/components/icons";
 import { Spinner } from "@/components/ui/spinner";
 import { ToolCallCard } from "./tool-call-card";
 import { cn } from "@/lib/utils";
 import { formatElapsed, truncate } from "@/lib/utils/format";
+import { useChatSearchQuery } from "@/features/chat/hooks/chat-search-context";
+import { toolCallMatches } from "@/features/chat/lib/match-block";
 import type { ToolCallBlock } from "@/types";
 
 interface ToolGroupChipProps {
@@ -30,6 +32,14 @@ interface ToolGroupChipProps {
  */
 export const ToolGroupChip = memo(function ToolGroupChip({ tools }: ToolGroupChipProps) {
   const [expanded, setExpanded] = useState(false);
+  const searchQuery = useChatSearchQuery();
+  // Auto-expand the group when any child tool matches search.
+  const matchesSearch = useMemo(() => {
+    if (!searchQuery) return false;
+    const lower = searchQuery.toLowerCase();
+    return tools.some((t) => toolCallMatches(t, lower));
+  }, [tools, searchQuery]);
+  const effectivelyExpanded = expanded || matchesSearch;
 
   const hasRunning = tools.some((t) => t.status === "running");
   const hasError = tools.some((t) => t.is_error === true);
@@ -55,7 +65,7 @@ export const ToolGroupChip = memo(function ToolGroupChip({ tools }: ToolGroupChi
         <ChevronRight
           size={11}
           strokeWidth={2}
-          className={cn("shrink-0 transition-transform", expanded && "rotate-90")}
+          className={cn("shrink-0 transition-transform", effectivelyExpanded && "rotate-90")}
         />
         <span className="type-caption-bold">{tools.length} tool calls</span>
 
@@ -77,7 +87,7 @@ export const ToolGroupChip = memo(function ToolGroupChip({ tools }: ToolGroupChi
       {/* Expanded tools render as siblings of the chip in the parent flex
           container, so they share the same `space-y-*` rhythm and visual
           depth as ungrouped tool calls. */}
-      {expanded &&
+      {effectivelyExpanded &&
         tools.map((tool) => <ToolCallCard key={tool.id} block={tool} />)}
     </Fragment>
   );

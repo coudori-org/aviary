@@ -1,11 +1,16 @@
 "use client";
 
-import { memo, useState } from "react";
+import { memo, useMemo, useState } from "react";
 import { ChevronRight, Check, X, Wrench, Bot } from "@/components/icons";
 import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
 import { formatElapsed } from "@/lib/utils/format";
 import { summarizeToolInput } from "./tool-input-summary";
+import {
+  useChatSearchQuery,
+  useChatSearchTargetId,
+} from "@/features/chat/hooks/chat-search-context";
+import { toolCallMatches } from "@/features/chat/lib/match-block";
 import type { StreamBlock, ToolCallBlock } from "@/types";
 
 interface ToolCallCardProps {
@@ -25,6 +30,15 @@ interface ToolCallCardProps {
  */
 export const ToolCallCard = memo(function ToolCallCard({ block }: ToolCallCardProps) {
   const [expanded, setExpanded] = useState(false);
+  const searchQuery = useChatSearchQuery();
+  const activeTargetId = useChatSearchTargetId();
+  // Auto-expand when search matches anywhere inside this tool.
+  const matchesSearch = useMemo(
+    () => !!searchQuery && toolCallMatches(block, searchQuery.toLowerCase()),
+    [block, searchQuery],
+  );
+  const effectivelyExpanded = expanded || matchesSearch;
+  const isActiveMatch = activeTargetId === block.id;
   const isRunning = block.status === "running";
   const isError = block.is_error === true;
   const summary = summarizeToolInput(block.name, block.input);
@@ -44,8 +58,9 @@ export const ToolCallCard = memo(function ToolCallCard({ block }: ToolCallCardPr
       data-rail-id={block.id}
       data-rail-kind={railKind}
       data-rail-preview={railPreview}
+      data-search-target={block.id}
       className={cn(
-        "rounded-md border transition-colors",
+        "rounded-md border transition-all",
         isRunning
           ? "border-info/30 bg-info/[0.06]"
           : isError
@@ -55,6 +70,8 @@ export const ToolCallCard = memo(function ToolCallCard({ block }: ToolCallCardPr
               // text-bubble surface, but not enough fill to overwhelm
               // the short tool-call content.
               "border-white/[0.06] bg-info/[0.025] hover:bg-info/[0.05]",
+        isActiveMatch &&
+          "ring-2 ring-info/60 ring-offset-2 ring-offset-canvas",
       )}
     >
       <button
@@ -103,7 +120,7 @@ export const ToolCallCard = memo(function ToolCallCard({ block }: ToolCallCardPr
           strokeWidth={2}
           className={cn(
             "shrink-0 text-fg-disabled transition-transform",
-            expanded && "rotate-90",
+            effectivelyExpanded && "rotate-90",
           )}
         />
       </button>
@@ -117,7 +134,7 @@ export const ToolCallCard = memo(function ToolCallCard({ block }: ToolCallCardPr
         </div>
       )}
 
-      {expanded && (
+      {effectivelyExpanded && (
         <div
           className={cn(
             "border-t border-white/[0.06] px-3 py-2 type-caption",

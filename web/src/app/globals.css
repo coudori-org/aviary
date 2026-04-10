@@ -441,4 +441,14 @@
       transparent 12px
     );
   }
+
+  /* In-chat search match. Inline only so prepend-anchor scroll math
+     stays correct when marks are inserted/removed. */
+  mark.chat-search-highlight {
+    background-color: rgba(255, 210, 70, 0.55);
+    color: rgb(var(--fg-primary));
+    border-radius: 2px;
+    padding: 0;
+    box-shadow: 0 0 0 1px rgba(255, 210, 70, 0.35);
+  }
 }
