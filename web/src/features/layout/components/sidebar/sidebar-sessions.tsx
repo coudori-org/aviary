@@ -4,13 +4,24 @@ import { useSidebar } from "@/features/layout/providers/sidebar-provider";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { SidebarAgentGroup } from "./sidebar-agent-group";
+import type { SidebarAgentGroup as SidebarAgentGroupData } from "@/features/layout/providers/sidebar-provider";
+
+interface SidebarSessionsProps {
+  /** Groups to render — typically the search-filtered subset from the
+   *  parent Sidebar. Falls back to the provider's full list if omitted. */
+  groups?: SidebarAgentGroupData[];
+  /** When the user has an active search query, the empty state copy
+   *  changes to "No matches" instead of "No active sessions". */
+  searchActive?: boolean;
+}
 
 /**
  * SidebarSessions — the section of the sidebar that lists active sessions
  * grouped by their agent. Hidden when the sidebar is collapsed.
  */
-export function SidebarSessions() {
-  const { groups, loading, collapsed } = useSidebar();
+export function SidebarSessions({ groups: groupsProp, searchActive }: SidebarSessionsProps) {
+  const { groups: providerGroups, loading, collapsed } = useSidebar();
+  const groups = groupsProp ?? providerGroups;
 
   if (collapsed) return null;
 
@@ -21,7 +32,7 @@ export function SidebarSessions() {
     <div className="px-3 pt-2">
       <div className="mb-2 flex items-center justify-between px-3">
         <span className="type-small text-fg-disabled">
-          Active Sessions
+          {searchActive ? "Sessions" : "Active Sessions"}
           {totalSessions > 0 && (
             <Badge variant="info" className="ml-2 px-1.5">
               {totalSessions}
@@ -37,7 +48,9 @@ export function SidebarSessions() {
           ))}
         </div>
       ) : groupsWithSessions.length === 0 ? (
-        <p className="px-3 type-caption text-fg-disabled">No active sessions</p>
+        <p className="px-3 type-caption text-fg-disabled">
+          {searchActive ? "No matches" : "No active sessions"}
+        </p>
       ) : (
         <div className="space-y-1">
           {groupsWithSessions.map(({ agent, sessions }) => (

@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.auth.oidc import init_oidc
 from app.config import settings
-from app.routers import a2a, acl, agents, auth, catalog, credentials, inference, mcp, sessions
+from app.routers import a2a, acl, agents, auth, catalog, credentials, inference, mcp, search, sessions
 from app.services import agent_supervisor
 from app.services.redis_service import close_redis, get_client, init_redis
 
@@ -50,6 +50,7 @@ app.include_router(credentials.router, prefix="/api/agents", tags=["credentials"
 app.include_router(inference.router, prefix="/api/inference", tags=["inference"])
 app.include_router(mcp.router, prefix="/api/mcp", tags=["mcp"])
 app.include_router(sessions.router, prefix="/api", tags=["sessions"])
+app.include_router(search.router, prefix="/api/search", tags=["search"])
 app.include_router(a2a.router, prefix="/api/a2a", tags=["a2a"])
 
 

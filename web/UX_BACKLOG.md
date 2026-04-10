@@ -429,6 +429,16 @@ info tint (`bg-info/[0.025]`) + canvas-inset pre 블록으로 위계 정리.
 
 **상태**: pending
 
+**Deferred (1차 시도 후 롤백)**: DOM walk 기반 v1을 구현했으나 채택 전 롤백.
+이 기능의 구현 방식 (DOM walk vs source data search vs 백엔드 API)이 다음
+두 아이템과 강하게 coupling됨:
+  - **CHAT-14** (Show earlier pagination) — 메시지가 페이지네이션되면
+    DOM walk가 hidden 메시지를 못 보므로 source data 접근이 필요해짐
+  - **SIDE-1** (사이드바 검색) — 백엔드 메시지 검색 API가 생기면 in-chat
+    검색도 같은 인덱스를 쓰는 게 자연스러움
+
+위 둘 중 하나가 결정되고 나서 CHAT-10을 구현하면 일관된 검색 UX가 됨.
+
 `⌘F` → 채팅 상단 검색바 슬라이드 다운.
 - 매치 하이라이팅 + 다음/이전
 - collapsed tool cards 안의 텍스트도 검색
@@ -487,14 +497,21 @@ hover preview, 클릭 점프. 100+ 메시지 세션에 결정적.
 
 ## SIDE-1 🔥 사이드바 검색
 
-**상태**: pending
+**상태**: accepted
 
-사이드바 최상단에 검색바.
-- 세션 제목 + 메시지 내용 동시 검색 (백엔드 API 필요할 수 있음)
-- 50+ 세션 사용자에게 결정적
+**v1 범위**: 사이드바 상단 검색 input. 두 layer:
+1. **즉시** (client-side): 세션 제목 / 에이전트 이름 substring filter
+2. **debounced 300ms** (backend): `/api/search/messages` 호출 → 메시지 본문
+   full-text 검색. 결과는 dropdown으로 표시. 클릭시 해당 세션으로 이동.
 
-**파일**: `features/layout/components/sidebar/sidebar-search.tsx` (신규),
-`sidebar.tsx`에 통합
+**Backend 변경**:
+- Migration `003_message_search.py`: pg_trgm extension + GIN 인덱스 (`messages.content`)
+- 새 router `app/routers/search.py`: `GET /api/search/messages?q=...`
+- ACL: `session_participants` join으로 사용자 권한 있는 세션만 검색
+- Snippet: SQL에서 매치 위치 ±100자 substring
+
+**파일**: `features/layout/components/sidebar/sidebar-search.tsx`,
+`features/search/{api,hooks,components}/`, `sidebar.tsx`, `sidebar-sessions.tsx`
 
 ---
 
