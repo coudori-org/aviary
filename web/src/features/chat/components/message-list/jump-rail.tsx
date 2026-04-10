@@ -6,6 +6,7 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  type PointerEvent as ReactPointerEvent,
   type RefObject,
 } from "react";
 import { cn } from "@/lib/utils";
@@ -63,10 +64,15 @@ const MIN_ITEMS = 6;
  * fits in one viewport, and on viewports too narrow to host it.
  */
 export function JumpRail({ scrollRef, messageCount }: JumpRailProps) {
+  const railRef = useRef<HTMLDivElement>(null);
   const [items, setItems] = useState<RailItem[]>([]);
   // Normalized [0..1] viewport top + height for the indicator band.
   const [viewport, setViewport] = useState({ top: 0, height: 0 });
   const [hoverIdx, setHoverIdx] = useState<number | null>(null);
+  const [dragging, setDragging] = useState(false);
+  // Drag state lives in a ref so the move handler doesn't re-create on
+  // every pointermove (which would also lose pointer capture targeting).
+  const dragRef = useRef<{ startY: number; startScrollTop: number } | null>(null);
 
   // Re-measure whenever messages change or any rendered content reflows
   // (markdown lazy syntax, code-block expansion, tool group expand/collapse).
@@ -135,6 +141,55 @@ export function JumpRail({ scrollRef, messageCount }: JumpRailProps) {
     [scrollRef],
   );
 
+  // --- Viewport band drag (scrollbar-thumb-like behavior) -------------
+  // The band is a draggable handle: 1px of band travel maps to
+  // (scrollHeight / railHeight) px of scroll travel, so the band stays
+  // glued to the pointer for the entire drag.
+  const handleBandPointerDown = useCallback(
+    (e: ReactPointerEvent<HTMLDivElement>) => {
+      if (e.button !== 0) return;
+      const scrollEl = scrollRef.current;
+      if (!scrollEl) return;
+      e.preventDefault();
+      e.stopPropagation();
+      dragRef.current = {
+        startY: e.clientY,
+        startScrollTop: scrollEl.scrollTop,
+      };
+      setDragging(true);
+      e.currentTarget.setPointerCapture(e.pointerId);
+    },
+    [scrollRef],
+  );
+
+  const handleBandPointerMove = useCallback(
+    (e: ReactPointerEvent<HTMLDivElement>) => {
+      const drag = dragRef.current;
+      if (!drag) return;
+      const scrollEl = scrollRef.current;
+      const railEl = railRef.current;
+      if (!scrollEl || !railEl) return;
+      const railHeight = railEl.clientHeight;
+      if (railHeight <= 0) return;
+      const deltaY = e.clientY - drag.startY;
+      const scrollDelta = (deltaY / railHeight) * scrollEl.scrollHeight;
+      scrollEl.scrollTop = drag.startScrollTop + scrollDelta;
+    },
+    [scrollRef],
+  );
+
+  const handleBandPointerUp = useCallback(
+    (e: ReactPointerEvent<HTMLDivElement>) => {
+      if (!dragRef.current) return;
+      dragRef.current = null;
+      setDragging(false);
+      if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+        e.currentTarget.releasePointerCapture(e.pointerId);
+      }
+    },
+    [],
+  );
+
   if (items.length < MIN_ITEMS) return null;
   // If everything fits in the viewport at once, the rail is just clutter.
   if (viewport.height >= 0.99) return null;
@@ -147,12 +202,24 @@ export function JumpRail({ scrollRef, messageCount }: JumpRailProps) {
 
   return (
     <div
+      ref={railRef}
       className="pointer-events-none absolute right-2 top-6 bottom-6 z-10 hidden w-3 lg:block group/rail"
       aria-hidden="true"
     >
-      {/* Viewport indicator band — always visible, more prominent on hover. */}
+      {/* Viewport indicator band — also a draggable handle so the rail
+          doubles as a custom scrollbar thumb. Pointer capture keeps the
+          drag tracking even if the cursor leaves the rail width. */}
       <div
-        className="pointer-events-none absolute inset-x-0 rounded-full bg-fg-disabled/10 transition-colors group-hover/rail:bg-fg-disabled/20"
+        onPointerDown={handleBandPointerDown}
+        onPointerMove={handleBandPointerMove}
+        onPointerUp={handleBandPointerUp}
+        onPointerCancel={handleBandPointerUp}
+        className={cn(
+          "pointer-events-auto absolute inset-x-0 rounded-full transition-colors",
+          dragging
+            ? "cursor-grabbing bg-fg-disabled/40"
+            : "cursor-grab bg-fg-disabled/15 hover:bg-fg-disabled/30 group-hover/rail:bg-fg-disabled/25",
+        )}
         style={{
           top: `${viewport.top * 100}%`,
           height: `${Math.max(viewport.height * 100, 4)}%`,
@@ -171,7 +238,7 @@ export function JumpRail({ scrollRef, messageCount }: JumpRailProps) {
             onMouseEnter={() => setHoverIdx(idx)}
             onMouseLeave={() => setHoverIdx((curr) => (curr === idx ? null : curr))}
             aria-label={`Jump to ${item.kind} item`}
-            className="pointer-events-auto absolute -inset-x-1 flex h-2 items-center justify-center"
+            className="pointer-events-auto absolute -left-1 right-0 flex h-2 items-center justify-center"
             style={{ top: `calc(${pct}% - 4px)` }}
           >
             <span
