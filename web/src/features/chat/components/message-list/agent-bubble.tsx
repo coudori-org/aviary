@@ -1,8 +1,11 @@
 "use client";
 
+import { useMemo } from "react";
 import { restoreBlocks } from "@/features/chat/lib/restore-blocks";
+import { groupConsecutiveToolCalls } from "@/features/chat/lib/group-blocks";
 import { MarkdownContent } from "@/features/chat/components/markdown/markdown-content";
 import { ToolCallCard } from "@/features/chat/components/blocks/tool-call-card";
+import { ToolGroupChip } from "@/features/chat/components/blocks/tool-group-chip";
 import { ThinkingChip } from "@/features/chat/components/blocks/thinking-chip";
 import { MessageCopyButton } from "./message-copy-button";
 import type { Message } from "@/types";
@@ -12,14 +15,27 @@ interface AgentBubbleProps {
 }
 
 /**
- * AgentBubble — historical agent message. If the message has saved
- * `blocks` metadata, restores the structured tree (text + thinking +
- * tool calls); otherwise falls back to plain markdown of the content field.
+ * AgentBubble — historical agent message.
+ *
+ * Block restoration pipeline:
+ *   1. `restoreBlocks` rebuilds the StreamBlock tree from saved metadata
+ *      (re-attaches sub-agent children to their parents)
+ *   2. `groupConsecutiveToolCalls` clusters runs of leaf tool calls into
+ *      collapsible groups so historical messages don't render as walls
+ *   3. View renders text / thinking / tool / tool-group inline
+ *
+ * Falls back to plain markdown for legacy messages without saved blocks.
  */
 export function AgentBubble({ message }: AgentBubbleProps) {
   const savedBlocks = message.metadata?.blocks as Array<Record<string, unknown>> | undefined;
   const hasBlocks = Array.isArray(savedBlocks) && savedBlocks.length > 0;
   const isCancelled = message.metadata?.cancelled === true;
+
+  const items = useMemo(() => {
+    if (!hasBlocks) return [];
+    const restored = restoreBlocks(savedBlocks!, isCancelled);
+    return groupConsecutiveToolCalls(restored);
+  }, [hasBlocks, savedBlocks, isCancelled]);
 
   return (
     <div className="flex gap-3 group animate-fade-in">
@@ -29,14 +45,18 @@ export function AgentBubble({ message }: AgentBubbleProps) {
 
       <div className="max-w-[75%] space-y-1.5">
         {hasBlocks ? (
-          restoreBlocks(savedBlocks!, isCancelled).map((block) => {
+          items.map((item) => {
+            if (item.kind === "tool-group") {
+              return (
+                <ToolGroupChip key={`group-${item.tools[0].id}`} tools={item.tools} />
+              );
+            }
+            const block = item.block;
             if (block.type === "tool_call") {
               return <ToolCallCard key={block.id} block={block} />;
             }
             if (block.type === "thinking") {
-              return (
-                <ThinkingChip key={block.id} content={block.content} defaultOpen={false} />
-              );
+              return <ThinkingChip key={block.id} content={block.content} />;
             }
             return (
               <div

@@ -88,7 +88,11 @@
 
 ## ENTRY-2 🔥 Quick-start 시트 (모달)
 
-**상태**: pending
+**상태**: rejected
+
+**Reject reason**: ENTRY-1 (Start chat 버튼) + ENTRY-4 (detail 대시보드의
+hero CTA + recent sessions) + ENTRY-5 (사이드바 + 버튼)이 합쳐서 같은 진입
+경로를 이미 커버. 모달 시트는 추가 인지 부담만 늘리고 가치가 중복됨.
 
 빈 채팅창 진입의 인지 부담("뭘 물어봐야 하지?")을 제거하기 위해
 agent 클릭시 풀페이지 이동 대신 하단 슬라이드 시트.
@@ -299,7 +303,16 @@ ML 없이 키워드 매칭 휴리스틱만으로 충분.
 
 ## CHAT-3 🔥 도구 호출 밀도 제어
 
-**상태**: pending
+**상태**: accepted
+
+**v1 범위**: 연속 3개+ tool call을 자동 그룹화. 카드 → 텍스트 칩으로 바뀜
+(rework 1차 후). 펼친 도구는 Fragment 자식으로 부모 flex의 직접 자식이
+되어 ungrouped tool call과 같은 depth로 렌더. Sub-agent nested children과
+시각적 충돌 해소.
+
+**Bonus tweak**: ThinkingChip도 같은 칩 패턴으로 톤 다운 (warning yellow →
+fg-disabled, 카드 → 텍스트, 항상 default collapsed). 별도 백로그 아이템 없이
+동일 commit에 포함.
 
 긴 세션이 ToolCallCard 벽이 되는 가장 큰 가독성 문제.
 
