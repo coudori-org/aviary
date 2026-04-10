@@ -3,28 +3,17 @@
 import asyncio
 import logging
 import time
-from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query
+import httpx
+from fastapi import APIRouter, Query
 from pydantic import BaseModel
 
-from app.config import settings
 from app.k8s import k8s_apply
+from app.manifests import build_deployment_manifest, build_pvc_manifest, build_service_manifest
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-
-# Platform service URLs (used in Pod env vars)
-_EGRESS_PROXY_URL = "http://egress-proxy.platform.svc:8080"
-_NO_PROXY = (
-    "litellm.platform.svc,"
-    "mcp-gateway.platform.svc,"
-    "egress-proxy.platform.svc,"
-    ".svc,.svc.cluster.local,"
-    "localhost,127.0.0.1"
-)
-_NODE_OPTIONS = "--require /app/scripts/proxy-bootstrap.js"
 
 
 class EnsureDeploymentRequest(BaseModel):
@@ -55,13 +44,13 @@ async def ensure_deployment(namespace: str, body: EnsureDeploymentRequest):
                 )
                 logger.info("Scaled up idle deployment in %s to %d", namespace, body.min_pods or 1)
             return {"namespace": namespace, "created": False}
-    except Exception:
+    except httpx.HTTPError:
         pass
 
     # Ensure namespace exists (re-provision if lost)
     try:
         await k8s_apply("GET", f"/api/v1/namespaces/{namespace}")
-    except Exception:
+    except httpx.HTTPError:
         logger.info("Namespace %s not found, re-provisioning", namespace)
         from app.routers.namespaces import CreateNamespaceRequest, create_namespace
         await create_namespace(CreateNamespaceRequest(
@@ -94,7 +83,7 @@ async def get_deployment_status(namespace: str):
             "ready_replicas": status.get("readyReplicas", 0),
             "updated_replicas": status.get("updatedReplicas", 0),
         }
-    except Exception:
+    except httpx.HTTPError:  # Best-effort: deployment may not exist
         return {"replicas": 0, "ready_replicas": 0, "updated_replicas": 0}
 
 
@@ -117,7 +106,7 @@ async def wait_for_ready(namespace: str, timeout: int = Query(default=90)):
             for cond in conditions:
                 if cond.get("type") == "Available" and cond.get("status") == "True":
                     return {"ready": True}
-        except Exception:
+        except httpx.HTTPError:  # Best-effort: poll until ready or timeout
             pass
 
         await asyncio.sleep(2)
@@ -153,7 +142,7 @@ async def scale_to_zero(namespace: str):
             f"/apis/apps/v1/namespaces/{namespace}/deployments/agent-runtime",
             {"spec": {"replicas": 0}},
         )
-    except Exception:
+    except httpx.HTTPError:
         logger.warning("Failed to scale down deployment in %s", namespace, exc_info=True)
     return {"ok": True}
 
@@ -168,7 +157,7 @@ async def delete_deployment(namespace: str):
     ]:
         try:
             await k8s_apply("DELETE", path)
-        except Exception:
+        except httpx.HTTPError:  # Best-effort: resource may already be gone
             logger.warning("Failed to delete %s", path, exc_info=True)
     logger.info("Deleted deployment resources in namespace %s", namespace)
     return {"ok": True}
@@ -206,8 +195,8 @@ async def cleanup_session_workspace(namespace: str, session_id: str):
     try:
         result = await k8s_apply("DELETE", proxy_path)
         return result
-    except Exception:
-        # Pod may be scaled to zero or not running — workspace will be cleaned
+    except httpx.HTTPError:
+        # Best-effort: Pod may be scaled to zero or not running — workspace will be cleaned
         # up when the PVC is eventually deleted (agent K8s teardown).
         logger.info(
             "Session workspace cleanup skipped for %s in %s (pod not reachable)",
@@ -244,9 +233,9 @@ async def get_pod_metrics(namespace: str):
                 total_active += metrics.get("sessions_active", 0)
                 total_streaming += metrics.get("sessions_streaming", 0)
                 pods_queried += 1
-            except Exception:
+            except httpx.HTTPError:  # Best-effort: individual pod metrics may be unavailable
                 pass
-    except Exception:
+    except httpx.HTTPError:  # Best-effort: pod listing may fail
         pass
 
     return {
@@ -263,122 +252,20 @@ async def _create_pvc(namespace: str, agent_id: str) -> None:
     await k8s_apply(
         "POST",
         f"/api/v1/namespaces/{namespace}/persistentvolumeclaims",
-        {
-            "apiVersion": "v1",
-            "kind": "PersistentVolumeClaim",
-            "metadata": {
-                "name": "agent-workspace",
-                "namespace": namespace,
-                "labels": {"aviary/agent-id": agent_id},
-            },
-            "spec": {
-                "accessModes": ["ReadWriteOnce"],
-                "resources": {"requests": {"storage": "5Gi"}},
-                "storageClassName": "local-path",
-            },
-        },
+        build_pvc_manifest(namespace, agent_id),
     )
 
 
 async def _create_deployment(namespace: str, body: EnsureDeploymentRequest) -> None:
-    policy = body.policy or {}
-    memory_limit = policy.get("maxMemoryPerSession", "4Gi")
-    cpu_limit = policy.get("maxCpuPerSession", "4")
-    container_image = policy.get("containerImage", settings.agent_runtime_image)
-    max_sessions = policy.get(
-        "maxConcurrentSessionsPerPod", settings.max_concurrent_sessions_per_pod
-    )
-
     await k8s_apply(
         "POST",
         f"/apis/apps/v1/namespaces/{namespace}/deployments",
-        {
-            "apiVersion": "apps/v1",
-            "kind": "Deployment",
-            "metadata": {
-                "name": "agent-runtime",
-                "namespace": namespace,
-                "labels": {
-                    "aviary/agent-id": body.agent_id,
-                    "aviary/role": "agent-runtime",
-                },
-            },
-            "spec": {
-                "replicas": body.min_pods,
-                "selector": {"matchLabels": {"aviary/role": "agent-runtime"}},
-                "template": {
-                    "metadata": {
-                        "labels": {
-                            "aviary/role": "agent-runtime",
-                            "aviary/agent-id": body.agent_id,
-                        },
-                    },
-                    "spec": {
-                        "serviceAccountName": "session-runner",
-                        "securityContext": {
-                            "runAsUser": 1000,
-                            "runAsGroup": 1000,
-                            "fsGroup": 1000,
-                        },
-                        "hostAliases": [
-                            {
-                                "ip": settings.host_gateway_ip,
-                                "hostnames": ["host.k8s.internal"],
-                            }
-                        ],
-                        "containers": [
-                            {
-                                "name": "agent-runtime",
-                                "image": container_image,
-                                "imagePullPolicy": "Never",
-                                "ports": [{"containerPort": 3000}],
-                                "env": [
-                                    {"name": "AGENT_ID", "value": body.agent_id},
-                                    {"name": "MAX_CONCURRENT_SESSIONS", "value": str(max_sessions)},
-                                    {"name": "INFERENCE_ROUTER_URL", "value": "http://litellm.platform.svc:4000"},
-                                    {"name": "MCP_GATEWAY_URL", "value": "http://mcp-gateway.platform.svc:8100"},
-                                    {"name": "LITELLM_API_KEY", "value": "sk-aviary-dev"},
-                                    {"name": "HOME", "value": "/tmp"},
-                                    {"name": "HTTP_PROXY", "value": _EGRESS_PROXY_URL},
-                                    {"name": "HTTPS_PROXY", "value": _EGRESS_PROXY_URL},
-                                    {"name": "NO_PROXY", "value": _NO_PROXY},
-                                    {"name": "NODE_OPTIONS", "value": _NODE_OPTIONS},
-                                    {"name": "AVIARY_API_URL", "value": "http://host.k8s.internal:8000/api"},
-                                    {"name": "AVIARY_INTERNAL_API_KEY", "value": "sk-aviary-internal"},
-                                ],
-                                "volumeMounts": [
-                                    {"name": "agent-workspace", "mountPath": "/workspace"},
-                                    {"name": "shared-workspace", "mountPath": "/workspace-shared"},
-                                ],
-                                "resources": {
-                                    "requests": {"cpu": "1", "memory": "1Gi"},
-                                    "limits": {"cpu": cpu_limit, "memory": memory_limit},
-                                },
-                                "livenessProbe": {
-                                    "httpGet": {"path": "/health", "port": 3000},
-                                    "initialDelaySeconds": 5,
-                                    "periodSeconds": 30,
-                                },
-                                "readinessProbe": {
-                                    "httpGet": {"path": "/ready", "port": 3000},
-                                    "initialDelaySeconds": 3,
-                                },
-                            }
-                        ],
-                        "volumes": [
-                            {
-                                "name": "agent-workspace",
-                                "persistentVolumeClaim": {"claimName": "agent-workspace"},
-                            },
-                            {
-                                "name": "shared-workspace",
-                                "hostPath": {"path": "/workspace-shared", "type": "DirectoryOrCreate"},
-                            },
-                        ],
-                    },
-                },
-            },
-        },
+        build_deployment_manifest(
+            namespace=namespace,
+            agent_id=body.agent_id,
+            min_pods=body.min_pods,
+            policy=body.policy or {},
+        ),
     )
 
 
@@ -386,13 +273,5 @@ async def _create_service(namespace: str) -> None:
     await k8s_apply(
         "POST",
         f"/api/v1/namespaces/{namespace}/services",
-        {
-            "apiVersion": "v1",
-            "kind": "Service",
-            "metadata": {"name": "agent-runtime-svc", "namespace": namespace},
-            "spec": {
-                "selector": {"aviary/role": "agent-runtime"},
-                "ports": [{"port": 3000, "targetPort": 3000, "protocol": "TCP"}],
-            },
-        },
+        build_service_manifest(namespace),
     )

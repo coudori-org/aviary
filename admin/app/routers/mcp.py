@@ -229,7 +229,7 @@ async def discover_tools(server_id: uuid.UUID, db: AsyncSession = Depends(get_db
             async with ClientSession(read_stream, write_stream) as session:
                 await session.initialize()
                 tools_result = await session.list_tools()
-    except Exception as e:
+    except Exception as e:  # MCP SDK can raise various errors (transport, protocol, timeout)
         srv.status = "error"
         await db.flush()
         raise HTTPException(status_code=502, detail=f"Failed to connect to MCP server: {e}")

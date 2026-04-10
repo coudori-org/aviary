@@ -1,10 +1,11 @@
 import uuid
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth.dependencies import get_current_user
-from app.db.models import User
+from app.auth.dependencies import get_current_user, require_agent_permission
+from app.db.models import Agent, User
 from app.db.session import get_db
 from app.schemas.agent import AgentCreate, AgentListResponse, AgentResponse, AgentUpdate
 from app.services import acl_service, agent_service
@@ -66,19 +67,19 @@ async def get_agents_status(
                 cached = await rc.get(cache_key)
                 if cached is not None:
                     return aid, cached
-            except Exception:
+            except Exception:  # Best-effort: cache read failure is non-critical
                 pass
 
         try:
             ready = await agent_supervisor.check_agent_ready(aid)
             result = "ready" if ready else "offline"
-        except Exception:
+        except httpx.HTTPError:
             result = "offline"
 
         if rc:
             try:
                 await rc.set(cache_key, result, ex=cache_ttl)
-            except Exception:
+            except Exception:  # Best-effort: cache write failure is non-critical
                 pass
 
         return aid, result
@@ -89,37 +90,19 @@ async def get_agents_status(
 
 @router.get("/{agent_id}", response_model=AgentResponse)
 async def get_agent(
-    agent_id: uuid.UUID,
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    agent: Agent = Depends(require_agent_permission("view", include_deleted=True)),
 ):
     """Get agent details (includes deleted agents that still have active sessions)."""
-    agent = await agent_service.get_agent(db, agent_id, include_deleted=True)
-    if not agent:
-        raise HTTPException(status_code=404, detail="Agent not found")
-    try:
-        await acl_service.check_agent_permission(db, user, agent, "view")
-    except PermissionError as e:
-        raise HTTPException(status_code=403, detail=str(e)) from e
     return AgentResponse.from_orm_agent(agent)
 
 
 @router.put("/{agent_id}", response_model=AgentResponse)
 async def update_agent(
-    agent_id: uuid.UUID,
     body: AgentUpdate,
-    user: User = Depends(get_current_user),
+    agent: Agent = Depends(require_agent_permission("edit_config", include_deleted=True)),
     db: AsyncSession = Depends(get_db),
 ):
     """Update agent configuration (works on deleted agents too)."""
-    agent = await agent_service.get_agent(db, agent_id, include_deleted=True)
-    if not agent:
-        raise HTTPException(status_code=404, detail="Agent not found")
-    try:
-        await acl_service.check_agent_permission(db, user, agent, "edit_config")
-    except PermissionError as e:
-        raise HTTPException(status_code=403, detail=str(e)) from e
-
     agent = await agent_service.update_agent(db, agent, body)
     await db.refresh(agent)
     return AgentResponse.from_orm_agent(agent)
@@ -127,18 +110,9 @@ async def update_agent(
 
 @router.delete("/{agent_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_agent(
-    agent_id: uuid.UUID,
-    user: User = Depends(get_current_user),
+    agent: Agent = Depends(require_agent_permission("delete")),
     db: AsyncSession = Depends(get_db),
 ):
     """Delete an agent."""
-    agent = await agent_service.get_agent(db, agent_id)
-    if not agent:
-        raise HTTPException(status_code=404, detail="Agent not found")
-    try:
-        await acl_service.check_agent_permission(db, user, agent, "delete")
-    except PermissionError as e:
-        raise HTTPException(status_code=403, detail=str(e)) from e
-
     await agent_service.delete_agent(db, agent)
     return None

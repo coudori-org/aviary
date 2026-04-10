@@ -55,7 +55,7 @@ async def health():
     try:
         await k8s_apply("GET", "/api/v1/namespaces/platform")
         k8s_ok = True
-    except Exception:
+    except Exception:  # Best-effort: health check probes K8s connectivity
         pass
 
     return {

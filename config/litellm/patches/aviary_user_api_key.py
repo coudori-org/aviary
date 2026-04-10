@@ -131,7 +131,7 @@ async def _extract_sub(token: str) -> str:
 
     try:
         header = _get_unverified_header(token)
-    except Exception as exc:
+    except Exception as exc:  # JWT header decode can fail in many ways — re-raise with context
         raise Exception(f"Invalid user token header: {exc}") from exc
 
     kid = header.get("kid")
@@ -272,13 +272,13 @@ def _register():
             # Validate JWT and extract sub
             try:
                 sub = await _extract_sub(user_token)
-            except Exception as exc:
+            except Exception as exc:  # JWT validation can fail in many ways — re-raise as auth error
                 raise _auth_error(str(exc)) from exc
 
             # Look up user's API key in Vault
             try:
                 api_key = await _get_vault_api_key(sub)
-            except Exception as exc:
+            except Exception as exc:  # Vault lookup can fail (network, auth, etc.) — re-raise as auth error
                 raise _auth_error(f"Credential service error: {exc}") from exc
 
             if not api_key:
@@ -304,7 +304,7 @@ def _register():
 if OIDC_ISSUER:
     try:
         _register()
-    except Exception:
+    except Exception:  # Best-effort: hook registration failure should not crash LiteLLM
         logger.warning("Failed to register user API key hook", exc_info=True)
 else:
     logger.info("OIDC_ISSUER not set — per-user API key hook disabled")

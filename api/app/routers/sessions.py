@@ -3,6 +3,7 @@ import json
 import logging
 import uuid
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,7 +22,8 @@ from app.schemas.session import (
     SessionResponse,
     SessionTitleUpdate,
 )
-from app.services import acl_service, agent_supervisor, redis_service, session_service, stream_manager
+from app.services import acl_service, agent_supervisor, redis_service, session_service
+from app.services.stream import manager as stream_manager
 
 logger = logging.getLogger(__name__)
 
@@ -219,7 +221,7 @@ async def websocket_chat(websocket: WebSocket, session_id: uuid.UUID):
             await websocket.send_json({"type": "status", "status": "spawning"})
             try:
                 await session_service.ensure_agent_ready(db, agent)
-            except Exception as e:
+            except (httpx.HTTPError, RuntimeError) as e:
                 await websocket.send_json({"type": "status", "status": "offline", "message": f"Failed to start agent: {e}"})
                 return
 
@@ -259,7 +261,7 @@ async def websocket_chat(websocket: WebSocket, session_id: uuid.UUID):
                         # event in real-time (they're actively viewing the session)
                         if data.get("type") == "done":
                             await redis_service.clear_unread(session_id_str, user_id_str)
-                    except Exception:
+                    except Exception:  # Best-effort: WebSocket send may fail if client disconnected
                         pass
             except asyncio.CancelledError:
                 pass
@@ -342,11 +344,11 @@ async def websocket_chat(websocket: WebSocket, session_id: uuid.UUID):
 
     except WebSocketDisconnect:
         pass
-    except Exception as e:
+    except Exception as e:  # Best-effort: catch-all for unexpected WebSocket errors
         logger.exception("WebSocket handler error for session %s", session_id)
         try:
             await websocket.send_json({"type": "error", "message": str(e)})
-        except Exception:
+        except Exception:  # Best-effort: WebSocket may already be closed
             pass
     finally:
         if user_id_str:

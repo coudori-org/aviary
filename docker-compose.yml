@@ -210,6 +210,7 @@ services:
       LITELLM_URL: http://litellm:4000
       LITELLM_API_KEY: "sk-aviary-dev"
       MCP_GATEWAY_URL: http://mcp-gateway:8100
+      INTERNAL_API_KEY: sk-aviary-internal
       CORS_ORIGINS: '["http://localhost:3000"]'
     depends_on:
       db-migrate:
@@ -263,6 +264,7 @@ services:
     volumes:
       - ./mcp-gateway:/workspace/mcp-gateway
       - ./shared:/workspace/shared
+      - ./config/mcp-gateway/platform-servers.yaml:/app/config/platform-servers.yaml
       - /workspace/.venv
     environment:
       DATABASE_URL: postgresql+asyncpg://aviary:aviary@postgres:5432/aviary

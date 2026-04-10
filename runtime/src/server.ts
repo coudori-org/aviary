@@ -18,7 +18,10 @@ app.use(express.json());
 app.use(healthRouter);
 
 const manager = new SessionManager();
-const AGENT_ID = process.env.AGENT_ID || "default";
+const AGENT_ID = process.env.AGENT_ID;
+if (!AGENT_ID) {
+  throw new Error("Required environment variable AGENT_ID is not set");
+}
 
 // Track active AbortControllers per session for cancellation support
 const activeAbortControllers = new Map<string, AbortController>();

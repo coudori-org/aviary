@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from aviary_shared.db.models import User, TeamMember, Team
 from app.config import settings
 from app.db import get_db
+from app.services import keycloak_client
 
 logger = logging.getLogger(__name__)
 
@@ -47,88 +48,6 @@ class VaultKeyResponse(BaseModel):
 class VaultKeyRequest(BaseModel):
     key: str
     value: str
-
-
-# ── Keycloak helpers ─────────────────────────────────────────
-
-
-async def _get_keycloak_admin_token() -> str:
-    async with httpx.AsyncClient() as client:
-        resp = await client.post(
-            f"{settings.keycloak_url}/realms/master/protocol/openid-connect/token",
-            data={
-                "client_id": "admin-cli",
-                "grant_type": "password",
-                "username": settings.keycloak_admin,
-                "password": settings.keycloak_admin_password,
-            },
-            timeout=10,
-        )
-        resp.raise_for_status()
-        return resp.json()["access_token"]
-
-
-async def _create_keycloak_user(
-    email: str, display_name: str, password: str, groups: list[str],
-) -> str:
-    """Create user in Keycloak. Returns keycloak user ID."""
-    token = await _get_keycloak_admin_token()
-    base = f"{settings.keycloak_url}/admin/realms/{settings.keycloak_realm}"
-    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-
-    parts = display_name.split(" ", 1)
-    first_name = parts[0]
-    last_name = parts[1] if len(parts) > 1 else ""
-
-    async with httpx.AsyncClient() as client:
-        # Create user
-        resp = await client.post(
-            f"{base}/users",
-            headers=headers,
-            json={
-                "username": email,
-                "email": email,
-                "emailVerified": True,
-                "enabled": True,
-                "firstName": first_name,
-                "lastName": last_name,
-                "credentials": [{"type": "password", "value": password, "temporary": False}],
-            },
-            timeout=10,
-        )
-        if resp.status_code not in (201, 409):
-            raise HTTPException(status_code=502, detail=f"Keycloak user creation failed: {resp.text}")
-
-        # Get user ID
-        resp = await client.get(
-            f"{base}/users?email={email}",
-            headers=headers,
-            timeout=10,
-        )
-        resp.raise_for_status()
-        users = resp.json()
-        if not users:
-            raise HTTPException(status_code=502, detail="Keycloak user created but not found")
-        kc_user_id = users[0]["id"]
-
-        # Assign groups
-        for group_name in groups:
-            resp = await client.get(
-                f"{base}/groups?search={group_name}",
-                headers=headers,
-                timeout=10,
-            )
-            kc_groups = resp.json()
-            for g in kc_groups:
-                if g["name"] == group_name:
-                    await client.put(
-                        f"{base}/users/{kc_user_id}/groups/{g['id']}",
-                        headers=headers,
-                        timeout=10,
-                    )
-                    break
-
-    return kc_user_id
 
 
 # ── Vault helpers ────────────────────────────────────────────
@@ -212,22 +131,8 @@ async def _sync_keycloak_users(db: AsyncSession) -> None:
     are visible in the admin console.
     """
     try:
-        token = await _get_keycloak_admin_token()
-    except Exception:
-        logger.warning("Failed to get Keycloak admin token for sync", exc_info=True)
-        return
-
-    base = f"{settings.keycloak_url}/admin/realms/{settings.keycloak_realm}"
-    headers = {"Authorization": f"Bearer {token}"}
-
-    try:
-        async with httpx.AsyncClient() as client:
-            resp = await client.get(
-                f"{base}/users?max=500", headers=headers, timeout=10,
-            )
-            resp.raise_for_status()
-            kc_users = resp.json()
-    except Exception:
+        kc_users = await keycloak_client.list_users()
+    except httpx.HTTPError:
         logger.warning("Failed to fetch Keycloak users", exc_info=True)
         return
 
@@ -253,13 +158,8 @@ async def _sync_keycloak_users(db: AsyncSession) -> None:
 
         # Sync groups
         try:
-            async with httpx.AsyncClient() as client:
-                resp = await client.get(
-                    f"{base}/users/{kc_id}/groups", headers=headers, timeout=10,
-                )
-                resp.raise_for_status()
-                kc_groups = [g["name"] for g in resp.json()]
-        except Exception:
+            kc_groups = await keycloak_client.get_user_groups(kc_id)
+        except httpx.HTTPError:  # Best-effort: group lookup failure is non-critical
             kc_groups = []
 
         for group_name in kc_groups:
@@ -319,12 +219,12 @@ async def create_user(body: UserCreateRequest, db: AsyncSession = Depends(get_db
     """Create a user in Keycloak and register in Aviary DB."""
     # Create in Keycloak
     try:
-        kc_user_id = await _create_keycloak_user(
+        kc_user_id = await keycloak_client.create_user(
             body.email, body.display_name, body.password, body.groups,
         )
     except HTTPException:
         raise
-    except Exception as e:
+    except httpx.HTTPError as e:
         raise HTTPException(status_code=502, detail=f"Keycloak error: {e}")
 
     # Upsert in DB

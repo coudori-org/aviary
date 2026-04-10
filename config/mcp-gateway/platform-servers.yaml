@@ -1,0 +1,19 @@
+- name: jira
+  description: "Jira project management — issues, sprints, transitions, search"
+  transport_type: streamable_http
+  connection_config:
+    url: "http://mcp-jira:8000/mcp/"
+  tags:
+    - jira
+    - project-management
+    - tickets
+
+- name: confluence
+  description: "Confluence wiki — pages, spaces, search, content management"
+  transport_type: streamable_http
+  connection_config:
+    url: "http://mcp-confluence:8000/mcp/"
+  tags:
+    - confluence
+    - wiki
+    - documentation

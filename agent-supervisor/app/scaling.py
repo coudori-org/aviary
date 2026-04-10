@@ -8,9 +8,12 @@ Updates last_activity_at in DB when agents are accessed.
 import asyncio
 import logging
 
+import httpx
 from datetime import datetime, timezone
 
 from sqlalchemy import select
+
+from aviary_shared.naming import agent_namespace
 
 from app.config import settings
 from app.db import async_session_factory
@@ -30,7 +33,7 @@ async def touch_activity(agent_id: str) -> None:
             if agent:
                 agent.last_activity_at = datetime.now(timezone.utc)
                 await db.commit()
-    except Exception:
+    except Exception:  # Best-effort: activity tracking is non-critical
         logger.debug("Failed to update activity for agent %s", agent_id, exc_info=True)
 
 
@@ -40,7 +43,7 @@ async def scaling_loop() -> None:
         await asyncio.sleep(settings.scaling_check_interval)
         try:
             await _check_and_scale()
-        except Exception:
+        except Exception:  # Best-effort: background loop must not crash
             logger.warning("Scaling check failed", exc_info=True)
 
 
@@ -54,7 +57,7 @@ async def _check_and_scale() -> None:
         agents = result.scalars().all()
 
     for agent in agents:
-        ns = f"agent-{agent.id}"
+        ns = agent_namespace(str(agent.id))
         try:
             dep = await k8s_apply(
                 "GET", f"/apis/apps/v1/namespaces/{ns}/deployments/agent-runtime"
@@ -62,12 +65,12 @@ async def _check_and_scale() -> None:
             replicas = dep.get("spec", {}).get("replicas", 0)
             if replicas == 0:
                 continue
-        except Exception:
+        except httpx.HTTPError:
             continue
 
         try:
             await _scale_agent(str(agent.id), ns, agent.min_pods, agent.max_pods)
-        except Exception:
+        except httpx.HTTPError:
             pass
 
 
@@ -93,9 +96,9 @@ async def _scale_agent(agent_id: str, ns: str, min_pods: int, max_pods: int) -> 
                 total_active += metrics.get("sessions_active", 0)
                 total_streaming += metrics.get("sessions_streaming", 0)
                 pods_queried += 1
-            except Exception:
+            except httpx.HTTPError:  # Best-effort: individual pod metrics may be unavailable
                 pass
-    except Exception:
+    except httpx.HTTPError:
         return
 
     if pods_queried == 0:
@@ -135,7 +138,7 @@ async def idle_cleanup_loop() -> None:
         await asyncio.sleep(settings.idle_cleanup_interval)
         try:
             await _idle_cleanup()
-        except Exception:
+        except Exception:  # Best-effort: background loop must not crash
             logger.warning("Idle cleanup failed", exc_info=True)
 
 
@@ -152,7 +155,7 @@ async def _idle_cleanup() -> None:
 
     cleaned = 0
     for agent in agents:
-        ns = f"agent-{agent.id}"
+        ns = agent_namespace(str(agent.id))
 
         # Check if deployment is running
         try:
@@ -162,7 +165,7 @@ async def _idle_cleanup() -> None:
             replicas = dep.get("spec", {}).get("replicas", 0)
             if replicas == 0:
                 continue
-        except Exception:
+        except httpx.HTTPError:
             continue
 
         # Check idle duration
@@ -178,7 +181,7 @@ async def _idle_cleanup() -> None:
             )
             cleaned += 1
             logger.info("Idle cleanup: scaled down agent %s", agent.id)
-        except Exception:
+        except httpx.HTTPError:
             logger.warning("Failed to scale down idle agent %s", agent.id, exc_info=True)
 
     if cleaned:

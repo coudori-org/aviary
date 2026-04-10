@@ -238,7 +238,7 @@ def create_gateway_server() -> Server:
                 else:
                     contents.append(TextContent(type="text", text=str(item)))
             return contents
-        except Exception as e:
+        except Exception as e:  # Best-effort: return error to caller instead of crashing
             logger.exception("Tool call failed: %s on %s", tool_name, server_name)
             return [TextContent(type="text", text=f"Error: tool call failed: {e}")]
 

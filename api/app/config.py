@@ -3,38 +3,36 @@ from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     # Database
-    database_url: str = "postgresql+asyncpg://aviary:aviary@localhost:5432/aviary"
+    database_url: str
 
     # Redis
-    redis_url: str = "redis://localhost:6379/0"
+    redis_url: str
 
     # OIDC
-    oidc_issuer: str = "http://localhost:8080/realms/aviary"
-    # Internal URL for fetching OIDC discovery/JWKS (container-to-container)
-    # If unset, falls back to oidc_issuer
+    oidc_issuer: str
     oidc_internal_issuer: str | None = None
-    oidc_client_id: str = "aviary-web"
+    oidc_client_id: str
     oidc_audience: str | None = None
 
     # Vault
-    vault_addr: str = "http://localhost:8200"
-    vault_token: str = "dev-root-token"
+    vault_addr: str
+    vault_token: str
 
     # MCP Gateway
-    mcp_gateway_url: str = "http://mcp-gateway:8100"
+    mcp_gateway_url: str
 
     # CORS
     cors_origins: list[str] = ["http://localhost:3000"]
 
     # Internal API key for service-to-service calls (runtime → API)
-    internal_api_key: str = "sk-aviary-internal"
+    internal_api_key: str
 
     # Agent Supervisor
-    agent_supervisor_url: str = "http://localhost:9000"
+    agent_supervisor_url: str
 
     # LiteLLM Gateway
-    litellm_url: str = "http://litellm:4000"
-    litellm_api_key: str = "sk-aviary-dev"
+    litellm_url: str
+    litellm_api_key: str
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 

@@ -3,12 +3,14 @@
 import uuid
 import logging
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from aviary_shared.db.models import Agent
+from aviary_shared.naming import agent_namespace
 from app.db import get_db
 from app.services import supervisor_client
 
@@ -163,14 +165,14 @@ async def delete_agent(agent_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Agent not found")
 
     # Clean up K8s resources
-    ns = f"agent-{agent.id}"
+    ns = agent_namespace(str(agent.id))
     try:
         await supervisor_client.delete_deployment(ns)
-    except Exception:
+    except httpx.HTTPError:  # Best-effort: K8s resources may already be gone
         pass
     try:
         await supervisor_client.delete_namespace(str(agent.id))
-    except Exception:
+    except httpx.HTTPError:  # Best-effort: namespace may already be gone
         pass
 
     # Delete all sessions, then the agent

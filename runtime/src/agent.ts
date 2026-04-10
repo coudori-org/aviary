@@ -25,10 +25,16 @@ import { startA2AServer, type AccessibleAgent, type A2AServer } from "./a2a-tool
 const WORKSPACE_ROOT = "/workspace";
 const SHARED_WORKSPACE_ROOT = "/workspace-shared";
 
-const LITELLM_URL =
-  process.env.INFERENCE_ROUTER_URL ??
-  "http://litellm.platform.svc:4000";
-const LITELLM_API_KEY = process.env.LITELLM_API_KEY ?? "sk-aviary-dev";
+function requireEnv(name: string): string {
+  const value = process.env[name];
+  if (!value) {
+    throw new Error(`Required environment variable ${name} is not set`);
+  }
+  return value;
+}
+
+const LITELLM_URL = requireEnv("INFERENCE_ROUTER_URL");
+const LITELLM_API_KEY = requireEnv("LITELLM_API_KEY");
 
 // Force SDK to use our bwrap wrapper instead of its bundled binary.
 // TS SDK option is `pathToClaudeCodeExecutable` (not `cliPath` like Python).

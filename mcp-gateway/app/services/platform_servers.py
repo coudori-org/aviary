@@ -1,48 +1,45 @@
 """Auto-register platform-provided MCP servers on startup.
 
-Reads from a static registry and ensures each server exists in the DB
+Reads from a YAML config file and ensures each server exists in the DB
 with is_platform_provided=True. Triggers tool discovery via MCP SDK client.
 """
 
 import logging
 from datetime import datetime, timezone
 
+import yaml
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from aviary_shared.db.models import McpServer, McpTool
+from app.config import settings
 from app.mcp.connection_pool import pool
 
 logger = logging.getLogger(__name__)
 
-# Platform-provided MCP servers — auto-registered on gateway startup.
-PLATFORM_SERVERS = [
-    {
-        "name": "jira",
-        "description": "Jira project management — issues, sprints, transitions, search",
-        "transport_type": "streamable_http",
-        "connection_config": {"url": "http://mcp-jira:8000/mcp/"},
-        "tags": ["jira", "project-management", "tickets"],
-    },
-    {
-        "name": "confluence",
-        "description": "Confluence wiki — pages, spaces, search, content management",
-        "transport_type": "streamable_http",
-        "connection_config": {"url": "http://mcp-confluence:8000/mcp/"},
-        "tags": ["confluence", "wiki", "documentation"],
-    },
-]
+
+def _load_platform_servers() -> list[dict]:
+    """Load platform server definitions from YAML config."""
+    config_path = settings.platform_servers_config
+    try:
+        with open(config_path) as f:
+            servers = yaml.safe_load(f)
+        if not isinstance(servers, list):
+            raise ValueError(f"Expected a list in {config_path}")
+        return servers
+    except FileNotFoundError:
+        logger.warning("Platform servers config not found: %s", config_path)
+        return []
 
 
 async def _discover_tools_for_server(db: AsyncSession, server: McpServer) -> int:
     """Connect to a backend MCP server via MCP SDK and populate tools in DB."""
     try:
         raw_tools = await pool.list_tools(server)
-    except Exception:
+    except Exception:  # Best-effort: MCP SDK tool discovery can fail in many ways
         logger.warning("Failed to discover tools from %s — will retry on next startup", server.name)
         return 0
 
-    # Upsert tools
     result = await db.execute(
         select(McpTool).where(McpTool.server_id == server.id)
     )
@@ -74,7 +71,9 @@ async def _discover_tools_for_server(db: AsyncSession, server: McpServer) -> int
 
 async def register_platform_servers(db: AsyncSession) -> None:
     """Ensure all platform-provided MCP servers are registered in the DB."""
-    for spec in PLATFORM_SERVERS:
+    platform_servers = _load_platform_servers()
+
+    for spec in platform_servers:
         result = await db.execute(
             select(McpServer).where(McpServer.name == spec["name"])
         )
@@ -86,7 +85,7 @@ async def register_platform_servers(db: AsyncSession) -> None:
                 description=spec["description"],
                 transport_type=spec["transport_type"],
                 connection_config=spec["connection_config"],
-                tags=spec["tags"],
+                tags=spec.get("tags", []),
                 is_platform_provided=True,
                 status="active",
             )
@@ -96,7 +95,7 @@ async def register_platform_servers(db: AsyncSession) -> None:
         else:
             server.connection_config = spec["connection_config"]
             server.description = spec["description"]
-            server.tags = spec["tags"]
+            server.tags = spec.get("tags", [])
             server.is_platform_provided = True
             await db.flush()
 

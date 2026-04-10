@@ -1,3 +1,4 @@
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -37,7 +38,7 @@ async def auth_callback(body: TokenExchangeRequest, db: AsyncSession = Depends(g
     """Exchange authorization code for tokens and upsert user."""
     try:
         token_data = await exchange_code(body.code, body.redirect_uri, body.code_verifier)
-    except Exception as e:
+    except httpx.HTTPError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Token exchange failed: {e}",
@@ -73,7 +74,7 @@ async def auth_refresh(body: TokenRefreshRequest):
     """Exchange a refresh token for a new access token."""
     try:
         token_data = await refresh_tokens(body.refresh_token)
-    except Exception as e:
+    except httpx.HTTPError as e:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=f"Token refresh failed: {e}",

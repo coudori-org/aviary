@@ -66,7 +66,7 @@ class McpConnectionPool:
                     }
                     for tool in result.tools
                 ]
-        except Exception:
+        except Exception:  # Log and re-raise: MCP SDK can throw transport/protocol errors
             logger.exception("Failed to list tools from server %s (%s)", server.name, server.id)
             raise
 
@@ -80,7 +80,7 @@ class McpConnectionPool:
         try:
             async with self._connect(server) as session:
                 return await session.call_tool(tool_name, arguments)
-        except Exception:
+        except Exception:  # Log and re-raise: MCP SDK can throw transport/protocol errors
             logger.exception(
                 "Failed to call tool %s on server %s", tool_name, server.name
             )

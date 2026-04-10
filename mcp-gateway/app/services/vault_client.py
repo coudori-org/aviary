@@ -39,6 +39,6 @@ async def get_mcp_credential(user_external_id: str, server_name: str) -> str | N
             resp.raise_for_status()
             data = resp.json()
             return data["data"]["data"].get("value")
-    except Exception:
+    except httpx.HTTPError:  # Best-effort: Vault may be unreachable
         logger.warning("Failed to fetch credential from Vault: %s", vault_path, exc_info=True)
         return None

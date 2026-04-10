@@ -85,7 +85,7 @@ class OIDCValidator:
             jwks_uri = self._rewrite_url(self._oidc_config["jwks_uri"])
             self._jwks = await self._fetch_jwks(jwks_uri)
             self._jwks_fetched_at = time.time()
-        except Exception:
+        except Exception:  # Best-effort: failures are retried on demand
             self._oidc_config = None
             self._jwks = None
 

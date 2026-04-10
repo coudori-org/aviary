@@ -3,12 +3,14 @@
 import uuid
 import logging
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from aviary_shared.db.models import Agent
+from aviary_shared.naming import agent_namespace
 from app.db import get_db
 from app.services import supervisor_client
 
@@ -65,10 +67,10 @@ async def update_policy(
     await db.flush()
 
     # Update K8s NetworkPolicy
-    ns = f"agent-{agent.id}"
+    ns = agent_namespace(str(agent.id))
     try:
         await supervisor_client.update_network_policy(ns, agent.policy)
-    except Exception:
+    except httpx.HTTPError:
         logger.warning("NetworkPolicy update failed for agent %s", agent.id, exc_info=True)
 
     return {
@@ -90,11 +92,11 @@ async def force_sync_policy(agent_id: uuid.UUID, db: AsyncSession = Depends(get_
 
     synced = {"network_policy": False}
 
-    ns = f"agent-{agent.id}"
+    ns = agent_namespace(str(agent.id))
     try:
         await supervisor_client.update_network_policy(ns, agent.policy)
         synced["network_policy"] = True
-    except Exception:
+    except httpx.HTTPError:
         logger.warning("NetworkPolicy sync failed for agent %s", agent.id, exc_info=True)
 
     return {"agent_id": str(agent.id), "synced": synced}

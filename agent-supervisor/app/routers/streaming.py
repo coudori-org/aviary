@@ -2,6 +2,7 @@
 
 import logging
 
+import httpx
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
@@ -37,7 +38,7 @@ async def proxy_message(namespace: str, request: Request):
                         return
                     async for chunk in resp.aiter_bytes():
                         yield chunk
-        except Exception:
+        except httpx.HTTPError:
             logger.exception("SSE proxy error for namespace %s", namespace)
 
     return StreamingResponse(
@@ -60,6 +61,6 @@ async def abort_stream(namespace: str, session_id: str):
         async with _get_k8s_client() as client:
             resp = await client.post(proxy_path, timeout=5)
             return {"ok": True, "pod_status": resp.status_code}
-    except Exception:
+    except httpx.HTTPError:
         logger.warning("Failed to send abort for session %s in %s", session_id, namespace)
         raise HTTPException(status_code=502, detail="Failed to reach runtime Pod")

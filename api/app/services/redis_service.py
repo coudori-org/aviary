@@ -23,7 +23,7 @@ async def init_redis() -> None:
     try:
         await _client.ping()
         logger.info("Redis connected: %s", settings.redis_url)
-    except Exception:
+    except redis.RedisError:  # Best-effort: Redis is optional for degraded mode
         logger.warning("Redis not reachable at %s — pub/sub and caching disabled", settings.redis_url)
         _client = None
 
@@ -57,7 +57,7 @@ async def publish_message(session_id: str, message: dict) -> None:
         return
     try:
         await client.publish(_channel_name(session_id), json.dumps(message))
-    except Exception:
+    except redis.RedisError:  # Best-effort: publish failure is non-critical
         logger.warning("Redis publish failed for session %s", session_id, exc_info=True)
 
 

@@ -6,6 +6,7 @@ Infrastructure provisioning is fully delegated to the agent supervisor.
 import uuid
 import logging
 
+import httpx
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -52,7 +53,7 @@ async def create_agent(db: AsyncSession, user: User, data: AgentCreate) -> Agent
                 "mcp_servers": [s.model_dump() for s in data.mcp_servers],
             },
         )
-    except Exception:
+    except httpx.HTTPError:  # Best-effort: will retry on first message
         logger.warning(
             "Agent supervisor registration failed for agent %s — will retry on first message",
             agent.id, exc_info=True,
@@ -182,7 +183,7 @@ async def cleanup_agent_resources(db: AsyncSession, agent: Agent) -> None:
     # Ask supervisor to remove all agent resources
     try:
         await agent_supervisor.unregister_agent(agent_id_str)
-    except Exception:
+    except httpx.HTTPError:  # Best-effort: cleanup failure is non-critical
         logger.warning("Agent supervisor cleanup failed for agent %s", agent.id, exc_info=True)
 
     # Hard-delete the agent row since all sessions are gone

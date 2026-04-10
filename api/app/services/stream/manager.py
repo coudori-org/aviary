@@ -1,0 +1,314 @@
+"""Stream lifecycle management — start, cancel, and run background streaming tasks.
+
+Decouples agent response streaming from WebSocket lifecycle so that:
+- Streaming continues even if the client disconnects
+- Chunks are buffered in Redis for replay on reconnect
+- Agent response is always saved to DB on completion
+"""
+
+import asyncio
+import json
+import logging
+import uuid
+
+import httpx
+from sqlalchemy import select
+
+from app.db.models import SessionParticipant
+from app.db.session import async_session_factory
+from app.services import agent_supervisor, redis_service, session_service, vault_service
+from app.services.stream.a2a import merge_a2a_events
+from app.services.stream.blocks import attach_tool_results, rebuild_blocks_from_chunks
+
+logger = logging.getLogger(__name__)
+
+# In-memory registry of active streaming tasks (per API server process)
+_active_streams: dict[str, asyncio.Task] = {}
+
+
+def _build_mcp_config(legacy_mcp_servers: list) -> dict:
+    """Build MCP servers config from legacy stdio servers."""
+    config: dict = {}
+    for srv in legacy_mcp_servers:
+        config[srv["name"]] = {"command": srv["command"], "args": srv.get("args", [])}
+    return config
+
+
+async def _fetch_user_credentials(user_external_id: str) -> dict[str, str]:
+    """Fetch user credentials from Vault for injection into agent sandbox."""
+    credentials: dict[str, str] = {}
+    try:
+        secret = await vault_service.read_secret(
+            f"aviary/credentials/{user_external_id}/github-token"
+        )
+        if token := secret.get("value"):
+            credentials["github_token"] = token
+    except httpx.HTTPError:  # Best-effort: no GitHub token configured for this user
+        pass
+    return credentials
+
+
+async def start_stream(
+    session_id: str,
+    agent_id: str,
+    agent_model_config: dict,
+    agent_instruction: str,
+    agent_tools: list,
+    agent_mcp_servers: list,
+    agent_policy: dict,
+    content: str,
+    user_token: str = "",
+    user_external_id: str = "",
+    accessible_agents: list[dict] | None = None,
+) -> None:
+    """Launch a background task that streams the agent response."""
+    existing = _active_streams.get(session_id)
+    if existing and not existing.done():
+        logger.warning("Cancelling existing stream for session %s", session_id)
+        existing.cancel()
+
+    await redis_service.clear_stream_buffer(session_id)
+
+    task = asyncio.create_task(
+        _run_stream(
+            session_id, agent_id,
+            agent_model_config, agent_instruction,
+            agent_tools, agent_mcp_servers, agent_policy,
+            content, user_token, user_external_id,
+            accessible_agents=accessible_agents,
+        )
+    )
+    _active_streams[session_id] = task
+
+    def _cleanup(t: asyncio.Task) -> None:
+        _active_streams.pop(session_id, None)
+    task.add_done_callback(_cleanup)
+
+
+def is_streaming(session_id: str) -> bool:
+    """Check if a stream task is actively running for this session."""
+    task = _active_streams.get(session_id)
+    return task is not None and not task.done()
+
+
+async def cancel_stream(session_id: str, agent_id: str | None = None) -> bool:
+    """Cancel an active stream and abort the agent's session."""
+    task = _active_streams.get(session_id)
+    if not task or task.done():
+        return False
+
+    if agent_id:
+        await agent_supervisor.abort_session(agent_id, session_id)
+
+    task.cancel()
+
+    message_id: str | None = None
+    try:
+        partial = await redis_service.get_stream_chunks(session_id)
+        if partial:
+            partial_text, blocks_meta = rebuild_blocks_from_chunks(partial)
+            await merge_a2a_events(session_id, blocks_meta)
+
+            meta: dict = {"cancelled": True}
+            if blocks_meta:
+                meta["blocks"] = blocks_meta
+            async with async_session_factory() as db:
+                msg = await session_service.save_message(
+                    db, uuid.UUID(session_id), "agent",
+                    partial_text or "[Cancelled]", metadata=meta,
+                )
+                await db.commit()
+                message_id = str(msg.id)
+    except Exception:  # Best-effort: partial response save on cancel is non-critical
+        logger.warning("Failed to save partial response for cancelled session %s", session_id)
+
+    cancelled_event: dict = {"type": "cancelled"}
+    if message_id:
+        cancelled_event["messageId"] = message_id
+    await redis_service.publish_message(session_id, cancelled_event)
+
+    await redis_service.set_stream_status(session_id, "complete")
+    await redis_service.set_session_status(session_id, "idle")
+    await redis_service.clear_stream_buffer(session_id)
+
+    return True
+
+
+async def _run_stream(
+    session_id: str,
+    agent_id: str,
+    agent_model_config: dict,
+    agent_instruction: str,
+    agent_tools: list,
+    agent_mcp_servers: list,
+    agent_policy: dict,
+    content: str,
+    user_token: str = "",
+    user_external_id: str = "",
+    accessible_agents: list[dict] | None = None,
+) -> None:
+    """Execute the agent response stream as a background task."""
+    session_uuid = uuid.UUID(session_id)
+
+    await redis_service.set_stream_status(session_id, "streaming")
+    await redis_service.set_session_status(session_id, "streaming")
+    await redis_service.publish_message(session_id, {"type": "replay_start"})
+
+    try:
+        await agent_supervisor.ensure_agent_running(
+            agent_id=agent_id,
+            owner_id="",
+            config={
+                "instruction": agent_instruction,
+                "tools": agent_tools,
+                "mcp_servers": agent_mcp_servers,
+            },
+        )
+        ready = await agent_supervisor.wait_for_agent_ready(agent_id, timeout=90)
+        if not ready:
+            error_event = {"type": "error", "message": "Agent did not become ready in time"}
+            await redis_service.publish_message(session_id, error_event)
+            await redis_service.set_stream_status(session_id, "error")
+            await redis_service.set_session_status(session_id, "idle")
+            return
+    except httpx.HTTPError:
+        logger.warning("Failed to ensure agent running for session %s", session_id, exc_info=True)
+
+    credentials: dict[str, str] = {}
+    if user_external_id:
+        credentials = await _fetch_user_credentials(user_external_id)
+
+    full_response = ""
+    blocks_meta: list[dict] = []
+    current_thinking = ""
+    current_text = ""
+    tool_results: dict[str, dict] = {}
+
+    try:
+        stream_url = agent_supervisor.get_stream_url(agent_id, session_id)
+
+        if not stream_url:
+            raise RuntimeError("Agent stream URL not available")
+
+        async with httpx.AsyncClient() as client:
+            async with client.stream(
+                "POST",
+                stream_url,
+                json={
+                    "content": content,
+                    "session_id": session_id,
+                    "model_config_data": agent_model_config,
+                    "agent_config": {
+                        "instruction": agent_instruction,
+                        "tools": agent_tools,
+                        "mcp_servers": _build_mcp_config(agent_mcp_servers),
+                        "policy": agent_policy,
+                        "user_token": user_token,
+                        "user_external_id": user_external_id,
+                        **({"credentials": credentials} if credentials else {}),
+                        **({"accessible_agents": accessible_agents} if accessible_agents else {}),
+                    },
+                },
+                timeout=None,
+            ) as resp:
+                async for line in resp.aiter_lines():
+                    if not line.startswith("data: "):
+                        continue
+                    chunk_data = json.loads(line[6:])
+                    chunk_type = chunk_data.get("type")
+
+                    if chunk_type == "chunk":
+                        if current_thinking:
+                            blocks_meta.append({"type": "thinking", "content": current_thinking})
+                            current_thinking = ""
+                        chunk_text = chunk_data["content"]
+                        full_response += chunk_text
+                        current_text += chunk_text
+                        chunk_event = {"type": "chunk", "content": chunk_text}
+                        await redis_service.append_stream_chunk(session_id, chunk_event)
+                        await redis_service.publish_message(session_id, chunk_event)
+                    elif chunk_type == "tool_use":
+                        if current_thinking:
+                            blocks_meta.append({"type": "thinking", "content": current_thinking})
+                            current_thinking = ""
+                        if current_text:
+                            blocks_meta.append({"type": "text", "content": current_text})
+                            current_text = ""
+                        tool_block: dict = {
+                            "type": "tool_call",
+                            "name": chunk_data.get("name"),
+                            "input": chunk_data.get("input"),
+                            "tool_use_id": chunk_data.get("tool_use_id"),
+                        }
+                        if chunk_data.get("parent_tool_use_id"):
+                            tool_block["parent_tool_use_id"] = chunk_data["parent_tool_use_id"]
+                        blocks_meta.append(tool_block)
+                        await redis_service.append_stream_chunk(session_id, chunk_data)
+                        await redis_service.publish_message(session_id, chunk_data)
+                    elif chunk_type == "tool_result":
+                        tid = chunk_data.get("tool_use_id")
+                        result_content = chunk_data.get("content", "")
+                        if isinstance(result_content, str) and len(result_content) > 10240:
+                            result_content = result_content[:10240] + "\n... (truncated)"
+                        if tid:
+                            tool_results[tid] = {
+                                "content": result_content,
+                                "is_error": chunk_data.get("is_error", False),
+                            }
+                        result_data = {**chunk_data, "content": result_content}
+                        await redis_service.append_stream_chunk(session_id, result_data)
+                        await redis_service.publish_message(session_id, result_data)
+                    elif chunk_type == "tool_progress":
+                        await redis_service.publish_message(session_id, chunk_data)
+                    elif chunk_type == "thinking":
+                        thinking_text = chunk_data.get("content", "")
+                        current_thinking += thinking_text
+                        await redis_service.append_stream_chunk(session_id, chunk_data)
+                        await redis_service.publish_message(session_id, chunk_data)
+
+        # Flush remaining thinking and text, then attach tool results
+        if current_thinking:
+            blocks_meta.append({"type": "thinking", "content": current_thinking})
+        if current_text:
+            blocks_meta.append({"type": "text", "content": current_text})
+        attach_tool_results(blocks_meta, tool_results)
+
+        await merge_a2a_events(session_id, blocks_meta)
+
+        meta = {"blocks": blocks_meta} if blocks_meta else None
+        async with async_session_factory() as db:
+            msg = await session_service.save_message(
+                db, session_uuid, "agent", full_response, metadata=meta
+            )
+            await db.commit()
+            message_id = str(msg.id)
+
+        await redis_service.set_stream_status(session_id, "complete")
+        await redis_service.set_stream_result(session_id, full_response, message_id)
+        await redis_service.set_session_status(session_id, "idle")
+
+        async with async_session_factory() as db:
+            result = await db.execute(
+                select(SessionParticipant.user_id).where(
+                    SessionParticipant.session_id == session_uuid
+                )
+            )
+            all_participants = {str(row[0]) for row in result.all()}
+
+        for uid in all_participants:
+            await redis_service.increment_unread(session_id, uid)
+
+        done_event = {"type": "done", "messageId": message_id}
+        await redis_service.publish_message(session_id, done_event)
+
+    except asyncio.CancelledError:
+        logger.info("Stream cancelled for session %s", session_id)
+        await redis_service.set_stream_status(session_id, "error")
+        await redis_service.set_session_status(session_id, "idle")
+    except Exception:  # Best-effort: background task must not crash unhandled
+        logger.exception("Stream failed for session %s", session_id)
+        await redis_service.set_stream_status(session_id, "error")
+        await redis_service.set_session_status(session_id, "idle")
+
+        error_event = {"type": "error", "message": "Agent streaming failed"}
+        await redis_service.publish_message(session_id, error_event)

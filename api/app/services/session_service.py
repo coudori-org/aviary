@@ -173,7 +173,8 @@ async def delete_session(db: AsyncSession, session: Session) -> None:
     """Full session deletion: cancel stream, clean Redis, hard-delete from DB,
     and conditionally tear down agent resources if this was the last session
     of a soft-deleted agent."""
-    from app.services import agent_service, stream_manager
+    from app.services import agent_service
+    from app.services.stream import manager as stream_manager
 
     session_id_str = str(session.id)
     agent_id = session.agent_id

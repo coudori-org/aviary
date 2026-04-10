@@ -73,6 +73,18 @@ spec:
               value: "10"
             - name: DATABASE_URL
               value: "postgresql+asyncpg://aviary:aviary@host.k8s.internal:5432/aviary"
+            - name: INFERENCE_ROUTER_URL
+              value: "http://litellm.platform.svc:4000"
+            - name: MCP_GATEWAY_URL
+              value: "http://mcp-gateway.platform.svc:8100"
+            - name: LITELLM_API_KEY
+              value: "sk-aviary-dev"
+            - name: EGRESS_PROXY_URL
+              value: "http://egress-proxy.platform.svc:8080"
+            - name: AVIARY_API_URL
+              value: "http://host.k8s.internal:8000/api"
+            - name: INTERNAL_API_KEY
+              value: "sk-aviary-internal"
           livenessProbe:
             httpGet:
               path: /v1/health

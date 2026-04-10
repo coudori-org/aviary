@@ -1,3 +1,5 @@
+import uuid
+
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
@@ -51,3 +53,28 @@ async def get_current_user(
         ) from e
 
     return await _upsert_user(db, claims)
+
+
+def require_agent_permission(permission: str, include_deleted: bool = False):
+    """FastAPI dependency factory: fetch agent by ID, check ACL permission.
+
+    Usage: agent: Agent = Depends(require_agent_permission("view"))
+    """
+    from app.db.models import Agent
+    from app.services import acl_service, agent_service
+
+    async def dependency(
+        agent_id: uuid.UUID,
+        user: User = Depends(get_current_user),
+        db: AsyncSession = Depends(get_db),
+    ) -> Agent:
+        agent = await agent_service.get_agent(db, agent_id, include_deleted=include_deleted)
+        if not agent:
+            raise HTTPException(status_code=404, detail="Agent not found")
+        try:
+            await acl_service.check_agent_permission(db, user, agent, permission)
+        except PermissionError as e:
+            raise HTTPException(status_code=403, detail=str(e)) from e
+        return agent
+
+    return dependency

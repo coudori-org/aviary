@@ -6,9 +6,12 @@ Translates agent_id/session_id into namespace/deployment operations.
 
 import logging
 
+import httpx
 from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+
+from aviary_shared.naming import agent_namespace
 
 from app.scaling import touch_activity
 from app.k8s import _get_k8s_client, k8s_apply
@@ -24,10 +27,6 @@ from app.routers.deployments import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-
-
-def _namespace(agent_id: str) -> str:
-    return f"agent-{agent_id}"
 
 
 # ── Agent lifecycle ──────────────────────────────────────────
@@ -58,7 +57,7 @@ async def register_agent(agent_id: str, body: RegisterAgentRequest):
 @router.delete("/agents/{agent_id}")
 async def unregister_agent(agent_id: str):
     """Remove all resources for an agent."""
-    ns = _namespace(agent_id)
+    ns = agent_namespace(agent_id)
 
     # Delete deployment resources first
     for path in [
@@ -68,13 +67,13 @@ async def unregister_agent(agent_id: str):
     ]:
         try:
             await k8s_apply("DELETE", path)
-        except Exception:
+        except httpx.HTTPError:  # Best-effort: resource may already be gone
             pass
 
     # Then delete namespace
     try:
         await k8s_apply("DELETE", f"/api/v1/namespaces/{ns}")
-    except Exception:
+    except httpx.HTTPError:  # Best-effort: namespace may already be gone
         pass
 
     logger.info("Unregistered agent %s", agent_id)
@@ -95,7 +94,7 @@ class RunAgentRequest(BaseModel):
 async def run_agent(agent_id: str, body: RunAgentRequest):
     """Ensure agent is running. Lazily creates resources with secure defaults if needed."""
     await touch_activity(agent_id)
-    ns = _namespace(agent_id)
+    ns = agent_namespace(agent_id)
     result = await ensure_deployment(ns, EnsureDeploymentRequest(
         agent_id=agent_id,
         owner_id=body.owner_id,
@@ -112,7 +111,7 @@ async def run_agent(agent_id: str, body: RunAgentRequest):
 @router.get("/agents/{agent_id}/ready")
 async def check_agent_ready(agent_id: str):
     """Check if agent has ready instances."""
-    ns = _namespace(agent_id)
+    ns = agent_namespace(agent_id)
     status = await get_deployment_status(ns)
     ready = (status.get("ready_replicas") or 0) >= 1
     return {"ready": ready, **status}
@@ -121,7 +120,7 @@ async def check_agent_ready(agent_id: str):
 @router.get("/agents/{agent_id}/wait")
 async def wait_agent_ready(agent_id: str, timeout: int = 90):
     """Block until agent is ready or timeout."""
-    ns = _namespace(agent_id)
+    ns = agent_namespace(agent_id)
     return await wait_for_ready(ns, timeout)
 
 
@@ -132,7 +131,7 @@ async def wait_agent_ready(agent_id: str, timeout: int = 90):
 async def proxy_session_message(agent_id: str, session_id: str, request: Request):
     """Transparent SSE proxy to agent runtime for a session message."""
     await touch_activity(agent_id)
-    ns = _namespace(agent_id)
+    ns = agent_namespace(agent_id)
     body = await request.json()
     proxy_path = (
         f"/api/v1/namespaces/{ns}/services/agent-runtime-svc:3000/proxy/message"
@@ -152,7 +151,7 @@ async def proxy_session_message(agent_id: str, session_id: str, request: Request
                         return
                     async for chunk in resp.aiter_bytes():
                         yield chunk
-        except Exception:
+        except httpx.HTTPError:
             logger.exception("SSE proxy error for agent %s", agent_id)
 
     return StreamingResponse(
@@ -168,7 +167,7 @@ async def proxy_session_message(agent_id: str, session_id: str, request: Request
 @router.post("/agents/{agent_id}/sessions/{session_id}/abort")
 async def abort_session(agent_id: str, session_id: str):
     """Abort an active session stream."""
-    ns = _namespace(agent_id)
+    ns = agent_namespace(agent_id)
     proxy_path = (
         f"/api/v1/namespaces/{ns}/services/agent-runtime-svc:3000/proxy/abort/{session_id}"
     )
@@ -176,7 +175,7 @@ async def abort_session(agent_id: str, session_id: str):
         async with _get_k8s_client() as client:
             resp = await client.post(proxy_path, timeout=5)
             return {"ok": True, "status": resp.status_code}
-    except Exception:
+    except httpx.HTTPError:
         logger.warning("Failed to abort session %s for agent %s", session_id, agent_id)
         return {"ok": False, "reason": "agent_not_reachable"}
 
@@ -184,5 +183,5 @@ async def abort_session(agent_id: str, session_id: str):
 @router.delete("/agents/{agent_id}/sessions/{session_id}")
 async def cleanup_session(agent_id: str, session_id: str):
     """Clean up session workspace. Best-effort."""
-    ns = _namespace(agent_id)
+    ns = agent_namespace(agent_id)
     return await cleanup_session_workspace(ns, session_id)

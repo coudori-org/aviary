@@ -3,12 +3,14 @@
 import uuid
 import logging
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from aviary_shared.db.models import Agent
+from aviary_shared.naming import agent_namespace
 from app.db import get_db
 from app.services import supervisor_client
 
@@ -25,7 +27,7 @@ async def activate_agent(agent_id: uuid.UUID, db: AsyncSession = Depends(get_db)
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
 
-    ns = f"agent-{agent.id}"
+    ns = agent_namespace(str(agent.id))
 
     # Ensure namespace exists
     try:
@@ -33,8 +35,8 @@ async def activate_agent(agent_id: uuid.UUID, db: AsyncSession = Depends(get_db)
             agent_id=str(agent.id), owner_id=str(agent.owner_id),
             policy=agent.policy or {},
         )
-    except Exception:
-        pass  # Already exists
+    except httpx.HTTPError:  # Best-effort: namespace may already exist
+        pass
 
     # Ensure deployment
     try:
@@ -43,7 +45,7 @@ async def activate_agent(agent_id: uuid.UUID, db: AsyncSession = Depends(get_db)
             policy=agent.policy or {},
             min_pods=agent.min_pods, max_pods=agent.max_pods,
         )
-    except Exception as e:
+    except httpx.HTTPError as e:
         raise HTTPException(status_code=500, detail=f"Deployment failed: {e}") from e
 
     return {"status": "activated"}
@@ -57,10 +59,10 @@ async def deactivate_agent(agent_id: uuid.UUID, db: AsyncSession = Depends(get_d
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
 
-    ns = f"agent-{agent.id}"
+    ns = agent_namespace(str(agent.id))
     try:
         await supervisor_client.scale_to_zero(ns)
-    except Exception:
+    except httpx.HTTPError:  # Best-effort: scale-down failure is non-critical
         logger.warning("Failed to scale down agent %s", agent.id, exc_info=True)
 
     return {"status": "deactivated"}
@@ -74,10 +76,10 @@ async def get_deployment_status(agent_id: uuid.UUID, db: AsyncSession = Depends(
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
 
-    ns = f"agent-{agent.id}"
+    ns = agent_namespace(str(agent.id))
     try:
         status_info = await supervisor_client.get_deployment_status(ns)
-    except Exception:
+    except httpx.HTTPError:  # Best-effort: deployment may not exist
         status_info = {"replicas": 0, "ready_replicas": 0, "updated_replicas": 0}
 
     return {
@@ -96,10 +98,10 @@ async def deploy_agent(agent_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
 
-    ns = f"agent-{agent.id}"
+    ns = agent_namespace(str(agent.id))
     try:
         await supervisor_client.rolling_restart(ns)
-    except Exception:
+    except httpx.HTTPError:
         logger.warning("Rolling restart failed for agent %s", agent.id, exc_info=True)
 
     return {"status": "deploying"}
@@ -127,12 +129,12 @@ async def scale_agent(
         agent.max_pods = body.max_pods
     await db.flush()
 
-    ns = f"agent-{agent.id}"
+    ns = agent_namespace(str(agent.id))
     try:
         status = await supervisor_client.get_deployment_status(ns)
         if status.get("replicas", 0) > 0 or status.get("ready_replicas", 0) > 0:
             await supervisor_client.scale_deployment(ns, body.replicas, agent.min_pods, agent.max_pods)
-    except Exception:
+    except httpx.HTTPError:
         logger.warning("Scale failed for agent %s", agent.id, exc_info=True)
 
     return {"status": "scaled", "replicas": body.replicas}

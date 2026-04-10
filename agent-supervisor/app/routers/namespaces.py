@@ -3,8 +3,11 @@
 import json
 import logging
 
+import httpx
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
+
+from aviary_shared.naming import agent_namespace
 
 from app.k8s import k8s_apply
 
@@ -81,7 +84,7 @@ class CreateNamespaceRequest(BaseModel):
 @router.post("/namespaces")
 async def create_namespace(body: CreateNamespaceRequest):
     """Provision all K8s resources for a new agent."""
-    ns_name = f"agent-{body.agent_id}"
+    ns_name = agent_namespace(body.agent_id)
 
     try:
         # 1. Namespace
@@ -130,7 +133,7 @@ async def create_namespace(body: CreateNamespaceRequest):
         logger.info("Created K8s resources for agent %s in namespace %s", body.agent_id, ns_name)
         return {"namespace": ns_name}
 
-    except Exception as e:
+    except httpx.HTTPError as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
@@ -145,17 +148,17 @@ async def update_network_policy(namespace: str, body: UpdateNetworkPolicyRequest
         await _apply_network_policy(namespace, body.policy)
         logger.info("Updated NetworkPolicy in namespace %s", namespace)
         return {"ok": True}
-    except Exception as e:
+    except httpx.HTTPError as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.delete("/namespaces/{agent_id}")
 async def delete_namespace(agent_id: str):
     """Delete the entire agent namespace and all its resources."""
-    ns_name = f"agent-{agent_id}"
+    ns_name = agent_namespace(agent_id)
     try:
         await k8s_apply("DELETE", f"/api/v1/namespaces/{ns_name}")
         logger.info("Deleted namespace %s", ns_name)
         return {"ok": True}
-    except Exception as e:
+    except httpx.HTTPError as e:
         raise HTTPException(status_code=500, detail=str(e)) from e

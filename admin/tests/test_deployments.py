@@ -6,6 +6,7 @@ import pytest
 from httpx import AsyncClient
 
 from aviary_shared.db.models import Agent
+from aviary_shared.naming import agent_namespace
 
 
 @pytest.mark.asyncio
@@ -28,8 +29,8 @@ async def test_get_deployment_not_found(client: AsyncClient):
 @pytest.mark.asyncio
 async def test_activate_agent(client: AsyncClient, seed_agent: Agent):
     """Activate creates namespace and deployment."""
-    with patch("app.services.supervisor_client.create_namespace", new_callable=AsyncMock, return_value=f"agent-{seed_agent.id}") as mock_ns, \
-         patch("app.services.supervisor_client.ensure_deployment", new_callable=AsyncMock, return_value={"namespace": f"agent-{seed_agent.id}", "created": True}) as mock_dep:
+    with patch("app.services.supervisor_client.create_namespace", new_callable=AsyncMock, return_value=agent_namespace(str(seed_agent.id))) as mock_ns, \
+         patch("app.services.supervisor_client.ensure_deployment", new_callable=AsyncMock, return_value={"namespace": agent_namespace(str(seed_agent.id)), "created": True}) as mock_dep:
 
         resp = await client.post(f"/api/agents/{seed_agent.id}/activate")
 
@@ -50,7 +51,7 @@ async def test_activate_agent_not_found(client: AsyncClient):
 async def test_deactivate_agent(client: AsyncClient, seed_agent: Agent):
     """Deactivate scales to zero and updates DB."""
     # First activate (set namespace in DB)
-    with patch("app.services.supervisor_client.create_namespace", new_callable=AsyncMock, return_value=f"agent-{seed_agent.id}"), \
+    with patch("app.services.supervisor_client.create_namespace", new_callable=AsyncMock, return_value=agent_namespace(str(seed_agent.id))), \
          patch("app.services.supervisor_client.ensure_deployment", new_callable=AsyncMock, return_value={"created": True}):
         await client.post(f"/api/agents/{seed_agent.id}/activate")
 
@@ -66,7 +67,7 @@ async def test_deactivate_agent(client: AsyncClient, seed_agent: Agent):
 async def test_deploy_triggers_restart(client: AsyncClient, seed_agent: Agent):
     """Deploy triggers rolling restart on active deployment."""
     # Activate first
-    with patch("app.services.supervisor_client.create_namespace", new_callable=AsyncMock, return_value=f"agent-{seed_agent.id}"), \
+    with patch("app.services.supervisor_client.create_namespace", new_callable=AsyncMock, return_value=agent_namespace(str(seed_agent.id))), \
          patch("app.services.supervisor_client.ensure_deployment", new_callable=AsyncMock, return_value={"created": True}):
         await client.post(f"/api/agents/{seed_agent.id}/activate")
 
@@ -82,7 +83,7 @@ async def test_deploy_triggers_restart(client: AsyncClient, seed_agent: Agent):
 async def test_scale_agent(client: AsyncClient, seed_agent: Agent):
     """Manual scaling updates DB bounds and calls supervisor."""
     # Activate first
-    with patch("app.services.supervisor_client.create_namespace", new_callable=AsyncMock, return_value=f"agent-{seed_agent.id}"), \
+    with patch("app.services.supervisor_client.create_namespace", new_callable=AsyncMock, return_value=agent_namespace(str(seed_agent.id))), \
          patch("app.services.supervisor_client.ensure_deployment", new_callable=AsyncMock, return_value={"created": True}):
         await client.post(f"/api/agents/{seed_agent.id}/activate")
 

@@ -101,7 +101,7 @@ async def _handle_connect(reader: asyncio.StreamReader, writer: asyncio.StreamWr
         remote_reader, remote_writer = await asyncio.wait_for(
             asyncio.open_connection(host, port), timeout=10,
         )
-    except Exception as exc:
+    except (OSError, asyncio.TimeoutError) as exc:
         writer.write(b"HTTP/1.1 502 Bad Gateway\r\n\r\n")
         await writer.drain()
         logger.warning("CONNECT tunnel failed to %s:%d — %s", host, port, exc)
@@ -146,7 +146,7 @@ async def _handle_http(writer: asyncio.StreamWriter, method: str, url: str, http
             writer.write(b"\r\n")
             writer.write(resp.content)
             await writer.drain()
-        except Exception as exc:
+        except httpx.HTTPError as exc:
             writer.write(b"HTTP/1.1 502 Bad Gateway\r\n\r\n")
             await writer.drain()
             logger.warning("HTTP forward failed for %s — %s", url, exc)
@@ -224,13 +224,13 @@ async def _handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWri
 
     except (asyncio.TimeoutError, ConnectionResetError, BrokenPipeError):
         pass
-    except Exception:
+    except Exception:  # Best-effort: catch-all for unexpected proxy errors, logged for debugging
         logger.exception("Unexpected error handling connection from %s", source_ip)
     finally:
         try:
             writer.close()
             await writer.wait_closed()
-        except Exception:
+        except Exception:  # Best-effort: connection cleanup may fail if already closed
             pass
 
 

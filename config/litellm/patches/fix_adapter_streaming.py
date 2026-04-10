@@ -107,10 +107,35 @@ def _apply():
     )
 
     # ── Fix 2: Save trigger delta on block transitions ───────────
+    # Also: skip empty chunks (e.g. OpenAI's first role-only chunk) so they
+    # don't trigger an empty text block, which would otherwise pollute the
+    # SDK's message history and confuse providers like Ollama on the next turn.
 
     _orig_should_start = AnthropicStreamWrapper._should_start_new_content_block
 
+    def _is_empty_chunk(chunk) -> bool:
+        if not chunk.choices:
+            return True
+        delta = chunk.choices[0].delta
+        if delta is None:
+            return True
+        content = getattr(delta, "content", None)
+        if content is not None and len(content) > 0:
+            return False
+        tool_calls = getattr(delta, "tool_calls", None)
+        if tool_calls is not None and len(tool_calls) > 0:
+            return False
+        thinking_blocks = getattr(delta, "thinking_blocks", None)
+        if thinking_blocks:
+            return False
+        reasoning_content = getattr(delta, "reasoning_content", None)
+        if reasoning_content is not None and len(reasoning_content) > 0:
+            return False
+        return True
+
     def _patched_should_start(self, chunk):
+        if _is_empty_chunk(chunk):
+            return False
         result = _orig_should_start(self, chunk)
         if result:
             self._trigger_chunk = chunk

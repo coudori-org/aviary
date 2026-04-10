@@ -27,7 +27,7 @@ async def lifespan(app: FastAPI):
     try:
         async with async_session_factory() as db:
             await register_platform_servers(db)
-    except Exception:
+    except Exception:  # Best-effort: startup registration failure is retried on next startup
         logger.warning("Platform MCP server registration failed — will retry on next startup", exc_info=True)
 
     yield
@@ -70,7 +70,7 @@ async def mcp_proxy(agent_id: str, request: Request):
     try:
         body = await request.body()
         json_body = json.loads(body)
-    except Exception:
+    except (json.JSONDecodeError, UnicodeDecodeError):
         return JSONResponse(
             status_code=400,
             content={"jsonrpc": "2.0", "error": {"code": -32700, "message": "Parse error"}},
@@ -80,7 +80,7 @@ async def mcp_proxy(agent_id: str, request: Request):
     try:
         response = await _handle_mcp_request(json_body)
         return JSONResponse(content=response)
-    except Exception:
+    except Exception:  # Best-effort: catch-all for JSON-RPC error response
         logger.exception("MCP request processing failed")
         return JSONResponse(
             status_code=500,

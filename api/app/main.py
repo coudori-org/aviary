@@ -60,7 +60,7 @@ async def health():
     if client:
         try:
             redis_ok = await client.ping()
-        except Exception:
+        except Exception:  # Best-effort: health check probes Redis connectivity
             pass
 
     supervisor_ok = await agent_supervisor.health_check()

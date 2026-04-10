@@ -67,5 +67,5 @@ async def check_backend_health(backend: str, user: User = Depends(get_current_us
         async with httpx.AsyncClient(timeout=10) as client:
             resp = await client.get(f"{settings.litellm_url}/health/liveliness")
             return {"status": "ok" if resp.status_code == 200 else "error"}
-    except Exception as e:
+    except httpx.HTTPError as e:  # Best-effort: health check probes LiteLLM connectivity
         return {"status": "error", "error": str(e)}

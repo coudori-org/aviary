@@ -23,7 +23,7 @@ from app.config import settings
 from app.db.models import User
 from app.db.session import get_db
 from app.services import acl_service, agent_service, agent_supervisor, redis_service
-from app.services.stream_manager import _build_mcp_config, _fetch_user_credentials
+from app.services.stream.manager import _build_mcp_config, _fetch_user_credentials
 
 logger = logging.getLogger(__name__)
 
@@ -94,7 +94,7 @@ async def a2a_message(
             raise HTTPException(status_code=503, detail="Sub-agent did not become ready in time")
     except HTTPException:
         raise
-    except Exception as e:
+    except httpx.HTTPError as e:
         logger.warning("Failed to ensure sub-agent running: %s", e, exc_info=True)
         raise HTTPException(status_code=503, detail="Failed to start sub-agent") from e
 
@@ -156,7 +156,7 @@ async def a2a_message(
                         # Forward SSE to the A2A tool caller
                         yield f"data: {json.dumps(chunk_data)}\n\n"
 
-        except Exception:
+        except httpx.HTTPError:
             logger.exception("A2A stream error for agent %s", agent_slug)
 
     return StreamingResponse(

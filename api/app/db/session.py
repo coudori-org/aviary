@@ -1,20 +1,11 @@
 """DB session factory using shared package."""
 
-from collections.abc import AsyncGenerator
-
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from aviary_shared.db.session import create_session_factory
+from aviary_shared.db.session import create_session_factory, get_db_dependency
 from app.config import settings
 
 engine, async_session_factory = create_session_factory(settings.database_url)
 
 
-async def get_db() -> AsyncGenerator[AsyncSession, None]:
-    async with async_session_factory() as session:
-        try:
-            yield session
-            await session.commit()
-        except Exception:
-            await session.rollback()
-            raise
+async def get_db():
+    async for session in get_db_dependency(async_session_factory):
+        yield session
