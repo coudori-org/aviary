@@ -1,12 +1,9 @@
 "use client";
 
-import { useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { Spinner } from "@/components/ui/spinner";
-import { agentsApi } from "@/features/agents/api/agents-api";
-import { extractErrorMessage } from "@/lib/http";
+import { useCreateSession } from "@/features/agents/hooks/use-create-session";
 import { routes } from "@/lib/constants/routes";
 import { cn } from "@/lib/utils";
 import type { Agent } from "@/types";
@@ -47,27 +44,19 @@ const VISIBILITY_LABELS: Record<Agent["visibility"], string> = {
  * is technically invalid HTML; browsers tolerate it and the alternative
  * (giving up middle-click → new tab on the card) is worse UX.
  *
+ * Session creation lifecycle is shared with the detail-page hero CTA and
+ * the sidebar "+" button via the `useCreateSession` hook.
+ *
  * Deleted agents only show the detail affordance — new sessions cannot
  * be created against them.
  */
 export function AgentCard({ agent, deleted }: AgentCardProps) {
-  const router = useRouter();
-  const [creating, setCreating] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { createAndNavigate, creating, error } = useCreateSession(agent.id);
 
-  const handleStartChat = async (e: React.MouseEvent) => {
+  const handleStartChat = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    if (creating) return;
-    setCreating(true);
-    setError(null);
-    try {
-      const session = await agentsApi.createSession(agent.id);
-      router.push(routes.session(session.id));
-    } catch (err) {
-      setError(extractErrorMessage(err));
-      setCreating(false);
-    }
+    void createAndNavigate();
   };
 
   return (

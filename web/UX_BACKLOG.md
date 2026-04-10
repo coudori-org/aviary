@@ -106,7 +106,15 @@ agent 클릭시 풀페이지 이동 대신 하단 슬라이드 시트.
 
 ## ENTRY-3 ⭐🔥 Cmd+K 유니버설 런처
 
-**상태**: pending
+**상태**: rejected
+
+**Reject reason (2026-04-10)**: 1차 구현 후 사용자 평가 — 현재 워크플로 기준
+필요성 대비 코드 무게가 큼. cmdk 의존성, 5개 신규 파일, provider 추가가
+정당화될 만큼의 사용 빈도가 예상되지 않음. 사이드바 검색(SIDE-1)과 사이드바
+세션 그룹 자체가 이미 비슷한 역할을 커버.
+
+향후 재고려 트리거: 세션이 50개+ 되거나, 다른 영역(설정/명령) 진입이
+복잡해져서 중앙 명령창의 가치가 명확해질 때.
 
 Raycast의 본질. 어디서든 `⌘K` → 중앙 floating palette.
 
@@ -123,7 +131,11 @@ Raycast의 본질. 어디서든 `⌘K` → 중앙 floating palette.
 
 ## ENTRY-4 detail 페이지 → 대시보드化
 
-**상태**: pending
+**상태**: accepted
+
+**v1 범위**: hero (icon + name + Start chat CTA), Recent Sessions (top 5 + view all),
+Configuration grid (기존 4개 카드). Suggested prompts/Stats는 백엔드 의존이라 보류.
+페이지를 4개 컴포넌트로 분리: hero / recent-sessions / config-grid / page assembler.
 
 현재 `/agents/{id}` detail 페이지는 read-only 메타 정보 카드 무덤.
 
@@ -143,7 +155,14 @@ Raycast의 본질. 어디서든 `⌘K` → 중앙 floating palette.
 
 ## ENTRY-5 ⭐ 사이드바 "+ New chat" 행
 
-**상태**: pending
+**상태**: accepted
+
+**Bug fix during testing**: useCreateSession 훅이 success path에서 creating
+상태를 false로 안 돌려놨음 — 사이드바는 unmount되지 않으니 spinner 무한
+회전. `finally` 블록으로 항상 reset하도록 수정.
+
+**구현**: agent 그룹 헤더에 hover-revealed `+` 버튼. ENTRY-1, ENTRY-4와 공유하는
+`useCreateSession` 훅 사용. 삭제된 agent에는 안 보임.
 
 활성 세션 그룹 헤더 옆 작은 `+` 버튼 → 한 클릭으로 같은 agent 새 세션.
 
