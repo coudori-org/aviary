@@ -490,12 +490,28 @@ info tint (`bg-info/[0.025]`) + canvas-inset pre 블록으로 위계 정리.
 
 ## CHAT-13 Jump navigation rail
 
-**상태**: pending
+**상태**: accepted
 
-우측 얇은 mini-map 레일. 메시지마다 dot, 색상으로 종류 구분.
-hover preview, 클릭 점프. 100+ 메시지 세션에 결정적.
+**v1 범위**:
+- 우측 얇은 mini-map (lg breakpoint 이상에서만 표시)
+- 각 메시지 = horizontal tick. 위치는 실제 scroll offset 비율(균등 분배 X)
+  → density 시각화 효과
+- 색상: user → info, agent → fg-disabled
+- Viewport indicator band: 현재 보고있는 영역을 항상 옅게 표시, hover 시 강조
+- Hover: 메시지 첫 줄 preview tooltip
+- 클릭: smooth scrollIntoView (block: center)
+- ResizeObserver로 reflow 시 위치 재측정 (markdown / code block 늦은 reflow 대응)
+- 메시지 6개 미만 또는 viewport에 다 보일 땐 자동 hide
 
-**파일**: 신규 `features/chat/components/jump-rail.tsx`
+**CHAT-14와의 연동**:
+- 페이지네이션된 세션도 자연스럽게 처리 — 로드된 메시지에 한해서만 dot 표시.
+  사용자가 위로 스크롤해서 older 페이지가 prepend되면 rail이 자동으로 위쪽으로 자라남.
+  별도 outline endpoint 불필요.
+
+**파일**:
+- 신규 `web/src/features/chat/components/message-list/jump-rail.tsx`
+- `web/src/features/chat/components/message-list/message-list.tsx` (wrapper +
+  `data-message-id` 부착)
 
 ---
 

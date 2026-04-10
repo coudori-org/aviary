@@ -11,6 +11,7 @@ import {
 } from "react";
 import { MessageBubble } from "./message-bubble";
 import { TimeDivider } from "./time-divider";
+import { JumpRail } from "./jump-rail";
 import { StreamingResponse } from "@/features/chat/components/blocks/streaming-response";
 import { ChatEmptyState } from "@/features/chat/components/chat-empty-state";
 import { Spinner } from "@/components/ui/spinner";
@@ -158,63 +159,74 @@ export const MessageList = forwardRef<HTMLDivElement, MessageListProps>(
     }, [hasMore, loadingEarlier, onLoadEarlier]);
 
     return (
-      <div
-        ref={scrollRef}
-        className="flex-1 overflow-y-auto"
-        // Disable browser scroll anchoring so the layout effect's manual
-        // scrollTop adjust isn't double-corrected on prepend.
-        style={{ overflowAnchor: "none" }}
-      >
-        <div className="mx-auto max-w-container-prose px-6 py-6">
-          {/* Manual pagination affordance. Auto pre-fetch usually
-              covers it, but the button stays as an explicit fallback
-              and a visible signal that more history exists. */}
-          {hasMore && (
-            <div className="mb-4 flex justify-center">
-              <button
-                type="button"
-                onClick={handleLoadEarlierClick}
-                disabled={loadingEarlier}
-                className="flex items-center gap-2 rounded-sm px-3 py-1.5 type-caption text-fg-muted hover:text-fg-primary disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {loadingEarlier ? (
-                  <>
-                    <Spinner size={12} />
-                    <span>Loading earlier messages…</span>
-                  </>
-                ) : (
-                  <span>Show earlier messages</span>
-                )}
-              </button>
-            </div>
-          )}
-
-          {messages.length === 0 && isReady && !isStreaming && <ChatEmptyState />}
-
-          <div className="space-y-5">
-            {messages.map((msg, idx) => {
-              const prev = idx > 0 ? messages[idx - 1] : null;
-              const dividerLabel = prev
-                ? computeTimeDividerLabel(prev.created_at, msg.created_at)
-                : null;
-              // Show avatar only on the first message of a same-sender run.
-              // A time divider also resets the run because it's a visual break.
-              const showAvatar =
-                !prev || prev.sender_type !== msg.sender_type || dividerLabel !== null;
-
-              return (
-                <Fragment key={msg.id}>
-                  {dividerLabel && <TimeDivider label={dividerLabel} />}
-                  <MessageBubble message={msg} showAvatar={showAvatar} />
-                </Fragment>
-              );
-            })}
-
-            {(blocks.length > 0 || isStreaming) && (
-              <StreamingResponse blocks={blocks} isStreaming={isStreaming} />
+      <div className="relative flex-1 min-h-0">
+        <div
+          ref={scrollRef}
+          className="absolute inset-0 overflow-y-auto"
+          // Disable browser scroll anchoring so the layout effect's manual
+          // scrollTop adjust isn't double-corrected on prepend.
+          style={{ overflowAnchor: "none" }}
+        >
+          <div className="mx-auto max-w-container-prose px-6 py-6">
+            {/* Manual pagination affordance. Auto pre-fetch usually
+                covers it, but the button stays as an explicit fallback
+                and a visible signal that more history exists. */}
+            {hasMore && (
+              <div className="mb-4 flex justify-center">
+                <button
+                  type="button"
+                  onClick={handleLoadEarlierClick}
+                  disabled={loadingEarlier}
+                  className="flex items-center gap-2 rounded-sm px-3 py-1.5 type-caption text-fg-muted hover:text-fg-primary disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {loadingEarlier ? (
+                    <>
+                      <Spinner size={12} />
+                      <span>Loading earlier messages…</span>
+                    </>
+                  ) : (
+                    <span>Show earlier messages</span>
+                  )}
+                </button>
+              </div>
             )}
+
+            {messages.length === 0 && isReady && !isStreaming && <ChatEmptyState />}
+
+            <div className="space-y-5">
+              {messages.map((msg, idx) => {
+                const prev = idx > 0 ? messages[idx - 1] : null;
+                const dividerLabel = prev
+                  ? computeTimeDividerLabel(prev.created_at, msg.created_at)
+                  : null;
+                // Show avatar only on the first message of a same-sender run.
+                // A time divider also resets the run because it's a visual break.
+                const showAvatar =
+                  !prev || prev.sender_type !== msg.sender_type || dividerLabel !== null;
+
+                return (
+                  <Fragment key={msg.id}>
+                    {dividerLabel && <TimeDivider label={dividerLabel} />}
+                    <div
+                      data-rail-id={msg.id}
+                      data-rail-kind={msg.sender_type === "user" ? "user" : "agent"}
+                      data-rail-preview={
+                        msg.content.split("\n")[0].slice(0, 100) || "(no text)"
+                      }
+                    >
+                      <MessageBubble message={msg} showAvatar={showAvatar} />
+                    </div>
+                  </Fragment>
+                );
+              })}
+
+              {(blocks.length > 0 || isStreaming) && (
+                <StreamingResponse blocks={blocks} isStreaming={isStreaming} />
+              )}
+            </div>
           </div>
         </div>
+        <JumpRail messageCount={messages.length} scrollRef={scrollRef} />
       </div>
     );
   },

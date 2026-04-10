@@ -34,8 +34,16 @@ export const ToolCallCard = memo(function ToolCallCard({ block }: ToolCallCardPr
     : null;
   const hasChildren = block.children && block.children.length > 0;
 
+  // Jump rail metadata. Status drives the rail tick color:
+  //   error → danger, running → info, done → success.
+  const railKind = isError ? "tool-error" : isRunning ? "tool-running" : "tool-success";
+  const railPreview = `${a2aSlug ? `@${a2aSlug}` : block.name}${summary ? `: ${summary}` : ""}`.slice(0, 100);
+
   return (
     <div
+      data-rail-id={block.id}
+      data-rail-kind={railKind}
+      data-rail-preview={railPreview}
       className={cn(
         "rounded-md border transition-colors",
         isRunning
