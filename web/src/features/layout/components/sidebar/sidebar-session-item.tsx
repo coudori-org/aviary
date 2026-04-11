@@ -36,11 +36,18 @@ export function SidebarSessionItem({
   agentName?: string;
 }) {
   const { status, unread, title: polledTitle } = useSessionStatus(session.id);
-  const { deleteSession } = useSidebar();
+  const {
+    deleteSession,
+    selectedSessionIds,
+    toggleSessionSelection,
+    shiftSelectSession,
+  } = useSidebar();
   const router = useRouter();
   const [confirming, setConfirming] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
+  const isSelected = selectedSessionIds.has(session.id);
+  const inSelectMode = selectedSessionIds.size > 0;
   const isStreaming = status === "streaming" && !isActive && !confirming;
   const hasUnread = unread > 0 && !isActive && status !== "streaming" && !confirming;
 
@@ -61,18 +68,37 @@ export function SidebarSessionItem({
     }
   };
 
+  // Intercept navigation for multi-select gestures:
+  //   - Shift+click           → shift-range select
+  //   - Click while in select → toggle this row's selection
+  //   - Plain click           → Link navigates normally (no intercept)
+  const handleClick = (e: React.MouseEvent) => {
+    if (e.shiftKey) {
+      e.preventDefault();
+      shiftSelectSession(session.id);
+      return;
+    }
+    if (inSelectMode) {
+      e.preventDefault();
+      toggleSessionSelection(session.id);
+    }
+  };
+
   return (
     <Link
       href={routes.session(session.id)}
+      onClick={handleClick}
       className={cn(
-        "group flex items-center gap-1.5 rounded-xs px-2 py-1.5 type-caption transition-colors",
-        isActive
-          ? "bg-info/10 text-info"
-          : isStreaming
-            ? "text-fg-primary animate-pulse-bg-info"
-            : hasUnread
-              ? "text-fg-primary hover:bg-white/[0.03]"
-              : "text-fg-muted hover:bg-white/[0.03] hover:text-fg-primary",
+        "group flex items-center gap-1.5 rounded-xs px-2 py-1.5 type-caption transition-colors select-none",
+        isSelected
+          ? "bg-info/15 text-fg-primary ring-1 ring-info/40"
+          : isActive
+            ? "bg-info/10 text-info"
+            : isStreaming
+              ? "text-fg-primary animate-pulse-bg-info"
+              : hasUnread
+                ? "text-fg-primary hover:bg-white/[0.03]"
+                : "text-fg-muted hover:bg-white/[0.03] hover:text-fg-primary",
         deleting && "opacity-50 pointer-events-none",
       )}
       onMouseLeave={() => setConfirming(false)}

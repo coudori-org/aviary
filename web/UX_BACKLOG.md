@@ -642,9 +642,24 @@ icon prefix + tooltip. localStorage 저장. 검색 filter 적용 유지.
 
 ## SIDE-5 Bulk 작업
 
-**상태**: pending
+**상태**: accepted
 
-shift-click 다중 선택, bulk delete/archive/export.
+**v1 범위**:
+- Shift+click으로 세션 행 다중 선택. 앵커 + 현재 flat 방문 순서로 range 계산
+- Plain click은 선택 모드에 있을 때 toggle, 없으면 기존처럼 navigate
+- 선택된 row는 `bg-info/15 + ring-info/40`으로 강조
+- 선택 시 사이드바 상단에 `SidebarBulkBar` 등장: "N selected" + Delete (two-step confirm) + Cancel
+- Route 변경 시 자동으로 선택 해제
+- 데이터: provider에 `selectedSessionIds` Set + `visibleSessionIdsRef` + actions.
+  각 view(by-agent / by-date)가 렌더링 순서대로 `setVisibleSessionIds` 푸시
+- v1에서는 delete만 지원 — archive/export는 필요해지면 추가
+
+**파일**:
+- `sidebar-provider.tsx` — bulk selection state/actions
+- 신규 `sidebar-bulk-bar.tsx`
+- `sidebar-session-item.tsx` — shift-click/toggle 핸들러 + 선택 비주얼
+- `sidebar-sessions.tsx`, `sidebar-sessions-by-date.tsx` — visible ids 등록
+- `sidebar.tsx` — BulkBar 마운트
 
 ---
 

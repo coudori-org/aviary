@@ -9,6 +9,7 @@ import { SidebarViewToggle } from "./sidebar-view-toggle";
 import { SidebarNav } from "./sidebar-nav";
 import { SidebarSessions } from "./sidebar-sessions";
 import { SidebarSessionsByDate } from "./sidebar-sessions-by-date";
+import { SidebarBulkBar } from "./sidebar-bulk-bar";
 import { SidebarUser } from "./sidebar-user";
 import { cn } from "@/lib/utils";
 
@@ -45,6 +46,7 @@ export function Sidebar() {
       <div className="flex-1 overflow-y-auto pb-3">
         <SidebarNav />
         <SidebarViewToggle />
+        <SidebarBulkBar />
         {viewMode === "agent" ? (
           <SidebarSessions
             groups={search.filteredGroups}

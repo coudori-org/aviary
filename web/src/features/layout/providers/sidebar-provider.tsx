@@ -1,6 +1,13 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useState } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { usePathname } from "next/navigation";
 import { http } from "@/lib/http";
 import { useAuth } from "@/features/auth/providers/auth-provider";
@@ -32,6 +39,21 @@ interface SidebarContextValue {
   refresh: () => Promise<void>;
   updateSessionTitle: (sessionId: string, title: string) => void;
   deleteSession: (sessionId: string) => Promise<void>;
+  // --- Bulk selection (SIDE-5) ---
+  /** Set of currently multi-selected session ids. */
+  selectedSessionIds: Set<string>;
+  /** Register the currently visible session ids in their rendered order
+   *  so range-select (shift+click) can compute a contiguous span. Each
+   *  active session list view calls this from an effect. */
+  setVisibleSessionIds: (ids: string[]) => void;
+  /** Plain toggle on a single session + set as the shift-range anchor. */
+  toggleSessionSelection: (id: string) => void;
+  /** Shift-click behavior: if an anchor exists, select every id between
+   *  the anchor and `id` in the current visible order; otherwise toggle. */
+  shiftSelectSession: (id: string) => void;
+  clearSessionSelection: () => void;
+  /** Bulk delete all currently selected sessions. */
+  deleteSelectedSessions: () => Promise<void>;
 }
 
 // Note: deleted-at-bottom + user-defined ordering now lives in
@@ -167,6 +189,91 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
     );
   }, []);
 
+  // --- Bulk selection state (SIDE-5) ---
+  const [selectedSessionIds, setSelectedSessionIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  // Ref holds the current visible-session ordering pushed from whichever
+  // session list view is mounted. Used for shift-range selection.
+  const visibleSessionIdsRef = useRef<string[]>([]);
+  const anchorRef = useRef<string | null>(null);
+
+  const setVisibleSessionIds = useCallback((ids: string[]) => {
+    visibleSessionIdsRef.current = ids;
+  }, []);
+
+  const toggleSessionSelection = useCallback((id: string) => {
+    setSelectedSessionIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+    anchorRef.current = id;
+  }, []);
+
+  const shiftSelectSession = useCallback((id: string) => {
+    const ordered = visibleSessionIdsRef.current;
+    const anchor = anchorRef.current;
+    if (!anchor || !ordered.includes(anchor)) {
+      // No usable anchor — fall back to single toggle.
+      setSelectedSessionIds((prev) => {
+        const next = new Set(prev);
+        if (next.has(id)) next.delete(id);
+        else next.add(id);
+        return next;
+      });
+      anchorRef.current = id;
+      return;
+    }
+    const a = ordered.indexOf(anchor);
+    const b = ordered.indexOf(id);
+    if (b === -1) return;
+    const [lo, hi] = a < b ? [a, b] : [b, a];
+    const rangeIds = ordered.slice(lo, hi + 1);
+    setSelectedSessionIds((prev) => {
+      const next = new Set(prev);
+      for (const rid of rangeIds) next.add(rid);
+      return next;
+    });
+    // Anchor stays put so subsequent shift-clicks keep extending from it.
+  }, []);
+
+  const clearSessionSelection = useCallback(() => {
+    setSelectedSessionIds(new Set());
+    anchorRef.current = null;
+  }, []);
+
+  const deleteSelectedSessions = useCallback(async () => {
+    const ids = Array.from(selectedSessionIds);
+    if (ids.length === 0) return;
+    await Promise.all(
+      ids.map((id) =>
+        http.delete(`/sessions/${id}`).catch(() => {
+          /* best effort — stay resilient to partial failures */
+        }),
+      ),
+    );
+    setGroups((prev) =>
+      prev.map((g) => ({
+        ...g,
+        sessions: g.sessions.filter((s) => !selectedSessionIds.has(s.id)),
+      })),
+    );
+    setSelectedSessionIds(new Set());
+    anchorRef.current = null;
+  }, [selectedSessionIds]);
+
+  // Clear any stale selection on route change — navigating to a chat
+  // implicitly ends a bulk-edit flow.
+  useEffect(() => {
+    if (selectedSessionIds.size > 0) {
+      setSelectedSessionIds(new Set());
+      anchorRef.current = null;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathname]);
+
   const toggleCollapsed = useCallback(() => setCollapsed((c) => !c), []);
 
   return (
@@ -183,6 +290,12 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
         refresh,
         updateSessionTitle,
         deleteSession,
+        selectedSessionIds,
+        setVisibleSessionIds,
+        toggleSessionSelection,
+        shiftSelectSession,
+        clearSessionSelection,
+        deleteSelectedSessions,
       }}
     >
       {children}

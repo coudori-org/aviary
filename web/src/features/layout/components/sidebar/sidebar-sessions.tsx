@@ -15,6 +15,7 @@ import {
   sortableKeyboardCoordinates,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
+import { useEffect } from "react";
 import { useSidebar } from "@/features/layout/providers/sidebar-provider";
 import { usePreferences } from "@/features/auth/hooks/use-preferences";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -54,7 +55,12 @@ interface SidebarSessionsProps {
  * sit at the bottom and can't be reordered.
  */
 export function SidebarSessions({ groups: groupsProp, searchActive }: SidebarSessionsProps) {
-  const { groups: providerGroups, loading, collapsed } = useSidebar();
+  const {
+    groups: providerGroups,
+    loading,
+    collapsed,
+    setVisibleSessionIds,
+  } = useSidebar();
   const { preferences, updatePreferences } = usePreferences();
   const groups = groupsProp ?? providerGroups;
 
@@ -82,6 +88,17 @@ export function SidebarSessions({ groups: groupsProp, searchActive }: SidebarSes
   }));
 
   const totalSessions = groups.reduce((sum, g) => sum + g.sessions.length, 0);
+
+  // Flat list of visible session ids in rendered order — drives
+  // shift-range bulk selection in the sidebar provider.
+  const visibleSessionIds = orderedGroupsWithSortedSessions.flatMap((g) =>
+    g.sessions.map((s) => s.id),
+  );
+  const visibleKey = visibleSessionIds.join("|");
+  useEffect(() => {
+    setVisibleSessionIds(visibleSessionIds);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visibleKey, setVisibleSessionIds]);
 
   // Only non-deleted agents participate in the sortable id list
   const sortableAgentIds = orderedGroupsWithSortedSessions

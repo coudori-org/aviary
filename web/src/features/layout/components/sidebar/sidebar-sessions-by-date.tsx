@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import { usePathname } from "next/navigation";
 import { useSidebar } from "@/features/layout/providers/sidebar-provider";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -36,11 +37,9 @@ const BUCKETS = ["Today", "Yesterday", "This week", "This month", "Older"] as co
 type Bucket = (typeof BUCKETS)[number];
 
 export function SidebarSessionsByDate({ groups: groupsProp, searchActive }: SidebarSessionsByDateProps) {
-  const { groups: providerGroups, loading, collapsed } = useSidebar();
+  const { groups: providerGroups, loading, collapsed, setVisibleSessionIds } = useSidebar();
   const groups = groupsProp ?? providerGroups;
   const pathname = usePathname();
-
-  if (collapsed) return null;
 
   // Flatten + sort newest first
   const dated: DatedSession[] = groups.flatMap((g) =>
@@ -54,6 +53,19 @@ export function SidebarSessionsByDate({ groups: groupsProp, searchActive }: Side
 
   const buckets = bucketSessions(dated);
   const totalSessions = dated.length;
+
+  // Push the flat rendered order to the provider so shift-range
+  // selection can compute contiguous spans across buckets.
+  const visibleSessionIds = (Object.values(buckets) as DatedSession[][])
+    .flat()
+    .map((d) => d.session.id);
+  const visibleKey = visibleSessionIds.join("|");
+  useEffect(() => {
+    setVisibleSessionIds(visibleSessionIds);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visibleKey, setVisibleSessionIds]);
+
+  if (collapsed) return null;
 
   if (loading) {
     return (
