@@ -1,4 +1,4 @@
-"""Agent lifecycle operations shared between the JSON API and the HTML pages."""
+"""Agent lifecycle ops shared by the JSON API and HTML pages."""
 
 from __future__ import annotations
 
@@ -17,10 +17,6 @@ logger = logging.getLogger(__name__)
 
 
 async def activate(agent: Agent) -> None:
-    """Create the namespace (idempotent) and ensure the Deployment exists.
-
-    Surfaces all non-409 errors. The caller decides how to render them.
-    """
     ns = agent_namespace(str(agent.id))
     try:
         await supervisor_client.create_namespace(
@@ -42,20 +38,15 @@ async def activate(agent: Agent) -> None:
 
 
 async def deactivate(agent: Agent) -> None:
-    """Scale the agent's deployment to zero."""
     await supervisor_client.scale_to_zero(agent_namespace(str(agent.id)))
 
 
 async def rolling_restart(agent: Agent) -> None:
-    """Trigger a rolling restart of the agent deployment."""
     await supervisor_client.rolling_restart(agent_namespace(str(agent.id)))
 
 
 async def delete_agent(db: AsyncSession, agent: Agent) -> None:
-    """Tear down all K8s resources, then drop the agent and its sessions from the DB.
-
-    Idempotent on K8s side: 404s are treated as already-gone, other errors raise.
-    """
+    """Tear down K8s resources then drop the agent from DB. 404s ignored."""
     ns = agent_namespace(str(agent.id))
     for cleanup in (
         lambda: supervisor_client.delete_deployment(ns),

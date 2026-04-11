@@ -111,8 +111,6 @@ async def delete_credential(
     try:
         await vault_service.delete_secret(cred.vault_path)
     except httpx.HTTPError as e:
-        # Surface the failure — leaving the DB row in place keeps state consistent
-        # with Vault and lets the caller retry instead of silently leaking the secret.
         logger.warning("Vault delete failed for %s", cred.vault_path, exc_info=True)
         raise HTTPException(status_code=502, detail=f"Vault delete failed: {e}") from e
 

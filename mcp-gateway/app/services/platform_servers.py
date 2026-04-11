@@ -1,8 +1,4 @@
-"""Auto-register platform-provided MCP servers on startup.
-
-Reads from a YAML config file and ensures each server exists in the DB
-with is_platform_provided=True. Triggers tool discovery via MCP SDK client.
-"""
+"""Register platform-provided MCP servers on startup."""
 
 import logging
 
@@ -19,8 +15,7 @@ logger = logging.getLogger(__name__)
 
 
 def _load_platform_servers() -> list[dict]:
-    """Load platform server definitions from YAML config. Missing file = empty list
-    (no platform servers configured); malformed file raises so misconfig fails fast."""
+    """Missing file is fine; malformed file fails fast."""
     config_path = settings.platform_servers_config
     try:
         with open(config_path) as f:
@@ -34,12 +29,7 @@ def _load_platform_servers() -> list[dict]:
 
 
 async def _discover_tools_for_server(db: AsyncSession, server: McpServer) -> int:
-    """Connect to a backend MCP server via MCP SDK and populate tools in DB.
-
-    Discovery failure marks the server status="degraded" so the gateway can
-    surface the misconfig in admin views, but does not abort startup — other
-    platform servers should still be registered.
-    """
+    """Discovery failure → server status='degraded'; other servers still register."""
     try:
         raw_tools = await pool.list_tools(server)
     except Exception:

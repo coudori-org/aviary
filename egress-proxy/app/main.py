@@ -51,9 +51,7 @@ async def _get_pool() -> asyncpg.Pool:
 
 
 async def _get_policy(agent_id: str) -> PolicyChecker:
-    """Load per-agent policy from DB on every request. A missing agent row or
-    empty policy field both deny all custom egress, but the two cases are logged
-    differently so operators can spot misconfiguration."""
+    """Load per-agent policy from DB. Both missing row and empty policy deny by default."""
     pool = await _get_pool()
     row = await pool.fetchrow(
         "SELECT policy FROM agents WHERE id = $1::uuid", agent_id,

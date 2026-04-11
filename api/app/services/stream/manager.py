@@ -28,7 +28,6 @@ from app.services.stream.blocks import (
 
 logger = logging.getLogger(__name__)
 
-# In-memory registry of active streaming tasks (per API server process)
 _active_streams: dict[str, asyncio.Task] = {}
 
 
@@ -41,12 +40,7 @@ def build_mcp_config(legacy_mcp_servers: list) -> dict:
 
 
 async def fetch_user_credentials(user_external_id: str) -> dict[str, str]:
-    """Fetch user credentials from Vault for injection into agent sandbox.
-
-    Returns an empty dict if the user has no GitHub token stored. Vault errors
-    other than 404 propagate so a Vault outage is never silently treated as
-    "no credentials".
-    """
+    """Fetch GitHub token for sandbox injection. Empty dict if not stored."""
     secret = await vault_service.read_secret(credential_path(user_external_id, "github-token"))
     if secret is None:
         return {}

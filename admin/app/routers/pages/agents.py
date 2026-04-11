@@ -20,8 +20,6 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-# ── Agent List ────────────────────────────────────────────────
-
 @router.get("/", response_class=HTMLResponse)
 async def agent_list(
     request: Request,
@@ -41,9 +39,6 @@ async def agent_list(
     )
     agents = list(result.scalars().all())
 
-    # Query live deployment status for each agent. 404 = never activated;
-    # any other error = supervisor unreachable, surfaced as "unknown" so the
-    # UI never confuses a real outage with a deactivated agent.
     deployment_map: dict[str, dict] = {}
     for agent in agents:
         ns = agent_namespace(str(agent.id))
@@ -70,8 +65,6 @@ async def agent_list(
     })
 
 
-# ── Agent Detail ──────────────────────────────────────────────
-
 @router.get("/agents/{agent_id}", response_class=HTMLResponse)
 async def agent_detail(
     request: Request, agent_id: uuid.UUID, db: AsyncSession = Depends(get_db),
@@ -81,8 +74,6 @@ async def agent_detail(
     if not agent:
         return HTMLResponse("<h1>Agent not found</h1>", status_code=404)
 
-    # Query live deployment status from supervisor. 404 = inactive (never deployed
-    # or torn down); other errors = supervisor unreachable, surfaced via state="unknown".
     ns = agent_namespace(str(agent.id))
     deployment_status = {"state": "inactive", "active": False, "replicas": 0, "ready_replicas": 0}
     try:
@@ -122,8 +113,6 @@ async def agent_detail(
     })
 
 
-# ── Agent Config Update ──────────────────────────────────────
-
 @router.post("/agents/{agent_id}/update")
 async def update_agent_config(
     agent_id: uuid.UUID,
@@ -146,8 +135,6 @@ async def update_agent_config(
 
     return RedirectResponse(f"/agents/{agent_id}?flash=Configuration+saved", status_code=303)
 
-
-# ── Policy Update ─────────────────────────────────────────────
 
 @router.post("/agents/{agent_id}/policy")
 async def update_policy(
@@ -208,8 +195,6 @@ async def update_policy(
     agent.policy = policy
     await db.flush()
 
-    # Sync K8s NetworkPolicy. 404 = deployment not yet activated (policy will apply
-    # on activate). Other errors are surfaced to the operator via flash error.
     ns = agent_namespace(str(agent.id))
     try:
         await supervisor_client.update_network_policy(ns, policy)
@@ -223,8 +208,6 @@ async def update_policy(
 
     return RedirectResponse(f"/agents/{agent_id}?flash=Policy+saved", status_code=303)
 
-
-# ── Deployment Actions ────────────────────────────────────────
 
 def _flash_error(agent_id, message: str) -> RedirectResponse:
     return RedirectResponse(f"/agents/{agent_id}?error={message}", status_code=303)

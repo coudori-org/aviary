@@ -1,9 +1,4 @@
-"""Agent Supervisor client — abstract orchestration interface.
-
-The API server treats this as a black-box agent runtime manager.
-All operations use simple agent_id / session_id identifiers.
-No infrastructure-specific concepts leak into the API layer.
-"""
+"""Agent Supervisor client — agent_id/session_id only, no K8s concepts."""
 
 import logging
 
@@ -41,11 +36,7 @@ async def unregister_agent(agent_id: str) -> None:
 
 
 async def ensure_agent_running(agent_id: str, owner_id: str) -> None:
-    """Ensure agent is running. Lazily creates resources if needed.
-
-    Agent config (instruction, tools, mcp_servers) is sent on every message body
-    by the streaming code, not at deployment time, so it's not passed here.
-    """
+    """Ensure agent is running. Lazily creates resources if needed."""
     resp = await _supervisor.client.post(
         f"/v1/agents/{agent_id}/run", json={"owner_id": owner_id},
     )
@@ -53,7 +44,6 @@ async def ensure_agent_running(agent_id: str, owner_id: str) -> None:
 
 
 async def check_agent_ready(agent_id: str) -> bool:
-    """Check if agent has ready instances. Returns False on transport error."""
     try:
         resp = await _supervisor.client.get(f"/v1/agents/{agent_id}/ready")
         resp.raise_for_status()
@@ -80,8 +70,7 @@ def get_stream_url(agent_id: str, session_id: str) -> str:
 
 
 async def abort_session(agent_id: str, session_id: str) -> None:
-    """Abort an active session's stream. Best-effort: failures are logged but never re-raised
-    because the caller (cancel handler) cannot recover and abort is racy with normal completion."""
+    """Best-effort abort. Racy with normal completion, so failures are only logged."""
     try:
         resp = await _supervisor.client.post(
             f"/v1/agents/{agent_id}/sessions/{session_id}/abort",
@@ -93,7 +82,7 @@ async def abort_session(agent_id: str, session_id: str) -> None:
 
 
 async def cleanup_session(agent_id: str, session_id: str) -> None:
-    """Clean up session workspace. Best-effort: leftover files are reaped by idle cleanup."""
+    """Best-effort workspace cleanup; leftover files are reaped by idle cleanup."""
     try:
         resp = await _supervisor.client.delete(
             f"/v1/agents/{agent_id}/sessions/{session_id}",
@@ -105,7 +94,6 @@ async def cleanup_session(agent_id: str, session_id: str) -> None:
 
 
 async def health_check() -> bool:
-    """Check if the agent supervisor is reachable. Returns False on transport error."""
     try:
         resp = await _supervisor.client.get("/v1/health")
         return resp.status_code == 200

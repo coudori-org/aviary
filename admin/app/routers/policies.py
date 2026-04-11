@@ -66,22 +66,17 @@ async def update_policy(
 
     await db.flush()
 
-    # Sync NetworkPolicy to K8s. The egress proxy reads policy directly from DB on
-    # every request, so the DB write alone is sufficient for HTTP-level enforcement —
-    # but the NetworkPolicy is the second layer (CIDR enforcement for non-HTTP
-    # traffic). Sync failures are reported back so the admin knows the two layers
-    # are out of sync; the DB write is left intact (no rollback).
+    # The DB write alone is enough for HTTP-level enforcement (egress proxy reads
+    # policy from DB on every request); the NetworkPolicy sync is the CIDR-level
+    # second layer. Failures are reported instead of rolled back.
     ns = agent_namespace(str(agent.id))
     network_policy_synced = True
     sync_error: str | None = None
     try:
         await supervisor_client.update_network_policy(ns, agent.policy)
     except httpx.HTTPStatusError as e:
-        if e.response.status_code == 404:
-            # Deployment not yet activated — NetworkPolicy will be created on activate.
-            network_policy_synced = False
-        else:
-            network_policy_synced = False
+        network_policy_synced = False
+        if e.response.status_code != 404:
             sync_error = str(e)
             logger.warning("NetworkPolicy update failed for agent %s", agent.id, exc_info=True)
     except httpx.HTTPError as e:

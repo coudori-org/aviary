@@ -21,10 +21,8 @@ LABEL_MANAGED = "aviary/managed"
 
 
 def agent_namespace(agent_id: str | object) -> str:
-    """Derive K8s namespace name from agent ID."""
     return f"agent-{agent_id}"
 
 
 def runtime_label_selector() -> str:
-    """K8s label selector string for selecting runtime pods within an agent namespace."""
     return f"{LABEL_ROLE}={DEPLOYMENT_NAME}"

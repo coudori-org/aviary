@@ -1,8 +1,4 @@
-"""Agent-centric API — abstract facade over K8s operations.
-
-Used by the API server which doesn't know about K8s internals.
-Translates agent_id/session_id into namespace/deployment operations.
-"""
+"""Agent-centric API used by the API server — translates agent_id to K8s ops."""
 
 import logging
 
@@ -34,11 +30,7 @@ class RegisterAgentRequest(BaseModel):
 
 @router.post("/agents/{agent_id}/register")
 async def register_agent(agent_id: str, body: RegisterAgentRequest):
-    """Register a new agent. Provisions resources with secure defaults (all network blocked).
-
-    Agent config (instruction, tools, mcp_servers) is sent in every message body
-    and not stored anywhere here, so we don't accept it on register.
-    """
+    """Provision K8s resources with secure defaults (all egress blocked)."""
     await touch_activity(agent_id)
     ns_name = await provisioning.provision_namespace(
         agent_id=agent_id, owner_id=body.owner_id, policy={},
@@ -51,8 +43,7 @@ async def unregister_agent(agent_id: str):
     """Remove all resources for an agent."""
     ns = agent_namespace(agent_id)
 
-    # k8s_apply already treats DELETE 404 as a no-op. Other errors must surface
-    # so the API caller knows resources are still leaking.
+    # k8s_apply treats DELETE 404 as a no-op; other errors propagate.
     for path in [
         f"/apis/apps/v1/namespaces/{ns}/deployments/{DEPLOYMENT_NAME}",
         f"/api/v1/namespaces/{ns}/services/{SERVICE_NAME}",
@@ -86,7 +77,6 @@ async def run_agent(agent_id: str, body: RunAgentRequest):
 
 @router.get("/agents/{agent_id}/ready")
 async def check_agent_ready(agent_id: str):
-    """Check if agent has ready instances. Returns ready=False when no Deployment exists."""
     ns = agent_namespace(agent_id)
     try:
         status = await provisioning.get_deployment_status(ns)

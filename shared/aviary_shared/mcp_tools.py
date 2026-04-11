@@ -1,4 +1,4 @@
-"""Shared MCP tool catalog upsert used by admin discovery and gateway startup."""
+"""MCP tool catalog upsert shared by admin discovery and gateway startup."""
 
 from __future__ import annotations
 
@@ -14,11 +14,7 @@ from aviary_shared.db.models import McpServer, McpTool
 async def upsert_tools(
     db: AsyncSession, server: McpServer, raw_tools: list[dict[str, Any]],
 ) -> tuple[int, int]:
-    """Reconcile the catalog of tools for an MCP server.
-
-    Returns ``(discovered, removed)`` counts. Touches ``last_discovered_at`` and
-    sets ``status="active"`` on the server. Caller is responsible for committing.
-    """
+    """Reconcile tool catalog. Returns (discovered, removed). Caller commits."""
     result = await db.execute(select(McpTool).where(McpTool.server_id == server.id))
     existing = {t.name: t for t in result.scalars().all()}
 

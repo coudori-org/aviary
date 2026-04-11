@@ -48,17 +48,23 @@ services:
 
   vault:
     image: hashicorp/vault:1.17
-    command: server -dev -dev-root-token-id=dev-root-token
+    # Bypass the image's docker-entrypoint.sh — it auto-injects dev-mode flags
+    # when invoked with `server`, which collide with our HCL listener block.
+    entrypoint: ["vault"]
+    command: ["server", "-config=/vault/config/vault.hcl"]
     environment:
-      VAULT_DEV_ROOT_TOKEN_ID: dev-root-token
-      VAULT_DEV_LISTEN_ADDRESS: "0.0.0.0:8200"
       VAULT_ADDR: "http://127.0.0.1:8200"
+      SKIP_SETCAP: "true"
     ports:
       - "8200:8200"
     cap_add:
       - IPC_LOCK
+    volumes:
+      - vaultdata:/vault/data
+      - ./config/vault/vault.hcl:/vault/config/vault.hcl:ro
     healthcheck:
-      test: ["CMD-SHELL", "wget --spider --quiet http://127.0.0.1:8200/v1/sys/health || exit 1"]
+      # Accept sealed/uninitialized as healthy so vault-init can run.
+      test: ["CMD-SHELL", "wget --spider --quiet 'http://127.0.0.1:8200/v1/sys/health?standbyok=true&sealedcode=200&uninitcode=200' || exit 1"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -70,15 +76,11 @@ services:
         condition: service_healthy
     environment:
       VAULT_ADDR: "http://vault:8200"
-      VAULT_TOKEN: "dev-root-token"
+    volumes:
+      - vaultdata:/vault/data
+      - ./scripts/vault-init.sh:/usr/local/bin/vault-init.sh:ro
     entrypoint: /bin/sh
-    command: >
-      -c "
-        vault secrets enable -version=2 -path=secret kv 2>/dev/null || true &&
-        vault kv put secret/aviary/agents/test-agent/credentials/GITHUB_TOKEN value=ghp_test_12345 &&
-        vault kv put secret/aviary/agents/test-agent/credentials/SLACK_TOKEN value=xoxb-test-12345 &&
-        echo 'Vault initialized with test secrets'
-      "
+    command: ["/usr/local/bin/vault-init.sh"]
 
   k8s:
     image: rancher/k3s:v1.31.4-k3s1
@@ -326,3 +328,4 @@ services:
 volumes:
   pgdata:
   k8sdata:
+  vaultdata:

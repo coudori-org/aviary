@@ -15,10 +15,4 @@ def _vault() -> VaultClient:
 
 
 async def get_mcp_credential(user_external_id: str, server_name: str) -> str | None:
-    """Fetch a user's MCP credential from Vault.
-
-    Returns the token string if stored, None if no credential exists for this
-    user/server. Raises ``httpx.HTTPError`` on transport failures or non-404 status
-    so callers can distinguish "user has no credential" from "Vault is unreachable".
-    """
     return await _vault().read_user_credential(user_external_id, server_name)

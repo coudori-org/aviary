@@ -1,9 +1,4 @@
-"""Auto-scaling and idle cleanup for agent deployments.
-
-Reads agent configuration (min_pods, max_pods, last_activity_at) from DB.
-Queries live pod metrics from K8s for scaling decisions.
-Updates last_activity_at in DB when agents are accessed.
-"""
+"""Auto-scaling and idle cleanup for agent deployments."""
 
 import asyncio
 import logging
@@ -28,10 +23,7 @@ logger = logging.getLogger(__name__)
 
 
 async def touch_activity(agent_id: str) -> None:
-    """Update last_activity_at for an agent. Drives idle cleanup — failure here
-    will eventually cause a still-active agent to be reaped, so failures are logged
-    at WARNING (not debug). The supervisor must keep serving even if the DB is
-    transiently down, so the exception is swallowed after logging."""
+    """Update last_activity_at. Failure logged at WARNING because it drives idle cleanup."""
     from aviary_shared.db.models import Agent
 
     try:

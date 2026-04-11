@@ -1,9 +1,4 @@
-"""K8s provisioning functions used by both agent-centric and K8s-specific routers.
-
-These are the actual primitives — namespace creation, deployment ensure, status,
-readiness wait, session cleanup. Both routers (`agents.py`, `namespaces.py`,
-`deployments.py`) call these so neither router has to import the other.
-"""
+"""K8s provisioning primitives shared by the agent-centric and K8s-specific routers."""
 
 from __future__ import annotations
 
@@ -37,9 +32,6 @@ from app.k8s import k8s_apply
 from app.manifests import build_deployment_manifest, build_pvc_manifest, build_service_manifest
 
 logger = logging.getLogger(__name__)
-
-
-# ── NetworkPolicy ─────────────────────────────────────────────
 
 
 async def _get_base_egress_rules() -> list[dict]:
@@ -102,12 +94,8 @@ async def apply_network_policy(namespace: str, policy: dict) -> None:
         await k8s_apply("PUT", f"{path}/{NETWORK_POLICY_NAME}", manifest)
 
 
-# ── Namespace lifecycle ───────────────────────────────────────
-
-
 async def provision_namespace(agent_id: str, owner_id: str, policy: dict) -> str:
-    """Create the agent namespace plus NetworkPolicy/ResourceQuota/ServiceAccount.
-    Returns the namespace name. Idempotent (k8s_apply treats 409 as already-exists)."""
+    """Create namespace + NetworkPolicy + ResourceQuota + ServiceAccount. Idempotent."""
     ns_name = agent_namespace(agent_id)
 
     await k8s_apply("POST", "/api/v1/namespaces", {
@@ -153,9 +141,6 @@ async def provision_namespace(agent_id: str, owner_id: str, policy: dict) -> str
     return ns_name
 
 
-# ── Deployment lifecycle ──────────────────────────────────────
-
-
 async def ensure_deployment(
     namespace: str,
     agent_id: str,
@@ -164,8 +149,7 @@ async def ensure_deployment(
     min_pods: int,
     max_pods: int,
 ) -> dict:
-    """Ensure the agent's Deployment+PVC+Service exist. Re-provisions the
-    namespace if it has gone missing."""
+    """Ensure Deployment+PVC+Service exist. Re-provisions the namespace if missing."""
     try:
         result = await k8s_apply(
             "GET", f"/apis/apps/v1/namespaces/{namespace}/deployments/{DEPLOYMENT_NAME}"
