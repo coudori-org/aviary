@@ -69,6 +69,31 @@ class MessageResponse(BaseModel):
 class SessionDetailResponse(BaseModel):
     session: SessionResponse
     messages: list[MessageResponse]
+    has_more: bool = False
+
+
+class MessagePageResponse(BaseModel):
+    messages: list[MessageResponse]
+    has_more: bool = False
+
+
+class SessionSearchMatch(BaseModel):
+    """One block-level match from in-chat search.
+
+    `target_id` matches the `data-search-target` attribute the frontend
+    paints on the corresponding bubble (text bubble, tool card,
+    thinking chip, or the synthetic `{msgId}/user` / `{msgId}/body`
+    pseudo-targets for legacy plain content).
+    """
+    message_id: str
+    target_id: str
+
+
+class SessionSearchResponse(BaseModel):
+    """Block-level matches latest-first, top-to-bottom within a message.
+    Capped server-side; the cap is high enough that realistic Aviary
+    sessions never hit it."""
+    matches: list[SessionSearchMatch]
 
 
 class SessionTitleUpdate(BaseModel):

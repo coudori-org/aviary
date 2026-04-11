@@ -2,39 +2,39 @@
 
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { AgentForm } from "@/components/agents/agent-form";
-import { apiFetch } from "@/lib/api";
+import { ArrowLeft } from "@/components/icons";
+import { AgentForm } from "@/features/agents/components/form/agent-form";
+import { agentsApi } from "@/features/agents/api/agents-api";
+import { routes } from "@/lib/constants/routes";
+import type { AgentFormData } from "@/features/agents/components/form/types";
 
 export default function NewAgentPage() {
   const router = useRouter();
 
-  const handleSubmit = async (data: any) => {
+  const handleSubmit = async (data: AgentFormData) => {
     const { mcp_tool_ids, ...agentData } = data;
-    const agent = await apiFetch<any>("/agents", {
-      method: "POST",
-      body: JSON.stringify(agentData),
-    });
+    const agent = await agentsApi.create(agentData);
 
-    // Bind MCP tools if any were selected
-    if (mcp_tool_ids && mcp_tool_ids.length > 0) {
-      await apiFetch(`/mcp/agents/${agent.id}/tools`, {
-        method: "PUT",
-        body: JSON.stringify({ tool_ids: mcp_tool_ids }),
-      });
+    if (mcp_tool_ids.length > 0) {
+      await agentsApi.setMcpTools(agent.id, mcp_tool_ids);
     }
-
-    router.push(`/agents/${agent.id}`);
+    router.push(routes.agent(agent.id));
   };
 
   return (
-    <div className="h-full overflow-y-auto">
-      <div className="mx-auto max-w-3xl px-8 py-8">
-        <Link href="/agents" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 12H5"/><polyline points="12 19 5 12 12 5"/></svg>
+    <div className="h-full overflow-y-auto bg-canvas">
+      <div className="mx-auto max-w-container-sm px-8 py-8">
+        <Link
+          href={routes.agents}
+          className="inline-flex items-center gap-1.5 type-caption text-fg-muted hover:text-fg-primary transition-colors"
+        >
+          <ArrowLeft size={12} strokeWidth={2} />
           Back to agents
         </Link>
-        <h1 className="mt-4 mb-2 text-xl font-bold text-foreground">Create New Agent</h1>
-        <p className="mb-8 text-sm text-muted-foreground">Configure your AI agent&apos;s behavior, model, and capabilities</p>
+        <h1 className="mt-4 type-heading text-fg-primary">Create New Agent</h1>
+        <p className="mt-1 mb-8 type-caption text-fg-muted">
+          Configure your AI agent&apos;s behavior, model, and capabilities
+        </p>
         <AgentForm onSubmit={handleSubmit} submitLabel="Create Agent" />
       </div>
     </div>

@@ -76,15 +76,30 @@ async def list_sessions_for_agent(
 
 
 async def get_session_messages(
-    db: AsyncSession, session_id: uuid.UUID, limit: int = 100
-) -> list[Message]:
-    result = await db.execute(
-        select(Message)
-        .where(Message.session_id == session_id)
-        .order_by(Message.created_at.asc())
-        .limit(limit)
-    )
-    return list(result.scalars().all())
+    db: AsyncSession,
+    session_id: uuid.UUID,
+    limit: int = 50,
+    before: datetime | None = None,
+) -> tuple[list[Message], bool]:
+    """Fetch a page of messages, newest-first-paginated but returned ascending.
+
+    - Without `before`: returns the most recent `limit` messages.
+    - With `before`: returns `limit` messages older than the given timestamp.
+
+    Returns `(messages, has_more)` where `has_more` is True if at least one
+    additional older message exists beyond the returned page. Implemented
+    with a `limit + 1` fetch trick to avoid a separate count query.
+    """
+    stmt = select(Message).where(Message.session_id == session_id)
+    if before is not None:
+        stmt = stmt.where(Message.created_at < before)
+    stmt = stmt.order_by(Message.created_at.desc()).limit(limit + 1)
+    result = await db.execute(stmt)
+    rows = list(result.scalars().all())
+    has_more = len(rows) > limit
+    rows = rows[:limit]
+    rows.reverse()  # Return ascending for display
+    return rows, has_more
 
 
 async def save_message(

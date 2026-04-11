@@ -2,10 +2,11 @@ import asyncio
 import json
 import logging
 import uuid
+from datetime import datetime
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect, status
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import get_current_user
@@ -15,11 +16,14 @@ from app.db.models import Agent, Session as SessionModel, User
 from app.db.session import get_db, async_session_factory
 from app.schemas.session import (
     InviteRequest,
+    MessagePageResponse,
     MessageResponse,
     SessionCreate,
     SessionDetailResponse,
     SessionListResponse,
     SessionResponse,
+    SessionSearchMatch,
+    SessionSearchResponse,
     SessionTitleUpdate,
 )
 from app.services import acl_service, agent_supervisor, redis_service, session_service
@@ -106,11 +110,152 @@ async def get_session(
     if not is_participant:
         raise HTTPException(status_code=403, detail="Not a participant of this session")
 
-    messages = await session_service.get_session_messages(db, session_id)
+    messages, has_more = await session_service.get_session_messages(db, session_id)
     return SessionDetailResponse(
         session=SessionResponse.from_orm_session(session),
         messages=[MessageResponse.from_orm_message(m) for m in messages],
+        has_more=has_more,
     )
+
+
+@router.get("/sessions/{session_id}/messages", response_model=MessagePageResponse)
+async def get_session_messages_page(
+    session_id: uuid.UUID,
+    before: datetime | None = Query(None, description="ISO timestamp cursor; returns messages older than this"),
+    limit: int = Query(50, ge=1, le=200),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Paginated message loader for "Show earlier" in chat view.
+
+    Uses `before` as a timestamp cursor (exclusive). The caller passes the
+    `created_at` of the currently-oldest loaded message to fetch the previous
+    page. Ties on `created_at` are extremely rare (microsecond precision in
+    Postgres); accepted as a pragmatic trade-off over a composite cursor.
+    """
+    session = await session_service.get_session(db, session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    is_participant = await session_service.is_session_participant(db, session_id, user.id)
+    if not is_participant:
+        raise HTTPException(status_code=403, detail="Not a participant of this session")
+
+    messages, has_more = await session_service.get_session_messages(
+        db, session_id, limit=limit, before=before
+    )
+    return MessagePageResponse(
+        messages=[MessageResponse.from_orm_message(m) for m in messages],
+        has_more=has_more,
+    )
+
+
+@router.get("/sessions/{session_id}/search", response_model=SessionSearchResponse)
+async def search_session_messages(
+    session_id: uuid.UUID,
+    q: str = Query(..., min_length=1, max_length=200),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Block-level in-chat search.
+
+    Unnests `metadata->'blocks'` and emits one row per matching block.
+    `target_id` MUST stay in sync with `restoreBlocks` + the rendered
+    `data-search-target` attributes:
+      - tool_call: `tool_use_id` (or `{msg_id}-saved-{idx}` fallback)
+      - text:      `{msg_id}-text-{idx}`
+      - thinking:  `{msg_id}-thinking-{idx}`
+      - user msg:  `{msg_id}/user`
+      - legacy:    `{msg_id}/body`  (agent w/o blocks)
+
+    Returned latest-message-first, bottom-block-first within a message,
+    capped at 1000.
+    """
+    is_participant = await session_service.is_session_participant(db, session_id, user.id)
+    if not is_participant:
+        raise HTTPException(status_code=403, detail="Not a participant of this session")
+
+    query = q.strip()
+    if len(query) < 2:
+        return SessionSearchResponse(matches=[])
+
+    pattern = f"%{query}%"
+    sql = text("""
+        WITH block_matches AS (
+            SELECT
+                m.id          AS message_id,
+                m.created_at  AS created_at,
+                (idx - 1)::int AS block_idx,
+                CASE
+                    WHEN block->>'type' = 'tool_call' THEN
+                        coalesce(
+                            block->>'tool_use_id',
+                            m.id::text || '-saved-' || (idx - 1)::text
+                        )
+                    WHEN block->>'type' = 'text' THEN
+                        m.id::text || '-text-' || (idx - 1)::text
+                    WHEN block->>'type' = 'thinking' THEN
+                        m.id::text || '-thinking-' || (idx - 1)::text
+                    ELSE NULL
+                END AS target_id
+            FROM messages m
+            CROSS JOIN LATERAL jsonb_array_elements(
+                CASE
+                    WHEN jsonb_typeof(m.metadata->'blocks') = 'array'
+                        THEN m.metadata->'blocks'
+                    ELSE '[]'::jsonb
+                END
+            ) WITH ORDINALITY AS t(block, idx)
+            WHERE m.session_id = :session_id
+              AND (
+                  coalesce(block->>'content', '') ILIKE :pattern
+                  OR coalesce(block->>'name', '') ILIKE :pattern
+                  OR coalesce(block->>'result', '') ILIKE :pattern
+                  OR coalesce((block->'input')::text, '') ILIKE :pattern
+              )
+        ),
+        plain_matches AS (
+            SELECT
+                m.id          AS message_id,
+                m.created_at  AS created_at,
+                -1            AS block_idx,
+                m.id::text || '/' ||
+                    (CASE WHEN m.sender_type = 'user' THEN 'user' ELSE 'body' END)
+                    AS target_id
+            FROM messages m
+            WHERE m.session_id = :session_id
+              AND m.content ILIKE :pattern
+              AND (
+                  m.sender_type = 'user'
+                  OR jsonb_typeof(m.metadata->'blocks') IS DISTINCT FROM 'array'
+                  OR jsonb_array_length(m.metadata->'blocks') = 0
+              )
+        )
+        SELECT message_id, target_id
+        FROM (
+            SELECT message_id, created_at, block_idx, target_id
+            FROM block_matches
+            WHERE target_id IS NOT NULL
+            UNION ALL
+            SELECT message_id, created_at, block_idx, target_id
+            FROM plain_matches
+        ) all_matches
+        ORDER BY created_at DESC, block_idx DESC
+        LIMIT 1000
+    """)
+    result = await db.execute(
+        sql,
+        {"session_id": session_id, "pattern": pattern},
+    )
+    rows = result.mappings().all()
+    matches = [
+        SessionSearchMatch(
+            message_id=str(row["message_id"]),
+            target_id=str(row["target_id"]),
+        )
+        for row in rows
+    ]
+    return SessionSearchResponse(matches=matches)
 
 
 @router.delete("/sessions/{session_id}", status_code=status.HTTP_204_NO_CONTENT)

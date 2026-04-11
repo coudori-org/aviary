@@ -8,6 +8,7 @@ from app.db.models import User
 from app.db.session import get_db
 from app.schemas.common import (
     AuthConfigResponse,
+    PreferencesUpdateRequest,
     TokenExchangeRequest,
     TokenExchangeResponse,
     TokenRefreshRequest,
@@ -92,6 +93,29 @@ async def auth_refresh(body: TokenRefreshRequest):
 @router.get("/me", response_model=UserResponse)
 async def get_me(user: User = Depends(get_current_user)):
     """Return the currently authenticated user."""
+    return UserResponse.model_validate(user)
+
+
+@router.patch("/me/preferences", response_model=UserResponse)
+async def update_preferences(
+    body: PreferencesUpdateRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Merge partial preferences into the current user's preferences blob.
+
+    Top-level keys in the request body replace the corresponding keys on
+    the user's stored preferences; other keys are preserved. Used by the
+    sidebar drag-and-drop ordering, default model picks, and any other
+    cross-device UI state.
+
+    SQLAlchemy doesn't track in-place mutations on JSONB columns, so we
+    build a new dict and reassign it for the change to be persisted.
+    """
+    merged = {**(user.preferences or {}), **body.preferences}
+    user.preferences = merged
+    await db.commit()
+    await db.refresh(user)
     return UserResponse.model_validate(user)
 
 

@@ -2,153 +2,460 @@
 @tailwind components;
 @tailwind utilities;
 
-@layer base {
-  /* Dark-first design: deep navy-slate palette for minimal eye strain */
-  :root {
-    --background: 222 22% 8%;
-    --foreground: 216 12% 84%;
-    --card: 222 20% 11%;
-    --card-foreground: 216 12% 84%;
-    --popover: 222 20% 11%;
-    --popover-foreground: 216 12% 84%;
-    --primary: 187 64% 56%;
-    --primary-foreground: 222 22% 8%;
-    --secondary: 222 16% 16%;
-    --secondary-foreground: 216 12% 75%;
-    --muted: 222 16% 14%;
-    --muted-foreground: 216 10% 48%;
-    --accent: 187 40% 18%;
-    --accent-foreground: 187 64% 70%;
-    --destructive: 0 68% 56%;
-    --destructive-foreground: 0 0% 98%;
-    --success: 152 56% 46%;
-    --success-foreground: 152 80% 12%;
-    --warning: 38 92% 56%;
-    --warning-foreground: 38 80% 12%;
-    --border: 222 16% 18%;
-    --input: 222 16% 16%;
-    --ring: 187 64% 56%;
-    --radius: 0.75rem;
+/**
+ * All design-system layers live in this single file because the project's
+ * PostCSS pipeline does not include `postcss-import`, so @import-ed CSS
+ * cannot reference @layer directives. Keeping everything inline is the
+ * simplest fix and avoids adding a build dependency.
+ *
+ * Sections:
+ *   1. Tokens (primitive → semantic)
+ *   2. Base (html, body, scrollbar, focus, selection)
+ *   3. Shadows (Level 0–5 multi-layer)
+ *   4. Typography (DESIGN.md type scale)
+ *   5. Animations (keyframes + classes)
+ *   6. Components (markdown body)
+ *   7. Decorative utilities (stripe pattern, glows)
+ */
 
-    /* Chat-specific tokens */
-    --chat-user-bg: 187 40% 24%;
-    --chat-user-fg: 187 20% 90%;
-    --chat-agent-bg: 222 18% 14%;
-    --chat-agent-fg: 216 12% 88%;
-    --chat-surface: 222 20% 10%;
+/* ============================================================
+ * 1. DESIGN TOKENS
+ * Primitives are stored as space-separated RGB so they can be used
+ * with `rgb(var(--token) / <alpha>)` in Tailwind utilities.
+ * ============================================================ */
+@layer base {
+  :root {
+    /* --- Primitive surfaces --- */
+    --color-near-black-blue: 7 8 10;
+    --color-surface-100: 16 17 17;
+    --color-surface-200: 27 28 30;
+    --color-key-start: 18 18 18;
+    --color-key-end: 13 13 13;
+    --color-button-fg: 24 25 26;
+
+    /* --- Primitive text --- */
+    --color-near-white: 249 249 249;
+    --color-light-gray: 206 206 206;
+    --color-silver: 192 192 192;
+    --color-medium-gray: 156 156 157;
+    --color-dim-gray: 106 107 108;
+    --color-dark-gray: 67 67 69;
+    --color-border-base: 37 40 41;
+    --color-border-dark: 47 48 49;
+
+    /* --- Primitive brand --- */
+    --color-raycast-red: 255 99 99;
+    --color-raycast-blue: 85 179 255;
+    --color-raycast-green: 95 201 146;
+    --color-raycast-yellow: 255 188 51;
+
+    /* --- Semantic surfaces --- */
+    --bg-canvas: var(--color-near-black-blue);
+    --bg-elevated: var(--color-surface-100);
+    --bg-raised: var(--color-surface-200);
+    --bg-input: var(--color-near-black-blue);
+    --bg-keycap-start: var(--color-key-start);
+    --bg-keycap-end: var(--color-key-end);
+
+    /* --- Semantic text --- */
+    --fg-primary: var(--color-near-white);
+    --fg-secondary: var(--color-light-gray);
+    --fg-tertiary: var(--color-silver);
+    --fg-muted: var(--color-medium-gray);
+    --fg-disabled: var(--color-dim-gray);
+    --fg-on-light: var(--color-button-fg);
+
+    /* --- Semantic intent --- */
+    --brand-accent: var(--color-raycast-red);
+    --intent-info: var(--color-raycast-blue);
+    --intent-success: var(--color-raycast-green);
+    --intent-warning: var(--color-raycast-yellow);
+    --intent-danger: var(--color-raycast-red);
+
+    --border-base: var(--color-border-base);
+    --border-strong: var(--color-border-dark);
+
+    --glow-info: rgba(85, 179, 255, 0.15);
+    --glow-danger: rgba(255, 99, 99, 0.15);
+    --glow-warm: rgba(215, 201, 175, 0.05);
+
+    /* --- Radius scale --- */
+    --radius-micro: 2px;
+    --radius-xs: 4px;
+    --radius-sm: 6px;
+    --radius-md: 8px;
+    --radius-lg: 12px;
+    --radius-xl: 16px;
+    --radius-2xl: 20px;
+    --radius-pill: 9999px;
+
+    /* --- Multi-layer shadows (DESIGN.md Level 0–5) --- */
+    --shadow-0: none;
+    --shadow-1: 0 1.189px 2.377px rgba(0, 0, 0, 0.28);
+    --shadow-2:
+      rgb(27 28 30) 0 0 0 1px,
+      inset rgb(7 8 10) 0 0 0 1px;
+    --shadow-3:
+      inset 0 1px 0 0 rgba(255, 255, 255, 0.05),
+      0 0 0 1px rgba(255, 255, 255, 0.12),
+      inset 0 -1px 0 0 rgba(0, 0, 0, 0.2);
+    --shadow-4:
+      0 1.5px 0.5px 2.5px rgba(0, 0, 0, 0.4),
+      inset 0 1px 0 0 rgba(255, 255, 255, 0.15),
+      inset 0 -1px 0 0 rgba(0, 0, 0, 0.3),
+      0 0 0 1px rgba(0, 0, 0, 0.5),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+    --shadow-5:
+      0 0 0 2px rgba(0, 0, 0, 0.5),
+      0 0 14px rgba(255, 255, 255, 0.19),
+      0 24px 64px rgba(0, 0, 0, 0.5),
+      inset 0 1px 0 0 rgba(255, 255, 255, 0.1),
+      inset 0 -1px 0 0 rgba(0, 0, 0, 0.3);
   }
 }
 
+/* ============================================================
+ * 2. BASE — html/body, scrollbars, focus, selection
+ * ============================================================ */
 @layer base {
-  * {
-    @apply border-border;
+  *,
+  *::before,
+  *::after {
+    border-color: rgba(255, 255, 255, 0.06);
+  }
+
+  html {
+    font-family: var(--font-inter), 'Inter Fallback', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+    font-feature-settings: "calt", "kern", "liga", "ss03";
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
   }
 
   body {
-    @apply bg-background text-foreground antialiased;
+    background: rgb(var(--bg-canvas));
+    color: rgb(var(--fg-primary));
+    min-height: 100vh;
+    font-size: 14px;
+    font-weight: 500;
+    line-height: 1.6;
+    letter-spacing: 0.2px;
   }
 
-  /* Smooth scrollbars for dark theme */
+  code, pre, kbd, samp {
+    font-family: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, Monaco, 'Courier New', monospace;
+    font-feature-settings: normal;
+  }
+
+  /* Smooth thin scrollbars matching the obsidian aesthetic */
   ::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
+    width: 8px;
+    height: 8px;
   }
   ::-webkit-scrollbar-track {
     background: transparent;
   }
   ::-webkit-scrollbar-thumb {
-    background: hsl(222 16% 22%);
-    border-radius: 3px;
+    background: rgba(255, 255, 255, 0.06);
+    border-radius: 4px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: hsl(222 16% 28%);
+    background: rgba(255, 255, 255, 0.12);
+    background-clip: padding-box;
+    border: 2px solid transparent;
   }
 
-  /* Selection color */
+  /* Selection — Raycast Red tinted */
   ::selection {
-    background: hsl(187 64% 56% / 0.30);
-    color: hsl(0 0% 100%);
+    background: rgba(255, 99, 99, 0.30);
+    color: rgb(var(--fg-primary));
+  }
+
+  :focus { outline: none; }
+  :focus-visible {
+    outline: 2px solid rgba(85, 179, 255, 0.6);
+    outline-offset: 2px;
+    border-radius: 4px;
   }
 }
 
+/* ============================================================
+ * 3. COMPONENT-LAYER STYLES (markdown body)
+ * ============================================================ */
 @layer components {
-  /* Markdown rendered inside chat bubbles */
-  .markdown-body {
-    @apply text-inherit;
+  .markdown-body { color: inherit; }
+  .markdown-body > *:first-child { margin-top: 0; }
+  .markdown-body > *:last-child { margin-bottom: 0; }
+  .markdown-body p { margin: 0.5rem 0; }
+  .markdown-body p:only-child { margin: 0; }
+  /* Heading hierarchy — headings step up in size and use fg-primary so
+     they stand out against the body's fg-secondary. Each level is clearly
+     bigger than the next without spectacle. */
+  .markdown-body h1,
+  .markdown-body h2,
+  .markdown-body h3,
+  .markdown-body h4,
+  .markdown-body h5,
+  .markdown-body h6 {
+    color: rgb(var(--fg-primary));
+    line-height: 1.35;
   }
-  .markdown-body > *:first-child {
-    @apply mt-0;
+  .markdown-body h1 {
+    font-size: 20px;
+    font-weight: 700;
+    line-height: 1.3;
+    letter-spacing: -0.01em;
+    margin: 1.5rem 0 0.5rem;
   }
-  .markdown-body > *:last-child {
-    @apply mb-0;
+  .markdown-body h2 {
+    font-size: 17px;
+    font-weight: 600;
+    margin: 1.25rem 0 0.5rem;
   }
-  .markdown-body p {
-    @apply my-2;
+  .markdown-body h3 {
+    font-size: 15px;
+    font-weight: 600;
+    margin: 1rem 0 0.4rem;
   }
-  .markdown-body p:only-child {
-    @apply my-0;
+  .markdown-body h4 {
+    font-size: 14px;
+    font-weight: 700;
+    margin: 0.85rem 0 0.3rem;
   }
-  .markdown-body h1, .markdown-body h2, .markdown-body h3,
-  .markdown-body h4, .markdown-body h5, .markdown-body h6 {
-    @apply mt-4 mb-2 font-semibold text-inherit;
+  .markdown-body h5 {
+    font-size: 13px;
+    font-weight: 600;
+    margin: 0.75rem 0 0.3rem;
   }
-  .markdown-body h1 { @apply text-lg; }
-  .markdown-body h2 { @apply text-base; }
-  .markdown-body h3 { @apply text-sm; }
-
-  /* Override highlight.js background to match chat bubble */
+  .markdown-body h6 {
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: rgb(var(--fg-muted));
+    margin: 0.75rem 0 0.3rem;
+  }
   .markdown-body pre code.hljs {
     background: transparent;
     padding: 0;
   }
 }
 
+/* ============================================================
+ * 4. UTILITY LAYER — typography, shadows, animations, decorative
+ * ============================================================ */
 @layer utilities {
-  .text-balance {
-    text-wrap: balance;
+  /* --- Typography type scale (DESIGN.md) --- */
+  .type-display-hero {
+    font-size: 64px;
+    font-weight: 600;
+    line-height: 1.10;
+    letter-spacing: 0;
+    font-feature-settings: "ss02", "ss08", "liga" 0;
+  }
+  .type-display {
+    font-size: 56px;
+    font-weight: 400;
+    line-height: 1.17;
+    letter-spacing: 0.2px;
+  }
+  .type-heading {
+    font-size: 24px;
+    font-weight: 500;
+    line-height: 1.25;
+    letter-spacing: 0.2px;
+  }
+  .type-card-heading {
+    font-size: 22px;
+    font-weight: 400;
+    line-height: 1.15;
+    letter-spacing: 0;
+  }
+  .type-subheading {
+    font-size: 20px;
+    font-weight: 500;
+    line-height: 1.6;
+    letter-spacing: 0.2px;
+  }
+  .type-body-lg {
+    font-size: 18px;
+    font-weight: 400;
+    line-height: 1.5;
+    letter-spacing: 0.2px;
+  }
+  .type-body {
+    font-size: 14px;
+    font-weight: 500;
+    line-height: 1.6;
+    letter-spacing: 0.2px;
+  }
+  .type-body-tight {
+    font-size: 14px;
+    font-weight: 400;
+    line-height: 1.4;
+    letter-spacing: 0.1px;
+  }
+  .type-button {
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1.15;
+    letter-spacing: 0.3px;
+  }
+  .type-nav {
+    font-size: 14px;
+    font-weight: 500;
+    line-height: 1.4;
+    letter-spacing: 0.3px;
+  }
+  .type-caption {
+    font-size: 12px;
+    font-weight: 500;
+    line-height: 1.3;
+    letter-spacing: 0.2px;
+  }
+  .type-caption-bold {
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.4;
+    letter-spacing: 0.2px;
+  }
+  .type-small {
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1.33;
+    letter-spacing: 0.2px;
+    text-transform: uppercase;
+  }
+  .type-code {
+    font-family: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 1.6;
+    letter-spacing: 0.3px;
+  }
+  .type-code-sm {
+    font-family: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 11px;
+    font-weight: 400;
+    line-height: 1.6;
+    letter-spacing: 0.2px;
   }
 
-  /* Animation utilities */
+  /* --- Shadow level utilities --- */
+  .shadow-level-0 { box-shadow: var(--shadow-0); }
+  .shadow-level-1 { box-shadow: var(--shadow-1); }
+  .shadow-level-2 { box-shadow: var(--shadow-2); }
+  .shadow-level-3 { box-shadow: var(--shadow-3); }
+  .shadow-level-4 { box-shadow: var(--shadow-4); }
+  .shadow-level-5 { box-shadow: var(--shadow-5); }
+
+  .glow-warm { box-shadow: 0 0 20px 5px var(--glow-warm); }
+  .glow-info { box-shadow: 0 0 12px var(--glow-info); }
+  .glow-danger { box-shadow: 0 0 12px var(--glow-danger); }
+
+  .bg-keycap {
+    background-image: linear-gradient(
+      to bottom,
+      rgb(var(--bg-keycap-start)),
+      rgb(var(--bg-keycap-end))
+    );
+  }
+
+  /* --- Animations --- */
   @keyframes fade-in {
-    from { opacity: 0; transform: translateY(8px); }
+    from { opacity: 0; transform: translateY(4px); }
     to { opacity: 1; transform: translateY(0); }
   }
-
+  @keyframes fade-in-fast {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
   @keyframes slide-up {
-    from { opacity: 0; transform: translateY(16px); }
+    from { opacity: 0; transform: translateY(12px); }
     to { opacity: 1; transform: translateY(0); }
   }
-
+  @keyframes slide-down {
+    from { opacity: 0; transform: translateY(-8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
   @keyframes pulse-soft {
     0%, 100% { opacity: 1; }
     50% { opacity: 0.5; }
   }
-
+  @keyframes pulse-bg-info {
+    0%, 100% { background-color: rgb(var(--intent-info) / 0.04); }
+    50%      { background-color: rgb(var(--intent-info) / 0.12); }
+  }
   @keyframes shimmer {
     0% { background-position: -200% 0; }
     100% { background-position: 200% 0; }
   }
 
   .animate-fade-in {
-    animation: fade-in 0.3s ease-out;
+    animation: fade-in 280ms cubic-bezier(0.16, 1, 0.3, 1);
   }
-
+  .animate-fade-in-fast {
+    animation: fade-in-fast 160ms ease-out;
+  }
   .animate-slide-up {
-    animation: slide-up 0.4s ease-out;
+    animation: slide-up 360ms cubic-bezier(0.16, 1, 0.3, 1);
   }
-
+  .animate-slide-down {
+    animation: slide-down 240ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
   .animate-pulse-soft {
     animation: pulse-soft 2s ease-in-out infinite;
   }
-
+  .animate-pulse-bg-info {
+    animation: pulse-bg-info 2s ease-in-out infinite;
+  }
   .animate-shimmer {
     background: linear-gradient(
       90deg,
-      hsl(222 16% 14%) 25%,
-      hsl(222 16% 20%) 50%,
-      hsl(222 16% 14%) 75%
+      rgb(var(--bg-elevated)) 25%,
+      rgb(var(--bg-raised)) 50%,
+      rgb(var(--bg-elevated)) 75%
     );
     background-size: 200% 100%;
-    animation: shimmer 1.5s ease-in-out infinite;
+    animation: shimmer 1.6s ease-in-out infinite;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .animate-fade-in,
+    .animate-fade-in-fast,
+    .animate-slide-up,
+    .animate-slide-down,
+    .animate-pulse-soft,
+    .animate-shimmer {
+      animation: none !important;
+    }
+  }
+
+  /* --- Decorative --- */
+  .text-balance {
+    text-wrap: balance;
+  }
+
+  /* Diagonal stripe pattern — Raycast brand decorative element */
+  .stripe-pattern {
+    background-image: repeating-linear-gradient(
+      135deg,
+      rgba(255, 99, 99, 0.18) 0px,
+      rgba(255, 99, 99, 0.18) 2px,
+      transparent 2px,
+      transparent 12px
+    );
+  }
+
+  /* In-chat search match. Inline only so prepend-anchor scroll math
+     stays correct when marks are inserted/removed. */
+  mark.chat-search-highlight {
+    background-color: rgba(255, 210, 70, 0.55);
+    color: rgb(var(--fg-primary));
+    border-radius: 2px;
+    padding: 0;
+    box-shadow: 0 0 0 1px rgba(255, 210, 70, 0.35);
   }
 }

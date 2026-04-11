@@ -70,17 +70,6 @@ function sessionTmp(sessionId: string): string {
   return `/tmp/${sessionId}`;
 }
 
-/** Resolve backend + model into a LiteLLM model name with provider prefix. */
-function resolveModelName(backend: string, model: string): string {
-  const prefixMap: Record<string, string> = {
-    claude: "anthropic/",
-    ollama: "ollama/",
-    vllm: "vllm/",
-    bedrock: "bedrock/",
-  };
-  const prefix = prefixMap[backend] ?? "anthropic/";
-  return model.includes("/") ? model : `${prefix}${model}`;
-}
 
 
 interface AgentConfig {
@@ -196,8 +185,10 @@ export async function* processMessage(
     yield { type: "chunk", content: "Error: model and backend are required in model_config." };
     return;
   }
-  const backend = mc.backend;
-  const resolvedModel = resolveModelName(backend, mc.model);
+  // Backend is the LiteLLM model-name prefix. If the stored model
+  // already includes a prefix we use it verbatim, otherwise we join
+  // backend + model. No allow-list — LiteLLM owns that validation.
+  const resolvedModel = mc.model.includes("/") ? mc.model : `${mc.backend}/${mc.model}`;
   const canResume = hasSessionHistory(claudeDir, sessionId);
 
   const env: Record<string, string> = {
