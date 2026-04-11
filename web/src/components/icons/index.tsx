@@ -50,6 +50,8 @@ export {
   CheckCircle2,
   XCircle,
   Loader2,
+  Clock,
+  Server,
 
   // Domain
   Bot,
