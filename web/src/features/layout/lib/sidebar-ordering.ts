@@ -8,10 +8,10 @@ import type { SidebarAgentGroup } from "@/features/layout/providers/sidebar-prov
  *
  *   1. Deleted agents always sink to the bottom regardless of any
  *      user-defined order. (SIDE-8)
- *   2. Within the active partition, items appear in the order recorded
- *      in `user.preferences.sidebar_agent_order`. Items not present in
- *      the stored order (e.g. newly created agents) sort after the
- *      ordered ones, preserving their original relative position. (SIDE-9)
+ *   2. Within the active partition, newly created items (not present in
+ *      the stored order) appear FIRST — surfacing fresh work at the top.
+ *      Then items appear in the order recorded in
+ *      `user.preferences.sidebar_agent_order`. (SIDE-9)
  *
  * Same logic applies to sessions within an agent group.
  *
@@ -42,8 +42,10 @@ export function orderSessionsByPreference(
 }
 
 /**
- * Stable sort: items present in `order` come first (in stored order),
- * items not present come after in their original relative order.
+ * Stable sort: items NOT present in `order` (newly created) come first in
+ * their original relative order, then items present in `order` follow in
+ * their stored positions. This surfaces newly created agents/sessions at
+ * the top without disturbing the user's manually reordered items.
  */
 function applyUserOrder<T>(
   items: T[],
@@ -62,8 +64,8 @@ function applyUserOrder<T>(
       const aHas = a.orderIdx !== undefined;
       const bHas = b.orderIdx !== undefined;
       if (aHas && bHas) return a.orderIdx! - b.orderIdx!;
-      if (aHas) return -1;
-      if (bHas) return 1;
+      if (aHas) return 1;
+      if (bHas) return -1;
       return a.originalIdx - b.originalIdx;
     })
     .map((entry) => entry.item);

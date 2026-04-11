@@ -7,6 +7,7 @@ import {
   closestCenter,
   useSensor,
   useSensors,
+  type CollisionDetection,
   type DragEndEvent,
 } from "@dnd-kit/core";
 import {
@@ -70,6 +71,25 @@ export function SidebarSessions({ groups: groupsProp, searchActive }: SidebarSes
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
+
+  // Scoped collision detection: agents only collide with other agents, and
+  // sessions only collide with sessions inside the same agent group.
+  // Without this, hovering a dragged agent over another group's expanded
+  // session list makes `over` become a session from a different SortableContext,
+  // which confuses the agent-level sortable and cancels the drag mid-motion.
+  const collisionDetection: CollisionDetection = (args) => {
+    const activeType = args.active.data.current?.type;
+    const activeAgentId = args.active.data.current?.agentId;
+    const scoped = args.droppableContainers.filter((c) => {
+      const type = c.data.current?.type;
+      if (type !== activeType) return false;
+      if (activeType === "session") {
+        return c.data.current?.agentId === activeAgentId;
+      }
+      return true;
+    });
+    return closestCenter({ ...args, droppableContainers: scoped });
+  };
 
   const visibleGroups = groups.filter((g) => g.sessions.length > 0);
   const orderedGroups = orderGroupsByPreference(
@@ -166,7 +186,7 @@ export function SidebarSessions({ groups: groupsProp, searchActive }: SidebarSes
       ) : (
         <DndContext
           sensors={sensors}
-          collisionDetection={closestCenter}
+          collisionDetection={collisionDetection}
           onDragEnd={handleDragEnd}
         >
           <SortableContext items={sortableAgentIds} strategy={verticalListSortingStrategy}>
