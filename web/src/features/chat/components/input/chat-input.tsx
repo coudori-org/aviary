@@ -84,6 +84,16 @@ export function ChatInput({
     el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
   }, [value]);
 
+  // Refocus the textarea when the input becomes sendable again so the
+  // user can keep typing/sending without reaching for the mouse.
+  const wasDisabledRef = useRef(!!disabled);
+  useEffect(() => {
+    if (wasDisabledRef.current && !disabled) {
+      textareaRef.current?.focus();
+    }
+    wasDisabledRef.current = !!disabled;
+  }, [disabled]);
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const content = value.trim();
@@ -121,9 +131,8 @@ export function ChatInput({
           onChange={(e) => setValue(e.target.value)}
           onKeyDown={handleKeyDown}
           placeholder={placeholder || "Send a message…"}
-          className="max-h-[200px] min-h-[44px] flex-1 resize-none bg-transparent px-3 py-2.5 type-body text-fg-primary placeholder:text-fg-disabled focus:outline-none disabled:opacity-40"
+          className="max-h-[200px] min-h-[44px] flex-1 resize-none bg-transparent px-3 py-2.5 type-body text-fg-primary placeholder:text-fg-disabled focus:outline-none"
           rows={1}
-          disabled={disabled}
         />
 
         {isStreaming ? (
