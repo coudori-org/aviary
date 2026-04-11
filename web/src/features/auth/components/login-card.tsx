@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/features/auth/providers/auth-provider";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
+import { AviaryLogo } from "@/components/brand/aviary-logo";
 import { routes } from "@/lib/constants/routes";
 
 /**
@@ -34,24 +35,7 @@ export function LoginCard() {
       <div className="relative flex flex-col items-center gap-10 animate-fade-in">
         {/* Logo + brand */}
         <div className="flex flex-col items-center gap-4">
-          <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-elevated shadow-2">
-            <svg
-              width="28"
-              height="28"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              className="text-brand"
-              aria-hidden="true"
-            >
-              <path d="M12 2L2 7l10 5 10-5-10-5z" />
-              <path d="M2 17l10 5 10-5" />
-              <path d="M2 12l10 5 10-5" />
-            </svg>
-          </div>
+          <AviaryLogo size={96} />
           <div className="flex flex-col items-center gap-1">
             <h1 className="type-card-heading text-fg-primary">Aviary</h1>
             <p className="type-caption text-fg-muted">AI Agent Platform</p>

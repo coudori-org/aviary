@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { PanelLeftClose, PanelLeft } from "@/components/icons";
+import { AviaryLogoMark } from "@/components/brand/aviary-logo";
 import { useSidebar } from "@/features/layout/providers/sidebar-provider";
 import { routes } from "@/lib/constants/routes";
 
@@ -15,26 +16,8 @@ export function SidebarBrand() {
   return (
     <div className="flex h-14 shrink-0 items-center justify-between border-b border-white/[0.06] px-4">
       {!collapsed && (
-        <Link href={routes.agents} className="flex items-center gap-2.5">
-          <div className="flex h-7 w-7 items-center justify-center rounded-sm bg-elevated shadow-3">
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.75"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              className="text-brand"
-              aria-hidden="true"
-            >
-              <path d="M12 2L2 7l10 5 10-5-10-5z" />
-              <path d="M2 17l10 5 10-5" />
-              <path d="M2 12l10 5 10-5" />
-            </svg>
-          </div>
-          <span className="type-button text-fg-primary">Aviary</span>
+        <Link href={routes.agents} aria-label="Aviary home" className="flex items-center">
+          <AviaryLogoMark size={28} />
         </Link>
       )}
       <button

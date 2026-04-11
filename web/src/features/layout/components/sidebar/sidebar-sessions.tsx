@@ -71,8 +71,6 @@ export function SidebarSessions({ groups: groupsProp, searchActive }: SidebarSes
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
 
-  if (collapsed) return null;
-
   const visibleGroups = groups.filter((g) => g.sessions.length > 0);
   const orderedGroups = orderGroupsByPreference(
     visibleGroups,
@@ -90,7 +88,8 @@ export function SidebarSessions({ groups: groupsProp, searchActive }: SidebarSes
   const totalSessions = groups.reduce((sum, g) => sum + g.sessions.length, 0);
 
   // Flat list of visible session ids in rendered order — drives
-  // shift-range bulk selection in the sidebar provider.
+  // shift-range bulk selection in the sidebar provider. Must run
+  // unconditionally (before any early return) to keep hook order stable.
   const visibleSessionIds = orderedGroupsWithSortedSessions.flatMap((g) =>
     g.sessions.map((s) => s.id),
   );
@@ -99,6 +98,8 @@ export function SidebarSessions({ groups: groupsProp, searchActive }: SidebarSes
     setVisibleSessionIds(visibleSessionIds);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visibleKey, setVisibleSessionIds]);
+
+  if (collapsed) return null;
 
   // Only non-deleted agents participate in the sortable id list
   const sortableAgentIds = orderedGroupsWithSortedSessions
