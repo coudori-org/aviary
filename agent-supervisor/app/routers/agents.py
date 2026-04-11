@@ -13,6 +13,7 @@ from aviary_shared.naming import (
     RUNTIME_PORT,
     SERVICE_NAME,
     agent_namespace,
+    agent_pv_name,
 )
 
 from app import provisioning
@@ -49,6 +50,7 @@ async def unregister_agent(agent_id: str):
         f"/api/v1/namespaces/{ns}/services/{SERVICE_NAME}",
         f"/api/v1/namespaces/{ns}/persistentvolumeclaims/{PVC_NAME}",
         f"/api/v1/namespaces/{ns}",
+        f"/api/v1/persistentvolumes/{agent_pv_name(agent_id)}",
     ]:
         await k8s_apply("DELETE", path)
 

@@ -29,7 +29,12 @@ from aviary_shared.naming import (
 
 from app.config import settings
 from app.k8s import k8s_apply
-from app.manifests import build_deployment_manifest, build_pvc_manifest, build_service_manifest
+from app.manifests import (
+    build_deployment_manifest,
+    build_pv_manifest,
+    build_pvc_manifest,
+    build_service_manifest,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -173,6 +178,11 @@ async def ensure_deployment(
         logger.info("Namespace %s not found, re-provisioning", namespace)
         await provision_namespace(agent_id, owner_id, policy)
 
+    await k8s_apply(
+        "POST",
+        "/api/v1/persistentvolumes",
+        build_pv_manifest(agent_id),
+    )
     await k8s_apply(
         "POST",
         f"/api/v1/namespaces/{namespace}/persistentvolumeclaims",

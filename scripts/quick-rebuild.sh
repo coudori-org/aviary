@@ -103,14 +103,13 @@ case "$TARGET" in
     docker compose up -d --build
     ;;
   full)
-    echo -e "${BOLD}Full rebuild (DB preserved, K8s reset)...${NC}"
+    echo -e "${BOLD}Full rebuild (DB / Vault / chat history preserved, K8s reset)...${NC}"
     docker compose down
-    # Remove K8s volume (image cache + cluster state) but preserve DB
     docker volume rm "$(basename "$PROJECT_DIR")_k8sdata" 2>/dev/null || true
     ./scripts/setup-dev.sh
     ;;
   full-clean)
-    echo -e "${BOLD}Full clean rebuild (DB + volumes wiped)...${NC}"
+    echo -e "${BOLD}Full clean rebuild (everything wiped)...${NC}"
     docker compose down -v
     ./scripts/setup-dev.sh
     ;;
@@ -126,8 +125,8 @@ case "$TARGET" in
     echo "  egress             Rebuild egress-proxy + load to K8s + restart"
     echo "  k8s                All K8s images (runtime + agent-supervisor + egress)"
     echo "  compose            Rebuild docker compose services (hot-reload)"
-    echo "  full               Full rebuild, DB preserved"
-    echo "  full-clean         Full rebuild, DB + volumes wiped"
+    echo "  full               Full rebuild — preserves DB, Vault, and per-agent chat history"
+    echo "  full-clean         Full rebuild — wipes all volumes including chat history"
     echo "  smoke              Just run smoke test"
     echo ""
     echo "Options:"
