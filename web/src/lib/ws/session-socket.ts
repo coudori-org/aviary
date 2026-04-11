@@ -1,8 +1,9 @@
-import { ensureValidToken } from "@/lib/auth";
 import type { WSMessage } from "./types";
 
 /**
- * Session WebSocket factory. Caller owns reconnect lifecycle.
+ * Session WebSocket factory. Auth is via the httpOnly session cookie —
+ * cookies are port-independent on `localhost`, so a cookie set through
+ * the Next.js proxy at :3000 is delivered when the WS opens to :8000.
  */
 
 export interface SessionSocketHandlers {
@@ -26,10 +27,7 @@ export async function openSessionSocket(
   sessionId: string,
   handlers: SessionSocketHandlers,
 ): Promise<WebSocket> {
-  const token = await ensureValidToken();
-  if (!token) throw new Error("Cannot open WebSocket: no auth token");
-
-  const url = `${getWsBaseUrl()}/api/sessions/${sessionId}/ws?token=${token}`;
+  const url = `${getWsBaseUrl()}/api/sessions/${sessionId}/ws`;
   const ws = new WebSocket(url);
 
   ws.onopen = () => handlers.onOpen?.();
@@ -43,7 +41,6 @@ export async function openSessionSocket(
   return ws;
 }
 
-/** Helper for sending typed messages over a session WS. */
 export function sendWsMessage(ws: WebSocket | null, msg: object): boolean {
   if (!ws || ws.readyState !== WebSocket.OPEN) return false;
   ws.send(JSON.stringify(msg));

@@ -1,19 +1,19 @@
-import { ensureValidToken, logout, refreshAccessToken } from "@/lib/auth";
 import { ApiError, NetworkError, NotFoundError, UnauthorizedError } from "./errors";
 
 /**
- * HTTP client for `/api/*`. Injects auth token, retries once on 401, throws
- * typed `ApiError` subclasses. Callers must not catch silently.
+ * HTTP client for `/api/*`. Auth flows over an httpOnly session cookie
+ * (no Authorization header). On 401 we throw `UnauthorizedError` and
+ * leave the redirect decision to the caller — the auth provider treats
+ * the first /auth/me 401 as "not signed in" rather than redirecting to
+ * Keycloak in a loop.
  */
 
 async function doFetch(path: string, options?: RequestInit): Promise<Response> {
-  const token = await ensureValidToken();
-
   return fetch(`/api${path}`, {
     ...options,
+    credentials: "include",
     headers: {
       "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...options?.headers,
     },
   });
@@ -27,16 +27,7 @@ export async function apiFetch<T>(path: string, options?: RequestInit): Promise<
     throw new NetworkError(err instanceof Error ? err.message : "Network failed");
   }
 
-  // Try one refresh on 401
   if (res.status === 401) {
-    const refreshed = await refreshAccessToken();
-    if (refreshed) {
-      res = await doFetch(path, options);
-    }
-  }
-
-  if (res.status === 401) {
-    await logout();
     throw new UnauthorizedError();
   }
 
@@ -54,7 +45,6 @@ export async function apiFetch<T>(path: string, options?: RequestInit): Promise<
   return res.json();
 }
 
-// Convenience helpers — typed wrappers for the common cases
 export const http = {
   get: <T>(path: string) => apiFetch<T>(path),
   post: <T>(path: string, body?: unknown) =>

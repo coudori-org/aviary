@@ -1,22 +1,31 @@
 "use client";
 
-import { Check, Wrench } from "@/components/icons";
+import { Check, Info, Lock, Wrench } from "@/components/icons";
 import { cn } from "@/lib/utils";
 import type { McpToolInfo } from "@/types";
+import { extractToolParams, type ToolParam } from "./tool-params";
 
 interface ToolCardProps {
   tool: McpToolInfo;
   checked: boolean;
   onToggle: (id: string) => void;
+  onShowDetails: (tool: McpToolInfo) => void;
 }
+
+const MAX_VISIBLE_PARAMS = 5;
 
 /**
  * ToolCard — card-style MCP tool picker item. Clicking anywhere
  * toggles selection; the checked state is conveyed by a filled circle
- * on the top-right and a tinted border.
+ * on the top-right and a tinted border. The (i) button on hover opens
+ * the full details sheet without affecting selection. Vault-injected
+ * parameters are marked with a lock icon and a tooltip showing the
+ * source Vault key.
  */
-export function ToolCard({ tool, checked, onToggle }: ToolCardProps) {
-  const inputKeys = extractInputKeys(tool.input_schema);
+export function ToolCard({ tool, checked, onToggle, onShowDetails }: ToolCardProps) {
+  const params = extractToolParams(tool.input_schema);
+  const visible = params.slice(0, MAX_VISIBLE_PARAMS);
+  const overflow = params.length - visible.length;
 
   return (
     <button
@@ -35,6 +44,26 @@ export function ToolCard({ tool, checked, onToggle }: ToolCardProps) {
           {tool.name}
         </span>
         <span
+          role="button"
+          tabIndex={0}
+          onClick={(e) => {
+            e.stopPropagation();
+            onShowDetails(tool);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              e.stopPropagation();
+              onShowDetails(tool);
+            }
+          }}
+          className="flex h-4 w-4 shrink-0 items-center justify-center rounded-xs text-fg-disabled opacity-0 transition-opacity hover:text-info group-hover:opacity-100 focus:opacity-100"
+          title="View details"
+          aria-label="View tool details"
+        >
+          <Info size={12} strokeWidth={1.75} />
+        </span>
+        <span
           className={cn(
             "flex h-4 w-4 shrink-0 items-center justify-center rounded-full border transition-colors",
             checked
@@ -51,20 +80,13 @@ export function ToolCard({ tool, checked, onToggle }: ToolCardProps) {
         <p className="line-clamp-2 type-caption text-fg-muted">{tool.description}</p>
       )}
 
-      {inputKeys.length > 0 && (
+      {params.length > 0 && (
         <div className="flex flex-wrap gap-1">
-          {inputKeys.slice(0, 5).map((key) => (
-            <span
-              key={key}
-              className="rounded-xs bg-white/[0.04] px-1.5 py-px font-mono text-[10px] text-fg-disabled"
-            >
-              {key}
-            </span>
+          {visible.map((p) => (
+            <ParamTag key={p.name} param={p} />
           ))}
-          {inputKeys.length > 5 && (
-            <span className="font-mono text-[10px] text-fg-disabled">
-              +{inputKeys.length - 5}
-            </span>
+          {overflow > 0 && (
+            <span className="font-mono text-[10px] text-fg-disabled">+{overflow}</span>
           )}
         </div>
       )}
@@ -72,10 +94,26 @@ export function ToolCard({ tool, checked, onToggle }: ToolCardProps) {
   );
 }
 
-/** Returns the top-level property names from a JSON Schema object, or
- *  an empty array if the schema isn't shaped like `{ properties: {...} }`. */
-function extractInputKeys(schema: Record<string, unknown>): string[] {
-  const props = schema?.properties;
-  if (!props || typeof props !== "object") return [];
-  return Object.keys(props as Record<string, unknown>);
+/**
+ * Single parameter chip. Vault-injected params get a lock icon, an info-
+ * tinted background, and a `title` tooltip naming the source Vault key so
+ * users know which credential they need to set up before using the tool.
+ */
+function ParamTag({ param }: { param: ToolParam }) {
+  if (param.vaultKey) {
+    return (
+      <span
+        title={`Auto-filled from your Vault credential: ${param.vaultKey}`}
+        className="inline-flex items-center gap-1 rounded-xs bg-info/10 px-1.5 py-px font-mono text-[10px] text-info ring-1 ring-inset ring-info/20"
+      >
+        <Lock size={8} strokeWidth={2.25} />
+        {param.name}
+      </span>
+    );
+  }
+  return (
+    <span className="rounded-xs bg-white/[0.04] px-1.5 py-px font-mono text-[10px] text-fg-disabled">
+      {param.name}
+    </span>
+  );
 }

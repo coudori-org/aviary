@@ -2,7 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import type { User } from "@/types";
-import { ensureValidToken, initiateLogin, isAuthenticated, logout as doLogout } from "@/lib/auth";
+import { initiateLogin, logout as doLogout } from "@/lib/auth";
 import { http } from "@/lib/http";
 import { UnauthorizedError } from "@/lib/http/errors";
 
@@ -19,11 +19,8 @@ interface AuthContextValue {
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 /**
- * AuthProvider — single source of truth for the current user.
- *
- * Status state machine:
- *   loading → authenticated   (token present + /auth/me succeeded)
- *   loading → unauthenticated (no token, refresh failed, or /auth/me threw)
+ * Single source of truth for the current user. The browser holds nothing
+ * but an httpOnly session cookie, so we always ask the server who we are.
  *
  * Components should switch on `status` rather than `user == null` to
  * distinguish "not logged in" from "still loading".
@@ -33,19 +30,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [status, setStatus] = useState<AuthStatus>("loading");
 
   const refreshUser = useCallback(async () => {
-    if (!isAuthenticated()) {
-      setUser(null);
-      setStatus("unauthenticated");
-      return;
-    }
-
-    const token = await ensureValidToken();
-    if (!token) {
-      setUser(null);
-      setStatus("unauthenticated");
-      return;
-    }
-
     try {
       const u = await http.get<User>("/auth/me");
       setUser(u);

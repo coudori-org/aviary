@@ -7,6 +7,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { Plus, Server, Clock, Layers, X } from "@/components/icons";
 import { mcpApi } from "@/features/agents/api/mcp-api";
 import { ToolCard } from "./tool-card";
+import { ToolDetailsSheet } from "./tool-details-sheet";
 import {
   loadRecentToolIds,
   pushRecentToolId,
@@ -42,6 +43,7 @@ export function ToolSelector({ selectedToolIds, onChange, open, onClose }: ToolS
   const [activeFilter, setActiveFilter] = useState<FilterKey>("all");
   const [loadingServers, setLoadingServers] = useState(false);
   const [recentIds, setRecentIds] = useState<string[]>([]);
+  const [detailsTool, setDetailsTool] = useState<McpToolInfo | null>(null);
   const selected = new Set(selectedToolIds);
 
   // Load servers + recent ids on open.
@@ -265,6 +267,7 @@ export function ToolSelector({ selectedToolIds, onChange, open, onClose }: ToolS
                     tool={tool}
                     checked={selected.has(tool.id)}
                     onToggle={handleToggle}
+                    onShowDetails={setDetailsTool}
                   />
                 ))}
               </div>
@@ -281,6 +284,8 @@ export function ToolSelector({ selectedToolIds, onChange, open, onClose }: ToolS
           </Button>
         </div>
       </div>
+
+      <ToolDetailsSheet tool={detailsTool} onClose={() => setDetailsTool(null)} />
     </div>
   );
 }

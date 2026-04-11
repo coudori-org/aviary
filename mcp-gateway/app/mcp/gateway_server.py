@@ -5,18 +5,15 @@ Uses the low-level mcp.server.Server API (not FastMCP decorators) to handle
 tool requests dynamically based on agent bindings and user ACL.
 
 Credential injection:
-  config/credential-tools.yaml maps {qualified_tool_name}.args.{param} → vault_key.
+  config/secret-injection.yaml maps {server}.args.{param} → vault_key.
   - tools/list: injected params are stripped from inputSchema (invisible to Claude)
   - tools/call: injected params are fetched from Vault and merged into arguments
     before proxying to the backend MCP server.
 """
 
-import copy
 import logging
-import os
 import uuid
 
-import yaml
 from mcp.server import Server
 from mcp.types import (
     CallToolResult,
@@ -30,70 +27,15 @@ from aviary_shared.db.models import McpAgentToolBinding, McpServer, McpTool
 from app.db.session import async_session_factory
 from app.mcp.connection_pool import pool
 from app.services.acl import check_tool_access
+from app.services.secret_injection import (
+    get_injected_args,
+    strip_injected_from_schema,
+)
 from app.services.vault_client import get_mcp_credential
 
 logger = logging.getLogger(__name__)
 
 TOOL_NAME_SEPARATOR = "__"
-
-# ── Load secret injection config ─────────────────────────────
-# Structure:
-#   servers:
-#     jira:
-#       args: { jira_token: { vault_key: jira } }
-#       tools:                                        # optional per-tool override
-#         some_tool: { args: { ... } }
-_CONFIG_PATH = os.path.join(
-    os.path.dirname(__file__), "..", "..", "config", "secret-injection.yaml"
-)
-_INJECTION_CONFIG: dict[str, dict] = {}
-try:
-    with open(_CONFIG_PATH) as f:
-        _raw = yaml.safe_load(f)
-    _INJECTION_CONFIG = _raw.get("servers", {}) if _raw else {}
-    logger.info("Loaded secret injection config for %d servers", len(_INJECTION_CONFIG))
-except FileNotFoundError:
-    logger.warning("secret-injection.yaml not found at %s", _CONFIG_PATH)
-
-
-def _get_injected_args(server_name: str, tool_name: str) -> dict[str, dict]:
-    """Return {arg_name: {vault_key: ...}} for a tool.
-
-    Merges server-level args with per-tool overrides (tool wins).
-    """
-    server_cfg = _INJECTION_CONFIG.get(server_name, {})
-    if not server_cfg:
-        return {}
-
-    # Start with server-level args
-    result = dict(server_cfg.get("args", {}))
-
-    # Merge per-tool overrides
-    tool_cfg = server_cfg.get("tools", {}).get(tool_name, {})
-    if tool_cfg:
-        result.update(tool_cfg.get("args", {}))
-
-    return result
-
-
-def _strip_injected_from_schema(schema: dict, injected_args: dict[str, dict]) -> dict:
-    """Remove injected argument names from a JSON Schema so Claude never sees them."""
-    if not injected_args:
-        return schema
-    schema = copy.deepcopy(schema)
-    props = schema.get("properties", {})
-    required = schema.get("required", [])
-    for arg_name in injected_args:
-        props.pop(arg_name, None)
-        if arg_name in required:
-            required = [r for r in required if r != arg_name]
-    if props:
-        schema["properties"] = props
-    if required:
-        schema["required"] = required
-    elif "required" in schema:
-        del schema["required"]
-    return schema
 
 
 # ── Server factory ───────────────────────────────────────────
@@ -146,8 +88,8 @@ def create_gateway_server() -> Server:
                 qualified_name = f"{srv.name}{TOOL_NAME_SEPARATOR}{tool.name}"
 
                 # Strip vault-injected args from schema
-                injected = _get_injected_args(srv.name, tool.name)
-                schema = _strip_injected_from_schema(tool.input_schema or {}, injected)
+                injected = get_injected_args(srv.name, tool.name)
+                schema = strip_injected_from_schema(tool.input_schema or {}, injected)
 
                 tools.append(Tool(
                     name=qualified_name,
@@ -214,7 +156,7 @@ def create_gateway_server() -> Server:
 
         # ── Inject vault credentials into arguments ──
         final_args = dict(arguments or {})
-        injected = _get_injected_args(server_name, tool_name)
+        injected = get_injected_args(server_name, tool_name)
         for arg_name, mapping in injected.items():
             vault_key = mapping["vault_key"]
             token = await get_mcp_credential(user_external_id, vault_key)

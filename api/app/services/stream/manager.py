@@ -57,6 +57,7 @@ async def start_stream(
     agent_mcp_servers: list,
     agent_policy: dict,
     content: str,
+    user_message_id: uuid.UUID,
     user_token: str = "",
     user_external_id: str = "",
     accessible_agents: list[dict] | None = None,
@@ -74,7 +75,7 @@ async def start_stream(
             session_id, agent_id,
             agent_model_config, agent_instruction,
             agent_tools, agent_mcp_servers, agent_policy,
-            content, user_token, user_external_id,
+            content, user_message_id, user_token, user_external_id,
             accessible_agents=accessible_agents,
         )
     )
@@ -143,6 +144,7 @@ async def _run_stream(
     agent_mcp_servers: list,
     agent_policy: dict,
     content: str,
+    user_message_id: uuid.UUID,
     user_token: str = "",
     user_external_id: str = "",
     accessible_agents: list[dict] | None = None,
@@ -154,24 +156,29 @@ async def _run_stream(
     await redis_service.set_session_status(session_id, "streaming")
     await redis_service.publish_message(session_id, {"type": "replay_start"})
 
+    async def _drop_user_message_and_fail(reason: str) -> None:
+        # Pre-stream failure: roll back the user message we optimistically
+        # persisted in the WS handler so the user doesn't end up with a
+        # half-conversation when they revisit the session.
+        async with async_session_factory() as db:
+            await session_service.delete_message(db, user_message_id)
+            await db.commit()
+        await redis_service.publish_message(
+            session_id, {"type": "error", "message": reason, "rollback_message_id": str(user_message_id)},
+        )
+        await redis_service.set_stream_status(session_id, "error")
+        await redis_service.set_session_status(session_id, "idle")
+
     try:
         await agent_supervisor.ensure_agent_running(agent_id=agent_id, owner_id="")
         ready = await agent_supervisor.wait_for_agent_ready(agent_id, timeout=90)
     except httpx.HTTPError as e:
         logger.warning("Failed to ensure agent running for session %s", session_id, exc_info=True)
-        await redis_service.publish_message(
-            session_id, {"type": "error", "message": f"Failed to start agent: {e}"}
-        )
-        await redis_service.set_stream_status(session_id, "error")
-        await redis_service.set_session_status(session_id, "idle")
+        await _drop_user_message_and_fail(f"Failed to start agent: {e}")
         return
 
     if not ready:
-        await redis_service.publish_message(
-            session_id, {"type": "error", "message": "Agent did not become ready in time"}
-        )
-        await redis_service.set_stream_status(session_id, "error")
-        await redis_service.set_session_status(session_id, "idle")
+        await _drop_user_message_and_fail("Agent did not become ready in time")
         return
 
     credentials: dict[str, str] = {}

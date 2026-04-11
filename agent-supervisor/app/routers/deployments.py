@@ -84,16 +84,18 @@ async def scale_to_zero(namespace: str):
 
 @router.delete("/deployments/{namespace}")
 async def delete_deployment(namespace: str):
-    """Delete the Deployment, Service, and PVC for an agent.
-
-    k8s_apply already treats DELETE 404 as a no-op; other errors propagate so
-    the caller knows something is left orphaned.
-    """
-    from aviary_shared.naming import PVC_NAME, SERVICE_NAME
+    """Permanently delete all per-agent resources (Deployment, Service,
+    PVC, and the cluster-scoped PV). Called when an agent is being
+    fully removed along with all of its sessions."""
+    from aviary_shared.naming import (
+        PVC_NAME, SERVICE_NAME, agent_id_from_namespace, agent_pv_name,
+    )
+    agent_id = agent_id_from_namespace(namespace)
     for path in [
         f"/apis/apps/v1/namespaces/{namespace}/deployments/{DEPLOYMENT_NAME}",
         f"/api/v1/namespaces/{namespace}/services/{SERVICE_NAME}",
         f"/api/v1/namespaces/{namespace}/persistentvolumeclaims/{PVC_NAME}",
+        f"/api/v1/persistentvolumes/{agent_pv_name(agent_id)}",
     ]:
         await k8s_apply("DELETE", path)
     logger.info("Deleted deployment resources in namespace %s", namespace)

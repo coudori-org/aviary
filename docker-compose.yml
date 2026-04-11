@@ -30,7 +30,11 @@ services:
 
   keycloak:
     image: quay.io/keycloak/keycloak:25.0
-    command: start-dev --import-realm
+    command:
+      - start-dev
+      - --import-realm
+      - --hostname=http://localhost:8080
+      - --hostname-backchannel-dynamic=true
     environment:
       KC_DB: postgres
       KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
@@ -45,6 +49,24 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    healthcheck:
+      # Probe the realm's OIDC discovery endpoint — this is exactly what
+      # downstream services hit on startup to bootstrap their JWKS, so it's
+      # the most accurate "ready" signal. Keycloak image has no curl/wget,
+      # so we use bash's /dev/tcp + a hand-rolled HTTP/1.1 GET, then
+      # confirm the response is 200 OK.
+      test:
+        - "CMD-SHELL"
+        - |
+          exec 3<>/dev/tcp/127.0.0.1/8080 || exit 1
+          printf 'GET /realms/aviary/.well-known/openid-configuration HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3
+          IFS= read -r line <&3
+          exec 3<&-
+          [[ "$$line" == *"200"* ]]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
 
   vault:
     image: hashicorp/vault:1.17
@@ -94,6 +116,8 @@ services:
       - "9000:30900"   # agent-supervisor NodePort
     volumes:
       - k8sdata:/var/lib/rancher/k3s
+      # Backing store for static agent PVs — survives k8sdata wipes.
+      - agent_workspace_pv:/var/lib/aviary
       - ./config/k3s/registries.yaml:/etc/rancher/k3s/registries.yaml
 
   db-migrate:
@@ -114,6 +138,8 @@ services:
       context: ./mcp-servers
       args:
         MCP_SERVER_NAME: jira
+    environment:
+      JIRA_BASE_URL: ${JIRA_BASE_URL:-https://your-corp.atlassian.net}
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import socket; s=socket.create_connection(('localhost',8000),2); s.close()\""]
       interval: 10s
@@ -126,6 +152,8 @@ services:
       context: ./mcp-servers
       args:
         MCP_SERVER_NAME: confluence
+    environment:
+      CONFLUENCE_BASE_URL: ${CONFLUENCE_BASE_URL:-https://your-corp.atlassian.net}
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import socket; s=socket.create_connection(('localhost',8000),2); s.close()\""]
       interval: 10s
@@ -175,6 +203,8 @@ services:
         condition: service_healthy
       portkey:
         condition: service_healthy
+      keycloak:
+        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:4000/health/liveliness || exit 1"]
       interval: 10s
@@ -199,6 +229,7 @@ services:
       # Anonymous volume protects container's installed packages from host's .venv
       - /workspace/.venv
     environment:
+      ENV: ${ENV:-development}
       DATABASE_URL: postgresql+asyncpg://aviary:aviary@postgres:5432/aviary
       REDIS_URL: redis://redis:6379/0
       # Public issuer (must match token's iss claim — browser URL)
@@ -220,6 +251,8 @@ services:
       redis:
         condition: service_healthy
       vault:
+        condition: service_healthy
+      keycloak:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8000/api/health || exit 1"]
@@ -281,6 +314,8 @@ services:
         condition: service_completed_successfully
       vault:
         condition: service_healthy
+      keycloak:
+        condition: service_healthy
       mcp-jira:
         condition: service_healthy
       mcp-confluence:
@@ -318,6 +353,8 @@ services:
         condition: service_completed_successfully
       vault:
         condition: service_healthy
+      keycloak:
+        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8001/health || exit 1"]
       interval: 10s
@@ -329,3 +366,4 @@ volumes:
   pgdata:
   k8sdata:
   vaultdata:
+  agent_workspace_pv:

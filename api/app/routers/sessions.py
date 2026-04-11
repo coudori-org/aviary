@@ -12,6 +12,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import get_current_user
 from app.auth.oidc import validate_token
+from app.auth.session_store import SESSION_COOKIE_NAME, get_fresh_session
+from app.config import settings
 from app.services.mention_service import extract_mentions, resolve_mentioned_agents
 from app.db.models import Agent, Session as SessionModel, User
 from app.db.session import get_db, async_session_factory
@@ -317,13 +319,24 @@ async def invite_to_session(
 
 @router.websocket("/sessions/{session_id}/ws")
 async def websocket_chat(websocket: WebSocket, session_id: uuid.UUID):
-    token = websocket.query_params.get("token")
-    if not token:
-        await websocket.close(code=4001, reason="Missing token")
+    # CSWSH defense — cookies are sent on cross-origin WS handshakes too.
+    origin = websocket.headers.get("origin")
+    if not origin or origin not in settings.cors_origins:
+        await websocket.close(code=4001, reason="Invalid origin")
+        return
+
+    aviary_session_id = websocket.cookies.get(SESSION_COOKIE_NAME)
+    if not aviary_session_id:
+        await websocket.close(code=4001, reason="Missing session")
+        return
+
+    initial_session = await get_fresh_session(aviary_session_id)
+    if initial_session is None:
+        await websocket.close(code=4001, reason="Invalid or expired session")
         return
 
     try:
-        claims = await validate_token(token)
+        claims = await validate_token(initial_session.access_token)
     except ValueError:
         await websocket.close(code=4001, reason="Invalid token")
         return
@@ -433,10 +446,20 @@ async def websocket_chat(websocket: WebSocket, session_id: uuid.UUID):
                 if not content:
                     continue
 
+                fresh = await get_fresh_session(aviary_session_id)
+                if fresh is None:
+                    await websocket.send_json({
+                        "type": "error",
+                        "message": "Session expired, please sign in again",
+                    })
+                    await websocket.close(code=4001, reason="Session expired")
+                    return
+
                 async with async_session_factory() as db:
-                    await session_service.save_message(
-                        db, session_id, "user", content, sender_id=user.id
+                    user_msg = await session_service.save_message(
+                        db, session_id, "user", content, sender_id=user.id,
                     )
+                    user_message_id = user_msg.id
                     await db.commit()
 
                 await redis_service.publish_message(session_id_str, {
@@ -480,7 +503,8 @@ async def websocket_chat(websocket: WebSocket, session_id: uuid.UUID):
                     agent_mcp_servers=agent.mcp_servers,
                     agent_policy=agent.policy,
                     content=content,
-                    user_token=token,
+                    user_message_id=user_message_id,
+                    user_token=fresh.access_token,
                     user_external_id=claims.sub,
                     accessible_agents=accessible_agents_list or None,
                 )

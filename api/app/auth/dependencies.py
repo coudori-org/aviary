@@ -1,16 +1,18 @@
 import uuid
 
-from fastapi import Depends, HTTPException, status
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from fastapi import Cookie, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.oidc import TokenClaims, validate_token
+from app.auth.session_store import (
+    SESSION_COOKIE_NAME,
+    SessionData,
+    get_fresh_session,
+)
 from app.db.models import User
 from app.db.session import get_db
 from app.services.team_sync_service import sync_user_teams
-
-security = HTTPBearer()
 
 
 async def _upsert_user(db: AsyncSession, claims: TokenClaims) -> User:
@@ -38,18 +40,33 @@ async def _upsert_user(db: AsyncSession, claims: TokenClaims) -> User:
     return user
 
 
+async def get_session_data(
+    aviary_session: str | None = Cookie(default=None, alias=SESSION_COOKIE_NAME),
+) -> SessionData:
+    if not aviary_session:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+        )
+    data = await get_fresh_session(aviary_session)
+    if data is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Session expired",
+        )
+    return data
+
+
 async def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    session: SessionData = Depends(get_session_data),
     db: AsyncSession = Depends(get_db),
 ) -> User:
-    """Validate Bearer token, upsert user, return User model."""
     try:
-        claims = await validate_token(credentials.credentials)
+        claims = await validate_token(session.access_token)
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=str(e),
-            headers={"WWW-Authenticate": "Bearer"},
         ) from e
 
     return await _upsert_user(db, claims)

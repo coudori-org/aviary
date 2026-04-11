@@ -155,7 +155,9 @@ All K8s custom images use `imagePullPolicy: Never`. Loaded via `docker save | do
 `--node-name=aviary-node` in docker-compose.yml prevents stale node accumulation on container restart. Without it, PVCs bind to old node names causing scheduling failures.
 
 ### PVC Strategy
-Single `agent-workspace` PVC (5Gi) per agent, shared by all replicas. Session data at `/workspace/sessions/{session_id}/`. `ReadWriteOnce` works for single-node; multi-node requires `ReadWriteMany` or StatefulSet migration.
+Each agent gets a static, cluster-scoped PV (`agent-{agent_id}-workspace`) bound 1:1 to a per-namespace PVC (`agent-workspace`, 5Gi, `ReadWriteOnce`). The PV uses a deterministic hostPath at `/var/lib/aviary/agent-workspace/{agent_id}/` instead of going through the `local-path` provisioner — this is what lets `quick-rebuild full` wipe `k8sdata` (etcd + image cache) without losing chat history. The host directory is backed by a dedicated docker volume (`agent_workspace_pv`) so it's independent of the K3s cluster state. Reclaim policy is `Retain`, so the host directory survives an accidental PV delete (e.g. cluster-state wipes) and can be re-bound on the next provisioning. Multi-node migration would replace the hostPath with `ReadWriteMany` storage (NFS, Longhorn) and drop the per-agent PV definition.
+
+`delete_deployment` is the full agent teardown — it removes the Deployment, Service, PVC, and PV. The host directory still survives because reclaim is `Retain`; ops can clean up `/var/lib/aviary/agent-workspace/{agent_id}/` separately if disk pressure becomes an issue.
 
 ### React Strict Mode
 Use `useRef` guards for WebSocket connections and OIDC callbacks to prevent duplicate execution in dev mode.

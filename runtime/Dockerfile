@@ -15,7 +15,7 @@ RUN npx tsc
 FROM node:22-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    git curl ca-certificates bubblewrap python3 python3-venv \
+    git curl ca-certificates bubblewrap python3 python3-venv python-is-python3 \
     && rm -rf /var/lib/apt/lists/* \
     && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
        -o /usr/share/keyrings/githubcli-archive-keyring.gpg \

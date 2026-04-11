@@ -134,6 +134,13 @@ async def save_message(
     return msg
 
 
+async def delete_message(db: AsyncSession, message_id: uuid.UUID) -> None:
+    msg = await db.get(Message, message_id)
+    if msg is not None:
+        await db.delete(msg)
+        await db.flush()
+
+
 async def update_session_title(
     db: AsyncSession, session_id: uuid.UUID, title: str
 ) -> Session:

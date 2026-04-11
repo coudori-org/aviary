@@ -6,6 +6,7 @@ import { Card } from "@/components/ui/card";
 import { FormSection } from "./form-section";
 import { ToolChip } from "./tool-chip";
 import { ToolSelector } from "@/features/agents/components/tool-selector/tool-selector";
+import { ToolDetailsSheet } from "@/features/agents/components/tool-selector/tool-details-sheet";
 import type { McpToolInfo } from "@/types";
 import type { AgentFormData } from "./types";
 
@@ -18,6 +19,7 @@ interface ToolsSectionProps {
 
 export function ToolsSection({ data, setField, toolInfoMap, setToolInfoMap }: ToolsSectionProps) {
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [detailsTool, setDetailsTool] = useState<McpToolInfo | null>(null);
 
   const removeTool = useCallback(
     (id: string) => {
@@ -32,7 +34,13 @@ export function ToolsSection({ data, setField, toolInfoMap, setToolInfoMap }: To
         {data.mcp_tool_ids.length > 0 ? (
           <div className="flex flex-wrap gap-2">
             {data.mcp_tool_ids.map((id) => (
-              <ToolChip key={id} id={id} info={toolInfoMap.get(id)} onRemove={removeTool} />
+              <ToolChip
+                key={id}
+                id={id}
+                info={toolInfoMap.get(id)}
+                onRemove={removeTool}
+                onShowDetails={setDetailsTool}
+              />
             ))}
           </div>
         ) : (
@@ -53,6 +61,8 @@ export function ToolsSection({ data, setField, toolInfoMap, setToolInfoMap }: To
         open={pickerOpen}
         onClose={() => setPickerOpen(false)}
       />
+
+      <ToolDetailsSheet tool={detailsTool} onClose={() => setDetailsTool(null)} />
     </FormSection>
   );
 }

@@ -45,8 +45,6 @@ export function useSessionWebSocket({
   const [reconnectIn, setReconnectIn] = useState<number | null>(null);
 
   const wsRef = useRef<WebSocket | null>(null);
-  const connectedRef = useRef(false);
-  const cancelledRef = useRef(false);
   const attemptRef = useRef(0);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const countdownTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -79,14 +77,17 @@ export function useSessionWebSocket({
 
   useEffect(() => {
     if (!sessionId || !enabled) return;
-    if (connectedRef.current) return;
-    connectedRef.current = true;
-    cancelledRef.current = false;
+
+    // Each effect run gets its own cancellation flag. A ref would be
+    // shared across the stale connect() Promises from prior runs and
+    // could be reset to false before they resolve, causing leaked
+    // sockets to register their handlers and duplicate every message.
+    let cancelled = false;
     attemptRef.current = 0;
     hasConnectedOnceRef.current = false;
 
     const connect = () => {
-      if (cancelledRef.current) return;
+      if (cancelled) return;
       clearReconnectTimers();
 
       const isReconnect = hasConnectedOnceRef.current;
@@ -95,15 +96,13 @@ export function useSessionWebSocket({
 
       openSessionSocket(sessionId, {
         onMessage: (msg) => {
-          if (cancelledRef.current) return;
+          if (cancelled) return;
           if (msg.type === "status") {
             setStatus(msg.status);
             setStatusMessage(msg.message || null);
             if (msg.status === "ready") {
               attemptRef.current = 0;
               if (isReconnect) {
-                // Notify caller so it can refresh history that may have
-                // changed during the offline window.
                 onReconnectedRef.current?.();
               }
               hasConnectedOnceRef.current = true;
@@ -112,31 +111,27 @@ export function useSessionWebSocket({
           onMessageRef.current(msg);
         },
         onClose: () => {
-          if (cancelledRef.current) return;
-          // Forward a synthetic status so consumers can reset streaming state
+          if (cancelled) return;
           onMessageRef.current({ type: "status", status: "disconnected" });
           scheduleReconnect();
         },
-        onError: () => {
-          // Errors are followed by close — handled there
-        },
+        onError: () => {},
       })
         .then((ws) => {
-          if (cancelledRef.current) {
+          if (cancelled) {
             ws.close();
             return;
           }
           wsRef.current = ws;
         })
         .catch(() => {
-          if (cancelledRef.current) return;
-          // Initial open failed (e.g. token refresh failed) — schedule retry
+          if (cancelled) return;
           scheduleReconnect();
         });
     };
 
     const scheduleReconnect = () => {
-      if (cancelledRef.current) return;
+      if (cancelled) return;
 
       const idx = Math.min(attemptRef.current, BACKOFF_DELAYS_MS.length - 1);
       const delayMs = BACKOFF_DELAYS_MS[idx];
@@ -145,7 +140,6 @@ export function useSessionWebSocket({
       setStatus("reconnecting");
       setStatusMessage(null);
 
-      // Countdown ticker for the UI ("Reconnecting in 3s…")
       let remaining = Math.ceil(delayMs / 1_000);
       setReconnectIn(remaining);
       countdownTimerRef.current = setInterval(() => {
@@ -166,8 +160,7 @@ export function useSessionWebSocket({
     };
 
     retryNowRef.current = () => {
-      if (cancelledRef.current) return;
-      // Bypass the backoff: cancel pending timer and connect immediately
+      if (cancelled) return;
       clearReconnectTimers();
       attemptRef.current = 0;
       connect();
@@ -176,11 +169,10 @@ export function useSessionWebSocket({
     connect();
 
     return () => {
-      cancelledRef.current = true;
+      cancelled = true;
       clearReconnectTimers();
       wsRef.current?.close();
       wsRef.current = null;
-      connectedRef.current = false;
     };
   }, [sessionId, enabled, clearReconnectTimers]);
 

@@ -3,36 +3,24 @@ import { tokenStorage } from "./storage";
 import { generatePkce, generateState } from "./pkce";
 
 /**
- * Auth client — OIDC PKCE flow against Keycloak (or any OIDC provider).
+ * OIDC PKCE flow against Keycloak.
  *
- * The browser communicates directly with the public Keycloak URL for token
- * refresh; the API server proxies the initial code-for-token exchange so it
- * can rewrite issuer URLs internally.
+ * The browser never holds a token — `/api/auth/callback` exchanges the
+ * code on the server, stores the tokens in Redis, and sets an httpOnly
+ * session cookie. Every subsequent fetch / WebSocket carries that
+ * cookie automatically; the API server handles refresh.
  */
 
-const REFRESH_BUFFER_SECONDS = 60;
-
 let _configPromise: Promise<AuthConfig> | null = null;
-let _refreshPromise: Promise<boolean> | null = null;
 
 export async function fetchAuthConfig(): Promise<AuthConfig> {
   if (!_configPromise) {
-    _configPromise = fetch("/api/auth/config").then((res) => {
+    _configPromise = fetch("/api/auth/config", { credentials: "include" }).then((res) => {
       if (!res.ok) throw new Error("Failed to fetch auth config");
       return res.json();
     });
   }
   return _configPromise;
-}
-
-export function isAuthenticated(): boolean {
-  return !!tokenStorage.getAccessToken();
-}
-
-export function isTokenExpired(): boolean {
-  const expiresAt = tokenStorage.getExpiresAt();
-  if (!expiresAt) return true;
-  return Date.now() >= expiresAt - REFRESH_BUFFER_SECONDS * 1000;
 }
 
 export async function initiateLogin(): Promise<void> {
@@ -68,6 +56,7 @@ export async function handleCallback(code: string, state: string): Promise<void>
 
   const res = await fetch("/api/auth/callback", {
     method: "POST",
+    credentials: "include",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       code,
@@ -82,78 +71,27 @@ export async function handleCallback(code: string, state: string): Promise<void>
     const body = await res.json().catch(() => null);
     throw new Error(body?.detail || res.statusText || "Auth callback failed");
   }
-
-  tokenStorage.setTokens(await res.json());
-}
-
-/**
- * Refresh the access token. Deduplicates concurrent requests.
- * Returns false if refresh failed (caller should logout).
- */
-export async function refreshAccessToken(): Promise<boolean> {
-  if (_refreshPromise) return _refreshPromise;
-
-  _refreshPromise = (async () => {
-    const refreshToken = tokenStorage.getRefreshToken();
-    if (!refreshToken) return false;
-
-    try {
-      // Refresh against Keycloak directly to avoid issuer URL rewriting issues.
-      const config = await fetchAuthConfig();
-      const res = await fetch(config.token_endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({
-          grant_type: "refresh_token",
-          client_id: config.client_id,
-          refresh_token: refreshToken,
-        }),
-      });
-
-      if (!res.ok) return false;
-      tokenStorage.setTokens(await res.json());
-      return true;
-    } catch {
-      return false;
-    } finally {
-      _refreshPromise = null;
-    }
-  })();
-
-  return _refreshPromise;
-}
-
-/** Returns a valid access token (refreshing if expired), or null if user must re-login. */
-export async function ensureValidToken(): Promise<string | null> {
-  const token = tokenStorage.getAccessToken();
-  if (!token) return null;
-  if (!isTokenExpired()) return token;
-
-  const refreshed = await refreshAccessToken();
-  return refreshed ? tokenStorage.getAccessToken() : null;
 }
 
 export async function logout(): Promise<void> {
-  const idToken = tokenStorage.getIdToken();
+  try {
+    await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
+  } catch {
+    // Logout must always succeed locally — fall through to redirect.
+  }
 
-  tokenStorage.clearTokens();
-  tokenStorage.clearPkce();
-
-  // Try Keycloak end_session_endpoint with id_token_hint for global SSO logout
   try {
     const config = await fetchAuthConfig();
-    if (config.end_session_endpoint && idToken) {
+    if (config.end_session_endpoint) {
       const params = new URLSearchParams({
-        id_token_hint: idToken,
         post_logout_redirect_uri: `${window.location.origin}/login`,
+        client_id: config.client_id,
       });
       window.location.href = `${config.end_session_endpoint}?${params}`;
       return;
     }
   } catch {
     // OIDC discovery failed — fall through to local redirect.
-    // This is the only place we swallow an error: logout must always succeed
-    // from the user's perspective.
   }
 
   window.location.href = "/login";

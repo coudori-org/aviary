@@ -6,15 +6,41 @@ from aviary_shared.naming import (
     LABEL_ROLE,
     PVC_NAME,
     PVC_SIZE,
-    PVC_STORAGE_CLASS,
     RUNTIME_PORT,
     SERVICE_ACCOUNT_NAME,
     SERVICE_NAME,
+    agent_pv_host_path,
+    agent_pv_name,
 )
 
 from app.config import settings
 
 _NODE_OPTIONS = "--require /app/scripts/proxy-bootstrap.js"
+
+
+def build_pv_manifest(agent_id: str) -> dict:
+    return {
+        "apiVersion": "v1",
+        "kind": "PersistentVolume",
+        "metadata": {
+            "name": agent_pv_name(agent_id),
+            "labels": {LABEL_AGENT_ID: agent_id},
+        },
+        "spec": {
+            "capacity": {"storage": PVC_SIZE},
+            "accessModes": ["ReadWriteOnce"],
+            "persistentVolumeReclaimPolicy": "Retain",
+            "storageClassName": "",
+            "hostPath": {
+                "path": agent_pv_host_path(agent_id),
+                "type": "DirectoryOrCreate",
+            },
+            "claimRef": {
+                "namespace": f"agent-{agent_id}",
+                "name": PVC_NAME,
+            },
+        },
+    }
 
 
 def build_pvc_manifest(namespace: str, agent_id: str) -> dict:
@@ -29,7 +55,8 @@ def build_pvc_manifest(namespace: str, agent_id: str) -> dict:
         "spec": {
             "accessModes": ["ReadWriteOnce"],
             "resources": {"requests": {"storage": PVC_SIZE}},
-            "storageClassName": PVC_STORAGE_CLASS,
+            "storageClassName": "",
+            "volumeName": agent_pv_name(agent_id),
         },
     }
 
@@ -79,6 +106,25 @@ def build_deployment_manifest(
                         {
                             "ip": settings.host_gateway_ip,
                             "hostnames": ["host.k8s.internal"],
+                        }
+                    ],
+                    # hostPath PVs aren't chowned by K8s the way local-path
+                    # provisioner volumes are, so chown the workspace once
+                    # at pod start. Idempotent.
+                    "initContainers": [
+                        {
+                            "name": "fix-workspace-perms",
+                            "image": container_image,
+                            "imagePullPolicy": "Never",
+                            "securityContext": {"runAsUser": 0, "runAsGroup": 0},
+                            "command": ["chown", "-R", "1000:1000", "/workspace"],
+                            "volumeMounts": [
+                                {"name": PVC_NAME, "mountPath": "/workspace"},
+                            ],
+                            "resources": {
+                                "requests": {"cpu": "10m", "memory": "16Mi"},
+                                "limits": {"cpu": "100m", "memory": "64Mi"},
+                            },
                         }
                     ],
                     "containers": [

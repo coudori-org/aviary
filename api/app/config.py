@@ -2,6 +2,11 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
+    # Set ENV=production in docker-compose / k8s manifests for any
+    # deployed environment served over TLS — this auto-flips
+    # cookie_secure on.
+    env: str = "development"
+
     # Database
     database_url: str
 
@@ -35,6 +40,10 @@ class Settings(BaseSettings):
     litellm_api_key: str
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
+
+    @property
+    def cookie_secure(self) -> bool:
+        return self.env == "production"
 
 
 settings = Settings()

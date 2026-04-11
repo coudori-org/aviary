@@ -10,6 +10,10 @@ from aviary_shared.db.models import McpServer
 from aviary_shared.mcp_tools import upsert_tools
 from app.config import settings
 from app.mcp.connection_pool import pool
+from app.services.secret_injection import (
+    annotate_schema_with_injections,
+    get_injected_args,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +40,14 @@ async def _discover_tools_for_server(db: AsyncSession, server: McpServer) -> int
         logger.exception("Failed to discover tools from %s", server.name)
         server.status = "degraded"
         return 0
+
+    # Annotate vault-injected args so the catalog UI can show users which
+    # credentials each tool needs. The annotation lives inside inputSchema
+    # as an `x-injected-from-vault` extension on the relevant property.
+    for raw in raw_tools:
+        injected = get_injected_args(server.name, raw["name"])
+        if injected and isinstance(raw.get("inputSchema"), dict):
+            annotate_schema_with_injections(raw["inputSchema"], injected)
 
     discovered, _ = await upsert_tools(db, server, raw_tools)
     return discovered
