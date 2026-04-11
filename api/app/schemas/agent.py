@@ -4,7 +4,10 @@ from pydantic import BaseModel, Field
 
 
 class ModelConfig(BaseModel):
-    backend: str = Field(..., pattern="^(claude|ollama|vllm|bedrock)$")
+    # `backend` is opaque to the API server — it's passed through to
+    # LiteLLM as the model-name prefix. We don't enforce an allow-list
+    # here; LiteLLM will reject unknown backends at request time.
+    backend: str = Field(..., min_length=1)
     model: str = Field(..., min_length=1)
     max_output_tokens: int | None = None
 

@@ -24,7 +24,9 @@ export const DEFAULT_AGENT_FORM_DATA: AgentFormData = {
   description: "",
   instruction: "",
   model_config: {
-    backend: "claude",
+    // Populated from the LiteLLM catalogue on first load; the form
+    // picks the first available backend if this is still empty.
+    backend: "",
     model: "",
     max_output_tokens: 4000,
   },

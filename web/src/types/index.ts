@@ -44,7 +44,9 @@ export interface Agent {
 }
 
 export interface ModelConfig {
-  backend: "claude" | "ollama" | "vllm";
+  /** LiteLLM model-name prefix (``anthropic``, ``ollama``, ``vllm``, …).
+   *  Opaque to the frontend — sourced from `/api/inference/models`. */
+  backend: string;
   model: string;
   max_output_tokens?: number;
 }

@@ -13,12 +13,6 @@ interface AgentCardProps {
   deleted?: boolean;
 }
 
-const BACKEND_LABELS: Record<string, string> = {
-  claude: "Claude",
-  ollama: "Ollama",
-  vllm: "vLLM",
-};
-
 const VISIBILITY_VARIANTS: Record<Agent["visibility"], "success" | "warning" | "muted"> = {
   public: "success",
   team: "warning",
@@ -91,7 +85,7 @@ export function AgentCard({ agent, deleted }: AgentCardProps) {
                 {agent.name}
               </h3>
               <p className="type-caption text-fg-muted">
-                {BACKEND_LABELS[agent.model_config?.backend] || agent.model_config?.backend}
+                {agent.model_config?.backend}
               </p>
             </div>
           </div>

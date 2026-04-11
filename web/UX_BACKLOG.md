@@ -824,7 +824,11 @@ URL paste → "Fetch this URL?" 칩 제안 (WebFetch 자동).
 
 ## POLISH-2 🔥 세션 자동 제목 LLM 생성
 
-**상태**: pending
+**상태**: rejected
+
+**Reject reason (2026-04-11)**: 구현 시도했지만 reasoning 모델 (qwen 계열)이
+max_tokens을 thinking에 다 써버려서 content가 비는 등 backend별 대응 복잡도가
+체감 가치 대비 너무 컸음. 필요해지면 재고려.
 
 첫 user 메시지의 첫 줄을 자르는 현재 방식은 어색.
 첫 응답 후 LLM에게 "summarize in 5 words" 호출 (ChatGPT 방식).
