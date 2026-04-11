@@ -16,11 +16,16 @@ export function restoreBlocks(
   const prefix = messageId ? `${messageId}-` : "";
   const flat: StreamBlock[] = raw.map((block, i) => {
     if (block.type === "tool_call") {
+      if (typeof block.tool_use_id !== "string" || typeof block.name !== "string") {
+        throw new Error(
+          `restoreBlocks: tool_call block missing required tool_use_id or name (index ${i})`,
+        );
+      }
       const hasResult = block.result != null;
       return {
         type: "tool_call" as const,
-        id: String(block.tool_use_id ?? `${prefix}saved-${i}`),
-        name: String(block.name ?? "unknown"),
+        id: block.tool_use_id,
+        name: block.name,
         input: (block.input as Record<string, unknown>) ?? {},
         status: "complete" as const,
         result: hasResult
@@ -34,9 +39,8 @@ export function restoreBlocks(
             : !hasResult && cancelled
               ? true
               : undefined,
-        parent_tool_use_id: block.parent_tool_use_id
-          ? String(block.parent_tool_use_id)
-          : undefined,
+        parent_tool_use_id:
+          typeof block.parent_tool_use_id === "string" ? block.parent_tool_use_id : undefined,
       };
     }
     if (block.type === "thinking") {

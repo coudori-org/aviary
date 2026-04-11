@@ -41,27 +41,10 @@ interface RailItem {
 const MIN_ITEMS = 6;
 
 /**
- * JumpRail — a thin right-side mini-map of the loaded chat history.
- *
- * Items are discovered by walking `[data-rail-id]` elements inside the
- * scroll container, so anything that wants to appear in the rail just
- * tags its DOM with three attributes:
- *
- *   - `data-rail-id`      stable per-item id
- *   - `data-rail-kind`    user | agent | tool-success | tool-error | tool-running
- *   - `data-rail-preview` short text for the hover tooltip
- *
- * This decouples the rail from the message tree, picks up tool calls
- * for free, and naturally reflects expand/collapse state — when a
- * collapsed tool group expands, ResizeObserver fires, we re-measure,
- * and the new tool ticks appear.
- *
- * Position is computed via `getBoundingClientRect` rather than
- * `offsetTop` so deeply nested elements (tool calls inside agent
- * bubbles) anchor accurately regardless of offsetParent chains.
- *
- * Hidden when there are fewer than MIN_ITEMS items, when everything
- * fits in one viewport, and on viewports too narrow to host it.
+ * JumpRail — right-side mini-map. Items are discovered by walking
+ * `[data-rail-id]` elements inside the scroll container, tagged with
+ * `data-rail-kind` and `data-rail-preview`. ResizeObserver re-measures
+ * on content reflow.
  */
 export function JumpRail({ scrollRef, messageCount }: JumpRailProps) {
   const railRef = useRef<HTMLDivElement>(null);

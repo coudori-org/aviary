@@ -65,18 +65,15 @@ export function SidebarSessions({ groups: groupsProp, searchActive }: SidebarSes
   const { preferences, updatePreferences } = usePreferences();
   const groups = groupsProp ?? providerGroups;
 
-  // 5px distance threshold lets simple clicks (links, buttons) pass through
-  // to their default handlers — drag only activates after sustained movement.
+  // 5px distance lets clicks pass through; drag activates only after sustained movement.
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
 
-  // Scoped collision detection: agents only collide with other agents, and
-  // sessions only collide with sessions inside the same agent group.
-  // Without this, hovering a dragged agent over another group's expanded
-  // session list makes `over` become a session from a different SortableContext,
-  // which confuses the agent-level sortable and cancels the drag mid-motion.
+  // Scope collision detection so agents only collide with agents and sessions
+  // only collide with sessions inside the same agent group — otherwise hovering
+  // a dragged agent over a different group's session list cancels the drag.
   const collisionDetection: CollisionDetection = (args) => {
     const activeType = args.active.data.current?.type;
     const activeAgentId = args.active.data.current?.agentId;

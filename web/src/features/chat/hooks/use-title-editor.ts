@@ -41,10 +41,10 @@ export function useTitleEditor({ session, patchSession }: UseTitleEditorOptions)
 
     try {
       await http.patch(`/sessions/${session.id}/title`, { title: trimmed });
-    } catch {
-      // Roll back optimistic update on failure
+    } catch (err) {
       patchSession({ title: previousTitle });
       updateSessionTitle(session.id, previousTitle || "");
+      throw err;
     }
   }, [session, draft, patchSession, updateSessionTitle]);
 

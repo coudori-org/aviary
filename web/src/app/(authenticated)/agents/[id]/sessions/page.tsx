@@ -7,6 +7,7 @@ import { ArrowLeft, Plus, MessageSquare } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { LoadingState } from "@/components/feedback/loading-state";
+import { ErrorState } from "@/components/feedback/error-state";
 import { EmptyState } from "@/components/feedback/empty-state";
 import { agentsApi } from "@/features/agents/api/agents-api";
 import { useAuth } from "@/features/auth/providers/auth-provider";
@@ -21,22 +22,36 @@ export default function AgentSessionsPage() {
   const [agent, setAgent] = useState<Agent | null>(null);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!user) return;
-    Promise.all([
-      agentsApi.get(params.id),
-      agentsApi.listSessions(params.id).catch(() => ({ items: [] as Session[] })),
-    ])
+    Promise.all([agentsApi.get(params.id), agentsApi.listSessions(params.id)])
       .then(([a, s]) => {
         setAgent(a);
         setSessions(s.items);
       })
+      .catch((err: Error) => setError(err.message))
       .finally(() => setLoading(false));
   }, [user, params.id]);
 
-  if (loading || !agent) {
+  if (loading) {
     return <LoadingState fullHeight label="Loading…" />;
+  }
+
+  if (error || !agent) {
+    return (
+      <div className="mx-auto max-w-container-sm p-8">
+        <ErrorState title="Couldn't load sessions" description={error || "Agent not found"} />
+        <Link
+          href={routes.agents}
+          className="mt-4 inline-flex items-center gap-1.5 type-caption text-info hover:opacity-80"
+        >
+          <ArrowLeft size={12} strokeWidth={2} />
+          Back to agents
+        </Link>
+      </div>
+    );
   }
 
   const handleNewSession = async () => {

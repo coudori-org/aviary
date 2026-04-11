@@ -97,11 +97,6 @@ export function useChatSearch({
         if (cancelled) return;
         setMatches(data.matches);
         setCurrentIdx(data.matches.length > 0 ? 0 : -1);
-      } catch {
-        if (!cancelled) {
-          setMatches([]);
-          setCurrentIdx(-1);
-        }
       } finally {
         if (!cancelled) setSearching(false);
       }

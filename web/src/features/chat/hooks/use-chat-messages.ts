@@ -39,13 +39,8 @@ interface UseChatMessagesResult {
 }
 
 /**
- * useChatMessages — composes the chat data flow:
- *   1. Initial fetch of session + history
- *   2. WS subscription for live deltas
- *   3. Streaming block accumulation
- *   4. Translation of WS events into the persistent `messages` array
- *
- * The component using this hook just needs to render — no state machinery.
+ * useChatMessages — composes initial session fetch, WS subscription, streaming
+ * block accumulation, and persistence of completed messages.
  */
 export function useChatMessages(sessionId: string): UseChatMessagesResult {
   const [session, setSession] = useState<Session | null>(null);
@@ -127,13 +122,11 @@ export function useChatMessages(sessionId: string): UseChatMessagesResult {
       switch (msg.type) {
         case "status":
           if (msg.status === "disconnected") {
-            // Connection lost — flush in-flight state and reload from DB so any
-            // partially saved response surfaces correctly.
+            // Flush in-flight state and reload from DB so any partially saved
+            // response surfaces correctly.
             bs.reset();
             setIsStreaming(false);
-            reloadHistory().catch(() => {
-              /* reload failure is non-fatal — UI shows last known state */
-            });
+            void reloadHistory();
           }
           break;
 
@@ -269,9 +262,7 @@ export function useChatMessages(sessionId: string): UseChatMessagesResult {
     // After every successful (re)connect, refresh history so anything that
     // happened during the offline window appears in the UI.
     onReconnected: () => {
-      reloadHistory().catch(() => {
-        /* non-fatal */
-      });
+      void reloadHistory();
     },
   });
 

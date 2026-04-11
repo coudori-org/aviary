@@ -72,21 +72,17 @@ export function ModelSection({ data, setModelConfig }: ModelSectionProps) {
 
   const selectedModelInfo = models.find((m) => m.id === data.model_config.model)?.model_info ?? {};
   const capabilities = selectedModelInfo._ui?.capabilities ?? [];
-
-  // Reset max_output_tokens to a sensible default when user manually changes models
-  useEffect(() => {
-    if (!userChangedModel) return;
-    const maxLimit =
-      selectedModelInfo.max_tokens != null && selectedModelInfo.max_tokens > 0
-        ? selectedModelInfo.max_tokens
-        : 4000;
-    setModelConfig("max_output_tokens", Math.min(4000, maxLimit));
-  }, [data.model_config.model, selectedModelInfo.max_tokens, userChangedModel, setModelConfig]);
-
   const maxLimit =
     selectedModelInfo.max_tokens != null && selectedModelInfo.max_tokens > 0
       ? selectedModelInfo.max_tokens
       : 4000;
+
+  // Reset max_output_tokens to a sensible default when user manually changes models
+  useEffect(() => {
+    if (!userChangedModel) return;
+    setModelConfig("max_output_tokens", Math.min(4000, maxLimit));
+  }, [data.model_config.model, maxLimit, userChangedModel, setModelConfig]);
+
   const currentTokens = Math.min(data.model_config.max_output_tokens, maxLimit);
 
   return (

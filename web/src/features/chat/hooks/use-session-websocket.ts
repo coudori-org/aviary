@@ -27,22 +27,9 @@ interface UseSessionWebSocketResult {
 }
 
 /**
- * useSessionWebSocket — owns the WebSocket lifecycle for a session,
- * including automatic reconnection on disconnect.
- *
- * Reconnect policy:
- *   - On unintended close, schedule retry with exponential backoff
- *   - Delays: 500ms, 1s, 2s, 4s, 8s, 16s, 30s (cap)
- *   - Never gives up — retries until the component unmounts or the user
- *     navigates away
- *   - User-initiated cleanup (cancelled flag) suppresses reconnection
- *
- * The status state machine adds a `"reconnecting"` value distinct from
- * the initial `"connecting"` so the UI can show a different message
- * ("Reconnecting in 3s…" with a Retry button) for failure recovery vs
- * first connect.
- *
- * Strict-mode safe via the `connectedRef` guard.
+ * useSessionWebSocket — owns the WebSocket lifecycle, including exponential
+ * backoff reconnect and a `"reconnecting"` status distinct from initial
+ * `"connecting"`. Strict-mode safe via the `connectedRef` guard.
  */
 
 const BACKOFF_DELAYS_MS = [500, 1_000, 2_000, 4_000, 8_000, 16_000, 30_000];
@@ -86,9 +73,8 @@ export function useSessionWebSocket({
     setReconnectIn(null);
   }, []);
 
-  // The connect function is defined inside the effect so it captures the
-  // current sessionId without needing to be a dependency. We expose
-  // `retryNow` via a ref so the returned callback stays stable.
+  // `retryNow` is exposed via ref so the returned callback stays stable while
+  // the underlying connect closure is recreated inside the effect.
   const retryNowRef = useRef<() => void>(() => {});
 
   useEffect(() => {

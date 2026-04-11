@@ -43,8 +43,8 @@ export function SessionStatusProvider({ children }: { children: React.ReactNode 
         };
       }
       setStatuses(merged);
-    } catch {
-      // Same rationale as agent status: non-fatal sidebar polling.
+    } catch (err) {
+      console.warn("[session-status] poll failed", err);
     }
   }, [sessionIds]);
 

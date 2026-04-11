@@ -21,9 +21,7 @@ import { highlightText, clearHighlights } from "@/features/chat/lib/highlight-te
 import { cn } from "@/lib/utils";
 import type { Message, StreamBlock } from "@/types";
 
-/** Distance from the top (px) at which we begin pre-loading older
- *  messages. Generous (~3 viewports) so users rarely see a "loading"
- *  flash — we should already be fetching by the time they get there. */
+/** Distance from the top at which older messages start pre-loading. */
 const PRELOAD_THRESHOLD_PX = 1500;
 
 interface MessageListProps {
@@ -44,30 +42,16 @@ interface MessageListProps {
 }
 
 /**
- * MessageList — scrollable message container with empty state, streaming
- * response, and paginated history loading.
+ * MessageList — scrollable message container with paginated history.
  *
- * Owns its own scroll container and manages three scroll behaviors:
+ * Scroll behaviors (resolved in one layout effect via first/last id diff):
+ *   - initial mount → jump to bottom
+ *   - append (last id changed) → smooth-scroll to bottom
+ *   - prepend (first id changed, last unchanged) → adjust scrollTop by the
+ *     height diff so the viewport anchor stays put
  *
- *   1. **Initial load** (mount): jump to the bottom so the latest message
- *      is visible without any smooth-scroll animation.
- *   2. **Append** (new incoming message): smooth-scroll to the bottom.
- *      Detected by the LAST message id changing.
- *   3. **Prepend** (Show earlier pagination): preserve the user's view
- *      anchor by adjusting scrollTop by the height diff so the message
- *      they were reading stays fixed on screen. Detected by the FIRST
- *      message id changing while the last stays the same.
- *
- * Pagination uses an *aggressive pre-fetch* strategy rather than waiting
- * for the user to hit the very top:
- *   - A scroll listener pre-loads when within `PRELOAD_THRESHOLD_PX` of
- *     the top, well before the user reaches it.
- *   - After every prepend, an effect re-checks the same threshold and
- *     chains another fetch if we're still close, so multiple small pages
- *     stream in back-to-back without the user ever seeing a loading state.
- *
- * The ref is forwarded to the scroll container so parent hooks (chat
- * export) can read its innerHTML.
+ * Pre-fetch fires when within `PRELOAD_THRESHOLD_PX` of the top, both on
+ * scroll and after a prepend (so back-to-back pages chain without flash).
  */
 export const MessageList = forwardRef<HTMLDivElement, MessageListProps>(
   function MessageList(
@@ -132,8 +116,6 @@ export const MessageList = forwardRef<HTMLDivElement, MessageListProps>(
       };
     }, [searchQuery, messages]);
 
-    // Track identity of first/last message + previous scroll height so we
-    // can discriminate append vs prepend vs initial mount in one effect.
     const prevFirstIdRef = useRef<string | null>(null);
     const prevLastIdRef = useRef<string | null>(null);
     const prevScrollHeightRef = useRef(0);
@@ -147,27 +129,24 @@ export const MessageList = forwardRef<HTMLDivElement, MessageListProps>(
       const prevFirst = prevFirstIdRef.current;
       const prevLast = prevLastIdRef.current;
 
-      if (!didInitialScrollRef.current && messages.length > 0) {
-        // First time we have messages — jump to bottom (no animation).
-        el.scrollTop = el.scrollHeight;
-        didInitialScrollRef.current = true;
-      } else if (
-        prevFirst !== null &&
-        firstId !== prevFirst &&
-        lastId === prevLast
-      ) {
-        // Prepend only — adjust scrollTop by the height difference so
-        // the viewport anchor stays put.
-        const diff = el.scrollHeight - prevScrollHeightRef.current;
-        el.scrollTop += diff;
-      } else if (prevLast !== null && lastId !== prevLast) {
-        // New message appended (or streaming finalized into a saved msg).
-        el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
-      }
-
       prevFirstIdRef.current = firstId;
       prevLastIdRef.current = lastId;
+      const prevScrollHeight = prevScrollHeightRef.current;
       prevScrollHeightRef.current = el.scrollHeight;
+
+      if (!didInitialScrollRef.current && messages.length > 0) {
+        el.scrollTop = el.scrollHeight;
+        didInitialScrollRef.current = true;
+        return;
+      }
+      if (prevFirst !== null && firstId !== prevFirst && lastId === prevLast) {
+        // Prepend — keep the viewport anchor pinned.
+        el.scrollTop += el.scrollHeight - prevScrollHeight;
+        return;
+      }
+      if (prevLast !== null && lastId !== prevLast) {
+        el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+      }
     }, [messages]);
 
     // Streaming block updates always scroll to bottom (they only extend

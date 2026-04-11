@@ -8,6 +8,7 @@ import { AgentForm } from "@/features/agents/components/form/agent-form";
 import { agentsApi } from "@/features/agents/api/agents-api";
 import { useAuth } from "@/features/auth/providers/auth-provider";
 import { LoadingState } from "@/components/feedback/loading-state";
+import { ErrorState } from "@/components/feedback/error-state";
 import { routes } from "@/lib/constants/routes";
 import type { Agent, McpToolInfo } from "@/types";
 import type { AgentFormData } from "@/features/agents/components/form/types";
@@ -18,6 +19,7 @@ export default function EditAgentPage() {
   const router = useRouter();
   const [agent, setAgent] = useState<Agent | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [existingToolIds, setExistingToolIds] = useState<string[]>([]);
   const [existingToolInfo, setExistingToolInfo] = useState<Map<string, McpToolInfo>>(new Map());
 
@@ -31,11 +33,27 @@ export default function EditAgentPage() {
         for (const b of bindings) map.set(b.tool.id, b.tool);
         setExistingToolInfo(map);
       })
+      .catch((err: Error) => setError(err.message))
       .finally(() => setLoading(false));
   }, [user, params.id]);
 
-  if (loading || !agent) {
+  if (loading) {
     return <LoadingState fullHeight label="Loading…" />;
+  }
+
+  if (error || !agent) {
+    return (
+      <div className="mx-auto max-w-container-sm p-8">
+        <ErrorState title="Couldn't load agent" description={error || "Agent not found"} />
+        <Link
+          href={routes.agents}
+          className="mt-4 inline-flex items-center gap-1.5 type-caption text-info hover:opacity-80"
+        >
+          <ArrowLeft size={12} strokeWidth={2} />
+          Back to agents
+        </Link>
+      </div>
+    );
   }
 
   const handleSubmit = async (data: AgentFormData) => {

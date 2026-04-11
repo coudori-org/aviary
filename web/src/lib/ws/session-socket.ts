@@ -2,15 +2,7 @@ import { ensureValidToken } from "@/lib/auth";
 import type { WSMessage } from "./types";
 
 /**
- * Session WebSocket — opens an authenticated connection to the runtime
- * for a specific session ID.
- *
- * The token is fetched fresh (and refreshed if needed) on each connection
- * attempt so reconnects work even after token expiry.
- *
- * Reconnection: this is a thin factory; the consuming hook handles the
- * lifecycle and reconnect policy. Keeping this layer pure makes the
- * factory trivially testable.
+ * Session WebSocket factory. Caller owns reconnect lifecycle.
  */
 
 export interface SessionSocketHandlers {
@@ -42,12 +34,8 @@ export async function openSessionSocket(
 
   ws.onopen = () => handlers.onOpen?.();
   ws.onmessage = (event) => {
-    try {
-      const msg = JSON.parse(event.data) as WSMessage;
-      handlers.onMessage(msg);
-    } catch {
-      // Malformed payloads are dropped — runtime would have logged it server-side.
-    }
+    const msg = JSON.parse(event.data) as WSMessage;
+    handlers.onMessage(msg);
   };
   ws.onclose = () => handlers.onClose?.();
   ws.onerror = (event) => handlers.onError?.(event);

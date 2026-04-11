@@ -62,9 +62,10 @@ export function SidebarSessionItem({
     try {
       await deleteSession(session.id);
       if (isActive) router.push(routes.agents);
-    } catch {
+    } catch (err) {
       setDeleting(false);
       setConfirming(false);
+      throw err;
     }
   };
 

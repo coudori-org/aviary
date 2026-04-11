@@ -1,19 +1,15 @@
 /**
  * Export helpers — turn a list of messages into printable HTML.
  *
- * The pipeline produces final HTML directly (not markdown) so that tool
- * call results can be rendered as raw `<pre>` text without going through
- * any markdown parser. Only user/agent text-block content is passed
- * through the markdown renderer (`mdToHtml`) — tool blocks, thinking,
- * and structural chrome are built as plain HTML strings.
- *
- * Why: a previous version mixed everything into one markdown string and
- * fed it to marked, which then re-interpreted markdown syntax inside
- * tool result `<pre>` blocks (asterisks, backticks, etc were being
- * formatted instead of shown literally).
+ * Tool blocks, thinking, and structural chrome are built as plain HTML
+ * strings; only text content is passed through `mdToHtml` so markdown
+ * syntax inside tool result <pre> blocks isn't reinterpreted.
  */
 
-type Block = Record<string, unknown>;
+import type { StreamBlock, ToolCallBlock } from "@/types";
+import { restoreBlocks } from "./restore-blocks";
+
+const MAX_TOOL_RESULT_CHARS = 2000;
 
 function escapeHtml(str: string): string {
   return str.replace(/[&<>"']/g, (c) => {
@@ -32,69 +28,49 @@ function escapeHtml(str: string): string {
   });
 }
 
-function renderToolTreeHtml(tools: Block[], indent: number): string {
-  return tools
-    .map((t) => {
-      const parts: string[] = [];
-      const name = String(t.name ?? "unknown");
-      const err = t.is_error ? " [ERROR]" : "";
-      parts.push(`<div class="tool-block" style="margin-left:${indent * 12}px">`);
-      parts.push(`<strong>Tool: ${escapeHtml(name)}</strong>${err}`);
+function renderToolHtml(tool: ToolCallBlock, indent: number): string {
+  const parts: string[] = [];
+  const err = tool.is_error ? " [ERROR]" : "";
+  parts.push(`<div class="tool-block" style="margin-left:${indent * 12}px">`);
+  parts.push(`<strong>Tool: ${escapeHtml(tool.name)}</strong>${err}`);
 
-      const input = t.input as Record<string, unknown> | undefined;
-      if (input && Object.keys(input).length > 0) {
-        parts.push(`<pre>${escapeHtml(JSON.stringify(input, null, 2))}</pre>`);
-      }
-      if (t.result != null) {
-        const result = String(t.result);
-        const short = result.length > 2000 ? result.slice(0, 2000) + "\n..." : result;
-        parts.push(`<pre>${escapeHtml(short)}</pre>`);
-      }
-      const children = t.children as Block[] | undefined;
-      if (children && children.length > 0) {
-        parts.push(renderToolTreeHtml(children, indent + 1));
-      }
-      parts.push("</div>");
-      return parts.join("\n");
-    })
-    .join("\n");
-}
-
-function renderBlocksHtml(blocks: Block[], mdToHtml: (md: string) => string): string {
-  // Build subagent nesting tree (mirrors `buildBlockTree` but on raw saved metadata)
-  const toolMap = new Map<string, Block & { children: Block[] }>();
-  const roots: Block[] = [];
-  for (const b of blocks) {
-    if (b.type === "tool_call") {
-      const node = { ...b, children: [] as Block[] };
-      toolMap.set(String(b.tool_use_id ?? b.id ?? ""), node);
-      if (b.parent_tool_use_id) {
-        const parent = toolMap.get(String(b.parent_tool_use_id));
-        if (parent) {
-          parent.children.push(node);
-          continue;
-        }
-      }
-      roots.push(node);
-    } else {
-      roots.push(b);
+  if (Object.keys(tool.input).length > 0) {
+    parts.push(`<pre>${escapeHtml(JSON.stringify(tool.input, null, 2))}</pre>`);
+  }
+  if (tool.result != null) {
+    const short =
+      tool.result.length > MAX_TOOL_RESULT_CHARS
+        ? tool.result.slice(0, MAX_TOOL_RESULT_CHARS) + "\n..."
+        : tool.result;
+    parts.push(`<pre>${escapeHtml(short)}</pre>`);
+  }
+  if (tool.children) {
+    for (const child of tool.children) {
+      if (child.type === "tool_call") parts.push(renderToolHtml(child, indent + 1));
     }
   }
+  parts.push("</div>");
+  return parts.join("\n");
+}
 
-  return roots
-    .map((b) => {
-      if (b.type === "thinking") {
-        const text = String(b.content ?? "").slice(0, 300);
-        const ellipsis = String(b.content ?? "").length > 300 ? "..." : "";
-        return `<div class="thinking">Thinking: ${escapeHtml(text + ellipsis)}</div>`;
-      }
-      if (b.type === "tool_call") {
-        return renderToolTreeHtml([b], 0);
-      }
-      // Text block — only this branch goes through markdown rendering.
-      return `<div class="text-block">${mdToHtml(String(b.content ?? ""))}</div>`;
-    })
-    .join("\n");
+function renderBlockHtml(block: StreamBlock, mdToHtml: (md: string) => string): string {
+  if (block.type === "thinking") {
+    const text = block.content.slice(0, 300);
+    const ellipsis = block.content.length > 300 ? "..." : "";
+    return `<div class="thinking">Thinking: ${escapeHtml(text + ellipsis)}</div>`;
+  }
+  if (block.type === "tool_call") {
+    return renderToolHtml(block, 0);
+  }
+  return `<div class="text-block">${mdToHtml(block.content)}</div>`;
+}
+
+function renderBlocksHtml(
+  blocks: Array<Record<string, unknown>>,
+  mdToHtml: (md: string) => string,
+): string {
+  const tree = restoreBlocks(blocks);
+  return tree.map((b) => renderBlockHtml(b, mdToHtml)).join("\n");
 }
 
 export interface ExportableMessage {
@@ -117,7 +93,7 @@ export function buildExportHTML(
   const messagesHtml = messages
     .map((msg) => {
       const role = msg.sender_type === "user" ? "User" : "Agent";
-      const blocks = msg.metadata?.blocks as Block[] | undefined;
+      const blocks = msg.metadata?.blocks as Array<Record<string, unknown>> | undefined;
       const body =
         blocks && blocks.length > 0
           ? renderBlocksHtml(blocks, mdToHtml)

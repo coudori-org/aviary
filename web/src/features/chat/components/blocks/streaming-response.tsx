@@ -15,15 +15,8 @@ interface StreamingResponseProps {
 }
 
 /**
- * StreamingResponse — renders the live agent message-in-progress.
- *
- * Blocks are first passed through `groupConsecutiveToolCalls` to bundle
- * runs of 3+ tool calls into a single collapsible card. Singletons and
- * pairs render as standalone cards.
- *
- * The "isLast active block" detection (used to animate the latest
- * thinking chip) operates on the *grouped* render items so that a
- * collapsed tool group is treated as a single trailing item.
+ * StreamingResponse — renders the live agent message-in-progress. Consecutive
+ * tool calls are bundled into a collapsible group via `groupConsecutiveToolCalls`.
  */
 export const StreamingResponse = memo(function StreamingResponse({
   blocks,
@@ -33,7 +26,6 @@ export const StreamingResponse = memo(function StreamingResponse({
 
   return (
     <div className="flex gap-3 animate-fade-in">
-      {/* Avatar */}
       <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-raised type-small text-fg-muted">
         AI
       </div>
@@ -43,8 +35,6 @@ export const StreamingResponse = memo(function StreamingResponse({
           const isLast = idx === items.length - 1;
 
           if (item.kind === "tool-group") {
-            // Chip + expanded tools render as Fragment siblings → same
-            // visual depth as ungrouped tool calls in the parent flex.
             return <ToolGroupChip key={`group-${item.tools[0].id}`} tools={item.tools} />;
           }
 

@@ -2,16 +2,8 @@ import { ensureValidToken, logout, refreshAccessToken } from "@/lib/auth";
 import { ApiError, NetworkError, NotFoundError, UnauthorizedError } from "./errors";
 
 /**
- * HTTP client — single entry point for all `/api/*` calls.
- *
- * Responsibilities:
- *   - Inject auth token (refreshing if expired)
- *   - Retry once on 401 with a fresh token
- *   - Auto-logout if 401 persists
- *   - Throw a typed ApiError subclass on failure
- *
- * Callers should NEVER catch silently. Errors propagate to AsyncBoundary
- * (ErrorBoundary) or surface via toast.
+ * HTTP client for `/api/*`. Injects auth token, retries once on 401, throws
+ * typed `ApiError` subclasses. Callers must not catch silently.
  */
 
 async function doFetch(path: string, options?: RequestInit): Promise<Response> {

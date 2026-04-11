@@ -1,18 +1,8 @@
 import type { StreamBlock, ToolCallBlock } from "@/types";
 
 /**
- * Render-time grouping of consecutive tool calls into collapsible bundles.
- *
- * The streaming pipeline produces a flat list of blocks (after tree-building
- * for sub-agent nesting). Long sessions accumulate dozens of leaf tool calls
- * with no text between them, which becomes a vertical wall in the UI.
- *
- * `groupConsecutiveToolCalls` walks the block list and clusters runs of
- * tool_call blocks (≥ `threshold`) into a `ToolGroup` render item that the
- * view layer renders as a single collapsible header. Anything below the
- * threshold passes through unchanged so pairs and singletons stay visible.
- *
- * Pure function — no React, no state, fully testable.
+ * Cluster runs of consecutive `tool_call` blocks (≥ threshold) into a single
+ * collapsible group render item. Pure function.
  */
 
 export interface RenderItemBlock {
@@ -41,7 +31,6 @@ export function groupConsecutiveToolCalls(
     if (pending.length >= threshold) {
       result.push({ kind: "tool-group", tools: pending });
     } else {
-      // Below threshold — emit individually so pairs/singletons render normally
       for (const tool of pending) {
         result.push({ kind: "block", block: tool });
       }

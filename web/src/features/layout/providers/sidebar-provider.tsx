@@ -129,18 +129,13 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
   const refresh = useCallback(async () => {
     if (!user) return;
     try {
-      const agentsRes = await http.get<{ items: Agent[] }>("/agents");
-      const agents = agentsRes.items;
-
+      const { items: agents } = await http.get<{ items: Agent[] }>("/agents");
       const withSessions = await Promise.all(
         agents.map(async (agent) => {
-          const sessionsRes = await http
-            .get<{ items: Session[] }>(`/agents/${agent.id}/sessions`)
-            .catch(() => ({ items: [] as Session[] }));
-          return {
-            agent,
-            sessions: sessionsRes.items.filter((s) => s.status === "active"),
-          };
+          const { items } = await http.get<{ items: Session[] }>(
+            `/agents/${agent.id}/sessions`,
+          );
+          return { agent, sessions: items.filter((s) => s.status === "active") };
         }),
       );
       setGroups(withSessions);
@@ -247,13 +242,7 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
   const deleteSelectedSessions = useCallback(async () => {
     const ids = Array.from(selectedSessionIds);
     if (ids.length === 0) return;
-    await Promise.all(
-      ids.map((id) =>
-        http.delete(`/sessions/${id}`).catch(() => {
-          /* best effort — stay resilient to partial failures */
-        }),
-      ),
-    );
+    await Promise.all(ids.map((id) => http.delete(`/sessions/${id}`)));
     setGroups((prev) =>
       prev.map((g) => ({
         ...g,

@@ -4,6 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useState } from "rea
 import type { User } from "@/types";
 import { ensureValidToken, initiateLogin, isAuthenticated, logout as doLogout } from "@/lib/auth";
 import { http } from "@/lib/http";
+import { UnauthorizedError } from "@/lib/http/errors";
 
 type AuthStatus = "loading" | "authenticated" | "unauthenticated";
 
@@ -49,9 +50,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const u = await http.get<User>("/auth/me");
       setUser(u);
       setStatus("authenticated");
-    } catch {
-      setUser(null);
-      setStatus("unauthenticated");
+    } catch (err) {
+      if (err instanceof UnauthorizedError) {
+        setUser(null);
+        setStatus("unauthenticated");
+        return;
+      }
+      throw err;
     }
   }, []);
 

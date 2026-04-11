@@ -79,8 +79,8 @@ export async function handleCallback(code: string, state: string): Promise<void>
   tokenStorage.clearPkce();
 
   if (!res.ok) {
-    const error = await res.json().catch(() => ({ detail: "Auth callback failed" }));
-    throw new Error(error.detail);
+    const body = await res.json().catch(() => null);
+    throw new Error(body?.detail || res.statusText || "Auth callback failed");
   }
 
   tokenStorage.setTokens(await res.json());

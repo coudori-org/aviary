@@ -37,9 +37,10 @@ export function AgentStatusProvider({ children }: { children: React.ReactNode })
         merged[id] = res.statuses[id] === "ready" ? "ready" : "offline";
       }
       setStatuses(merged);
-    } catch {
-      // Status polling failure is non-fatal — sidebar dot just shows "offline".
-      // Surfacing toasts here would create constant noise on flaky networks.
+    } catch (err) {
+      // Polling must keep ticking through transient failures, so we don't
+      // re-throw — but log so the failure isn't invisible.
+      console.warn("[agent-status] poll failed", err);
     }
   }, [agentIds]);
 

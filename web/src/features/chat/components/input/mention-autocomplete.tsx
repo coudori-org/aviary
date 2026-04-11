@@ -23,6 +23,21 @@ interface MentionAutocompleteProps {
   onOpenChange?: (open: boolean) => void;
 }
 
+/** Find the index of an `@` immediately preceded by start-of-string or
+ *  whitespace, scanning backwards from the cursor. Returns -1 if not found
+ *  or if a whitespace breaks the run. */
+function findMentionStart(text: string, cursorPos: number): number {
+  for (let i = cursorPos - 1; i >= 0; i--) {
+    const ch = text[i];
+    if (ch === "@") {
+      if (i === 0 || /\s/.test(text[i - 1])) return i;
+      return -1;
+    }
+    if (/\s/.test(ch)) return -1;
+  }
+  return -1;
+}
+
 /**
  * MentionAutocomplete — dropdown overlay that triggers on `@` in a textarea
  * and lets users insert `@slug` references to other agents.
@@ -53,8 +68,8 @@ export function MentionAutocomplete({
 
   const loadAgents = useCallback(async () => {
     if (agentsLoaded.current) return;
-    const res = await http.get<{ items: Agent[] }>("/agents?limit=100").catch(() => null);
-    if (!res) return;
+    agentsLoaded.current = true;
+    const res = await http.get<{ items: Agent[] }>("/agents?limit=100");
     setAgents(
       res.items.map((a) => ({
         id: a.id,
@@ -63,7 +78,6 @@ export function MentionAutocomplete({
         description: a.description,
       })),
     );
-    agentsLoaded.current = true;
   }, []);
 
   // Detect @ trigger
@@ -74,16 +88,7 @@ export function MentionAutocomplete({
     const handleInput = () => {
       const cursorPos = textarea.selectionStart;
       const text = textarea.value;
-
-      let start = -1;
-      for (let i = cursorPos - 1; i >= 0; i--) {
-        const ch = text[i];
-        if (ch === "@") {
-          if (i === 0 || /\s/.test(text[i - 1])) start = i;
-          break;
-        }
-        if (/\s/.test(ch)) break;
-      }
+      const start = findMentionStart(text, cursorPos);
 
       if (start >= 0) {
         const mentionQuery = text.slice(start + 1, cursorPos).toLowerCase();
@@ -91,7 +96,7 @@ export function MentionAutocomplete({
         setQuery(mentionQuery);
         setIsOpen(true);
         setSelectedIndex(0);
-        loadAgents();
+        void loadAgents();
 
         const rect = textarea.getBoundingClientRect();
         const lineHeight = parseInt(getComputedStyle(textarea).lineHeight) || 20;

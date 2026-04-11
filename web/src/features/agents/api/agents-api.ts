@@ -51,8 +51,8 @@ export const agentsApi = {
   },
 
   // MCP tool bindings
-  getMcpTools(agentId: string): Promise<McpToolBinding[]> {
-    return http.get<McpToolBinding[]>(`/mcp/agents/${agentId}/tools`).catch(() => []);
+  getMcpTools(agentId: string) {
+    return http.get<McpToolBinding[]>(`/mcp/agents/${agentId}/tools`);
   },
 
   setMcpTools(agentId: string, toolIds: string[]) {
