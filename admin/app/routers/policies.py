@@ -97,16 +97,26 @@ async def update_policy(
 
 @router.post("/{agent_id}/policy/sync")
 async def force_sync_policy(agent_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
-    """Force re-sync policy to K8s (reconciliation)."""
+    """Force re-sync policy to K8s (reconciliation).
+
+    A missing namespace (404) is not an error — it simply means the agent has never
+    been activated, so there is nothing to reconcile. Any other supervisor error
+    is surfaced as 502.
+    """
     result = await db.execute(select(Agent).where(Agent.id == agent_id))
     agent = result.scalar_one_or_none()
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
 
     ns = agent_namespace(str(agent.id))
+    synced = True
     try:
         await supervisor_client.update_network_policy(ns, agent.policy)
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code != 404:
+            raise HTTPException(status_code=502, detail=f"NetworkPolicy sync failed: {e}") from e
+        synced = False
     except httpx.HTTPError as e:
         raise HTTPException(status_code=502, detail=f"NetworkPolicy sync failed: {e}") from e
 
-    return {"agent_id": str(agent.id), "synced": {"network_policy": True}}
+    return {"agent_id": str(agent.id), "synced": {"network_policy": synced}}

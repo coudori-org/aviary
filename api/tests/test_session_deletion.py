@@ -11,6 +11,7 @@ async def _create_agent(client: AsyncClient, slug: str, visibility: str = "publi
         "name": f"Agent {slug}",
         "slug": slug,
         "instruction": "Be helpful.",
+        "model_config": {"backend": "dummy-backend", "model": "dummy-model"},
         "visibility": visibility,
     })
     assert resp.status_code == 201

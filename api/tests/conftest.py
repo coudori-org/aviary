@@ -7,6 +7,7 @@ The test app has no lifespan (no background tasks, no OIDC init, no Redis).
 import os
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi import FastAPI
@@ -105,6 +106,30 @@ async def clean_tables():
     async with engine.begin() as conn:
         await conn.execute(text(f"TRUNCATE {', '.join(_TABLES)} CASCADE"))
     yield
+
+
+@pytest.fixture(autouse=True)
+def _mock_agent_supervisor():
+    """Stub out supervisor HTTP calls — the ServiceClient is never initialized in tests."""
+    targets = [
+        "register_agent",
+        "unregister_agent",
+        "ensure_agent_running",
+        "check_agent_ready",
+        "wait_for_agent_ready",
+        "abort_session",
+        "cleanup_session",
+        "health_check",
+    ]
+    patchers = [
+        patch(f"app.services.agent_supervisor.{name}", new_callable=AsyncMock)
+        for name in targets
+    ]
+    for p in patchers:
+        p.start()
+    yield
+    for p in patchers:
+        p.stop()
 
 
 async def _override_get_db() -> AsyncGenerator[AsyncSession, None]:

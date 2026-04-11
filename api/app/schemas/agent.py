@@ -23,7 +23,7 @@ class AgentCreate(BaseModel):
     slug: str = Field(..., min_length=1, max_length=255, pattern="^[a-z0-9][a-z0-9-]*[a-z0-9]$")
     description: str | None = None
     instruction: str = Field(..., min_length=1)
-    model_config_data: ModelConfig = Field(default_factory=ModelConfig, alias="model_config")
+    model_config_data: ModelConfig = Field(..., alias="model_config")
     tools: list[str] = []
     mcp_servers: list[McpServerConfig] = []
     visibility: str = Field("private", pattern="^(public|team|private)$")

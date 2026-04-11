@@ -9,6 +9,7 @@ async def _create_public_agent(client: AsyncClient) -> str:
         "name": "Chat Agent",
         "slug": "chat-agent",
         "instruction": "Be helpful.",
+        "model_config": {"backend": "dummy-backend", "model": "dummy-model"},
         "visibility": "public",
     })
     assert resp.status_code == 201

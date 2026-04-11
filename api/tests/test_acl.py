@@ -2,11 +2,15 @@ import pytest
 from httpx import AsyncClient
 
 
+_TEST_MODEL_CONFIG = {"backend": "dummy-backend", "model": "dummy-model"}
+
+
 async def _create_agent(client: AsyncClient, slug: str, visibility: str = "private") -> str:
     resp = await client.post("/api/agents", json={
         "name": f"Agent {slug}",
         "slug": slug,
         "instruction": "Help",
+        "model_config": _TEST_MODEL_CONFIG,
         "visibility": visibility,
     })
     assert resp.status_code == 201
