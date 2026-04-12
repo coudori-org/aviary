@@ -206,10 +206,16 @@ async def ensure_deployment(
 
 
 async def get_deployment_status(namespace: str) -> dict:
-    """Read deployment replica counts. Raises 404 if not found."""
-    result = await k8s_apply(
-        "GET", f"/apis/apps/v1/namespaces/{namespace}/deployments/{DEPLOYMENT_NAME}"
-    )
+    """Read deployment replica counts. Raises HTTPException 404 if not found."""
+    try:
+        result = await k8s_apply(
+            "GET", f"/apis/apps/v1/namespaces/{namespace}/deployments/{DEPLOYMENT_NAME}"
+        )
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 404:
+            from fastapi import HTTPException
+            raise HTTPException(status_code=404, detail=f"Deployment not found in {namespace}")
+        raise
     status = result.get("status", {})
     return {
         "replicas": status.get("replicas", 0),
