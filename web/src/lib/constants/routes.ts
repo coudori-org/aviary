@@ -13,4 +13,7 @@ export const routes = {
   agentSessions: (id: string) => `/agents/${id}/sessions`,
   agentSettings: (id: string) => `/agents/${id}/settings`,
   session: (id: string) => `/sessions/${id}`,
+  workflows: "/workflows",
+  workflowNew: "/workflows/new",
+  workflow: (id: string) => `/workflows/${id}`,
 } as const;

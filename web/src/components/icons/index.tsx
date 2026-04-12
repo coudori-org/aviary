@@ -69,6 +69,10 @@ export {
   Ear,
   Layers,
 
+  // Workflow
+  GitBranch,
+  Play,
+
   // Layout
   LayoutGrid,
   PanelLeft,

@@ -130,6 +130,68 @@ export interface PendingAttachment {
   fileRef?: FileRef;
 }
 
+// --- Workflow types ---
+
+export interface Workflow {
+  id: string;
+  name: string;
+  slug: string;
+  description?: string;
+  owner_id: string;
+  visibility: "public" | "team" | "private";
+  definition: WorkflowDefinition;
+  status: "draft" | "active" | "deleted";
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WorkflowDefinition {
+  nodes: WorkflowNode[];
+  edges: WorkflowEdge[];
+  viewport: { x: number; y: number; zoom: number };
+}
+
+export interface WorkflowNode {
+  id: string;
+  type: string;
+  position: { x: number; y: number };
+  data: Record<string, unknown>;
+}
+
+export interface WorkflowEdge {
+  id: string;
+  source: string;
+  target: string;
+  sourceHandle?: string;
+  targetHandle?: string;
+  data?: Record<string, unknown>;
+}
+
+export interface WorkflowRun {
+  id: string;
+  workflow_id: string;
+  triggered_by: string;
+  trigger_type: string;
+  status: "pending" | "running" | "completed" | "failed" | "cancelled";
+  started_at?: string;
+  completed_at?: string;
+  error?: string;
+  created_at: string;
+  node_runs: WorkflowNodeRun[];
+}
+
+export interface WorkflowNodeRun {
+  id: string;
+  node_id: string;
+  node_type: string;
+  status: "pending" | "running" | "completed" | "failed" | "skipped";
+  input_data?: Record<string, unknown>;
+  output_data?: Record<string, unknown>;
+  started_at?: string;
+  completed_at?: string;
+  error?: string;
+}
+
 // --- MCP Gateway types ---
 
 export interface McpServerInfo {
