@@ -140,6 +140,7 @@ export interface Workflow {
   owner_id: string;
   visibility: "public" | "team" | "private";
   definition: WorkflowDefinition;
+  model_config: ModelConfig;
   status: "draft" | "active" | "deleted";
   created_at: string;
   updated_at: string;

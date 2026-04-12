@@ -15,6 +15,7 @@ export interface WorkflowCreateData {
   name: string;
   slug: string;
   description?: string;
+  model_config: { backend: string; model: string };
   visibility?: string;
 }
 
@@ -22,8 +23,15 @@ export interface WorkflowUpdateData {
   name?: string;
   description?: string;
   definition?: Record<string, unknown>;
+  model_config?: { backend: string; model: string };
   visibility?: string;
-  status?: string;
+}
+
+export interface WorkflowVersionData {
+  id: string;
+  version: number;
+  deployed_by: string;
+  deployed_at: string;
 }
 
 export const workflowsApi = {
@@ -45,6 +53,18 @@ export const workflowsApi = {
 
   remove(id: string) {
     return http.delete(`/workflows/${id}`);
+  },
+
+  deploy(id: string) {
+    return http.post<WorkflowVersionData>(`/workflows/${id}/deploy`, {});
+  },
+
+  edit(id: string) {
+    return http.post<Workflow>(`/workflows/${id}/edit`, {});
+  },
+
+  listVersions(id: string) {
+    return http.get<WorkflowVersionData[]>(`/workflows/${id}/versions`);
   },
 
   listRuns(id: string) {

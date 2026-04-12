@@ -51,7 +51,7 @@ export function WorkflowCard({ workflow }: WorkflowCardProps) {
                 {workflow.name}
               </h3>
               <p className="type-caption text-fg-muted">
-                {nodeCount} node{nodeCount !== 1 ? "s" : ""}
+                {workflow.model_config?.backend ?? ""} · {nodeCount} node{nodeCount !== 1 ? "s" : ""}
               </p>
             </div>
           </div>
