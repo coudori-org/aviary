@@ -11,6 +11,7 @@ import type { FileRef, PendingAttachment } from "@/types";
 import {
   validateImageFile,
   uploadFile,
+  getUploadUrl,
   ACCEPTED_IMAGE_TYPES,
   MAX_ATTACHMENTS,
 } from "@/features/chat/lib/attachment-utils";
@@ -23,6 +24,8 @@ interface ChatInputProps {
   placeholder?: string;
   agentId?: string;
   visionEnabled?: boolean;
+  restoreDraft?: { content: string; attachments?: FileRef[]; error?: string } | null;
+  onDraftRestored?: () => void;
 }
 
 export function ChatInput({
@@ -33,6 +36,8 @@ export function ChatInput({
   placeholder,
   agentId,
   visionEnabled,
+  restoreDraft,
+  onDraftRestored,
 }: ChatInputProps) {
   const [value, setValue] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -91,6 +96,26 @@ export function ChatInput({
     },
     [visionEnabled, attachments.length],
   );
+
+  // Restore draft content after a rollback error
+  useEffect(() => {
+    if (!restoreDraft) return;
+    setValue(restoreDraft.content);
+    if (restoreDraft.attachments?.length && visionEnabled) {
+      // Re-upload is not needed — file_ids are still valid in DB.
+      // Create PendingAttachment entries with "done" status.
+      const restored: PendingAttachment[] = restoreDraft.attachments.map((ref) => ({
+        localId: crypto.randomUUID(),
+        file: new File([], ref.filename),
+        preview: getUploadUrl(ref.file_id),
+        status: "done" as const,
+        fileRef: ref,
+      }));
+      setAttachments(restored);
+    }
+    onDraftRestored?.();
+    textareaRef.current?.focus();
+  }, [restoreDraft, visionEnabled, onDraftRestored]);
 
   const removeAttachment = useCallback((localId: string) => {
     setAttachments((prev) => {

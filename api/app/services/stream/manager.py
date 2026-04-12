@@ -229,7 +229,7 @@ async def _run_stream(
 
         if not stream_url:
             raise RuntimeError("Agent stream URL not available")
-
+        
         async with httpx.AsyncClient() as client:
             async with client.stream(
                 "POST",
@@ -303,7 +303,6 @@ async def _run_stream(
                     elif chunk_type == "tool_progress":
                         await redis_service.publish_message(session_id, chunk_data)
                     elif chunk_type == "error":
-                        await redis_service.publish_message(session_id, chunk_data)
                         raise RuntimeError(chunk_data.get("message", "Agent runtime error"))
                     elif chunk_type == "thinking":
                         thinking_text = chunk_data.get("content", "")
@@ -350,12 +349,13 @@ async def _run_stream(
         logger.info("Stream cancelled for session %s", session_id)
         await redis_service.set_stream_status(session_id, "error")
         await redis_service.set_session_status(session_id, "idle")
-    except Exception:  # Best-effort: background task must not crash unhandled
+    except Exception as exc:  # Best-effort: background task must not crash unhandled
         logger.exception("Stream failed for session %s", session_id)
         await redis_service.set_stream_status(session_id, "error")
         await redis_service.set_session_status(session_id, "idle")
 
-        error_event: dict = {"type": "error", "message": "Agent streaming failed"}
+        reason = str(exc) if str(exc) else "Agent streaming failed"
+        error_event: dict = {"type": "error", "message": reason}
         # query() was never invoked — the message is not in SDK conversation
         # history, so rollback the user message to keep DB in sync.
         if not reached_runtime:

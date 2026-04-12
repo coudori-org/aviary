@@ -168,6 +168,8 @@ function ChatViewInner({ sessionId }: { sessionId: string }) {
               }
               agentId={chat.session.agent_id}
               visionEnabled={visionEnabled}
+              restoreDraft={chat.restoreDraft}
+              onDraftRestored={chat.clearRestoreDraft}
             />
           </div>
         </div>
