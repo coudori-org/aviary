@@ -10,14 +10,16 @@ import {
   useReactFlow,
   type DefaultEdgeOptions,
 } from "@xyflow/react";
-// @ts-expect-error — CSS import has no type declarations
 import "@xyflow/react/dist/style.css";
 import "./builder.css";
 
 import { useWorkflowBuilder } from "@/features/workflows/providers/workflow-builder-provider";
+import { useWorkflowRun } from "@/features/workflows/hooks/use-workflow-run";
+import { RunStatusProvider } from "@/features/workflows/providers/run-status-provider";
 import { NodePalette } from "./node-palette";
 import { InspectorPanel } from "./inspector-panel";
 import { Toolbar } from "./toolbar";
+import { ConsolePanel } from "./console-panel";
 import { ManualTriggerNode, WebhookTriggerNode } from "./nodes/trigger-node";
 import { AgentStepNode } from "./nodes/agent-step-node";
 import { ConditionNode, MergeNode } from "./nodes/control-nodes";
@@ -129,7 +131,8 @@ function Canvas() {
 }
 
 export function WorkflowBuilder() {
-  const { addNode } = useWorkflowBuilder();
+  const { workflowId, addNode } = useWorkflowBuilder();
+  const run = useWorkflowRun(workflowId);
 
   const handlePaletteAdd = useCallback(
     (type: NodeType) => {
@@ -139,15 +142,22 @@ export function WorkflowBuilder() {
   );
 
   return (
-    <div className="flex h-full flex-col">
-      <Toolbar />
-      <div className="flex flex-1 overflow-hidden">
-        <NodePalette onAddNode={handlePaletteAdd} />
-        <ReactFlowProvider>
-          <Canvas />
-          <InspectorPanel />
-        </ReactFlowProvider>
+    <RunStatusProvider nodeStatuses={run.nodeStatuses}>
+      <div className="flex h-full flex-col">
+        <Toolbar runStatus={run.runStatus} onRun={run.trigger} onCancel={run.cancel} />
+        <div className="flex flex-1 overflow-hidden">
+          <NodePalette onAddNode={handlePaletteAdd} />
+          <div className="flex flex-1 flex-col overflow-hidden">
+            <ReactFlowProvider>
+              <div className="flex flex-1 overflow-hidden">
+                <Canvas />
+                <InspectorPanel />
+              </div>
+            </ReactFlowProvider>
+            <ConsolePanel logs={run.logs} runStatus={run.runStatus} error={run.error} />
+          </div>
+        </div>
       </div>
-    </div>
+    </RunStatusProvider>
   );
 }

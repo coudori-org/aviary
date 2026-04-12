@@ -13,14 +13,54 @@ from collections import defaultdict
 from datetime import datetime, timezone
 
 import httpx
+from sqlalchemy import select, update
 
-from aviary_shared.db.models import WorkflowRun, WorkflowNodeRun
+from aviary_shared.db.models import Agent, Workflow, WorkflowRun, WorkflowNodeRun
 from app.db.session import async_session_factory
 from app.services import agent_supervisor, redis_service
 
 logger = logging.getLogger(__name__)
 
 _active_runs: dict[str, asyncio.Task] = {}
+
+
+async def _ensure_worker_agent(workflow_id: str, owner_id: uuid.UUID) -> str:
+    """Lazily create a worker agent for the workflow if one doesn't exist."""
+    wf_uuid = uuid.UUID(workflow_id)
+
+    async with async_session_factory() as db:
+        result = await db.execute(select(Workflow).where(Workflow.id == wf_uuid))
+        workflow = result.scalar_one_or_none()
+        if not workflow:
+            raise RuntimeError("Workflow not found")
+
+        if workflow.worker_agent_id:
+            return str(workflow.worker_agent_id)
+
+        # Create an internal worker agent
+        worker = Agent(
+            name=f"_workflow_{workflow.slug}",
+            slug=f"_wf-{workflow_id[:8]}-{uuid.uuid4().hex[:6]}",
+            owner_id=owner_id,
+            instruction="Workflow worker agent",
+            model_config_json={},
+            visibility="private",
+        )
+        db.add(worker)
+        await db.flush()
+
+        workflow.worker_agent_id = worker.id
+        await db.commit()
+
+        worker_id = str(worker.id)
+
+    # Register with supervisor (best-effort)
+    try:
+        await agent_supervisor.register_agent(agent_id=worker_id, owner_id=str(owner_id))
+    except httpx.HTTPError:
+        logger.warning("Worker agent supervisor registration failed for workflow %s", workflow_id, exc_info=True)
+
+    return worker_id
 
 
 def _channel(run_id: str) -> str:
@@ -102,11 +142,23 @@ async def _exec_agent_step(
         await agent_supervisor.ensure_agent_running(agent_id=worker_agent_id, owner_id="")
         ready = await agent_supervisor.wait_for_agent_ready(worker_agent_id, timeout=90)
         if not ready:
-            raise RuntimeError("Worker agent did not become ready in time")
+            raise RuntimeError(
+                "Worker agent Pod did not become ready within 90s. "
+                "Check that the K8s cluster is running and the runtime image is loaded."
+            )
     except httpx.HTTPError as e:
-        raise RuntimeError(f"Failed to start worker agent: {e}") from e
+        raise RuntimeError(
+            f"Agent Supervisor connection failed: {e}. "
+            "Ensure the agent-supervisor is running (port 9000) and reachable."
+        ) from e
 
     stream_url = agent_supervisor.get_stream_url(worker_agent_id, session_id)
+    if not model_config.get("backend") or not model_config.get("model"):
+        raise RuntimeError(
+            "Agent Step has no model configured. "
+            "Set backend and model in the Agent Step node's inspector panel."
+        )
+
     full_response = ""
 
     async with httpx.AsyncClient() as client:
@@ -288,7 +340,7 @@ async def execute_run(
     try:
         # Load run and parse definition
         async with async_session_factory() as db:
-            from sqlalchemy import select
+
             result = await db.execute(
                 select(WorkflowRun).where(WorkflowRun.id == run_uuid)
             )
@@ -304,6 +356,11 @@ async def execute_run(
         nodes_list: list[dict] = definition.get("nodes", [])
         edges_list: list[dict] = definition.get("edges", [])
         nodes_by_id = {n["id"]: n for n in nodes_list}
+
+        # Lazily create worker agent if any Agent Step nodes exist
+        has_agent_steps = any(n.get("type") == "agent_step" for n in nodes_list)
+        if has_agent_steps and not worker_agent_id:
+            worker_agent_id = await _ensure_worker_agent(workflow_id, run.triggered_by)
 
         await _publish(run_id, {"type": "run_status", "status": "running"})
 
@@ -363,7 +420,7 @@ async def execute_run(
                     outputs[node_id] = output
 
                     async with async_session_factory() as db:
-                        from sqlalchemy import update
+
                         await db.execute(
                             update(WorkflowNodeRun)
                             .where(WorkflowNodeRun.id == node_run_id)
@@ -386,7 +443,7 @@ async def execute_run(
                     outputs[node_id] = {"error": error_msg}
 
                     async with async_session_factory() as db:
-                        from sqlalchemy import update
+
                         await db.execute(
                             update(WorkflowNodeRun)
                             .where(WorkflowNodeRun.id == node_run_id)
@@ -421,7 +478,7 @@ async def execute_run(
         final_status = "failed" if any_failed else "completed"
 
         async with async_session_factory() as db:
-            from sqlalchemy import update
+
             await db.execute(
                 update(WorkflowRun)
                 .where(WorkflowRun.id == run_uuid)
@@ -437,7 +494,7 @@ async def execute_run(
     except asyncio.CancelledError:
         logger.info("Run cancelled: %s", run_id)
         async with async_session_factory() as db:
-            from sqlalchemy import update
+
             await db.execute(
                 update(WorkflowRun)
                 .where(WorkflowRun.id == run_uuid)
@@ -449,7 +506,7 @@ async def execute_run(
     except Exception as exc:
         logger.exception("Run failed: %s", run_id)
         async with async_session_factory() as db:
-            from sqlalchemy import update
+
             await db.execute(
                 update(WorkflowRun)
                 .where(WorkflowRun.id == run_uuid)

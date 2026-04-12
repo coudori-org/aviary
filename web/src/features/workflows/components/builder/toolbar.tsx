@@ -1,10 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowLeft, Trash2 } from "@/components/icons";
+import { ArrowLeft, Trash2, Play, Square, Loader2 } from "@/components/icons";
 import { useWorkflowBuilder } from "@/features/workflows/providers/workflow-builder-provider";
 import { routes } from "@/lib/constants/routes";
 import { cn } from "@/lib/utils";
+import type { RunStatus } from "@/features/workflows/hooks/use-workflow-run";
 
 function ToolbarButton({
   onClick,
@@ -39,8 +40,15 @@ function ToolbarButton({
   );
 }
 
-export function Toolbar() {
+interface ToolbarProps {
+  runStatus: RunStatus;
+  onRun: () => void;
+  onCancel: () => void;
+}
+
+export function Toolbar({ runStatus, onRun, onCancel }: ToolbarProps) {
   const { workflowName, undo, redo, canUndo, canRedo, deleteSelected } = useWorkflowBuilder();
+  const isRunning = runStatus === "running" || runStatus === "pending";
 
   return (
     <div className="flex items-center justify-between border-b border-white/[0.06] bg-[rgb(10_11_13)] px-2 py-1.5">
@@ -66,6 +74,31 @@ export function Toolbar() {
         <ToolbarButton onClick={deleteSelected} title="Delete selected" danger>
           <Trash2 size={14} strokeWidth={1.75} />
         </ToolbarButton>
+        <div className="mx-1 h-4 w-px bg-white/[0.06]" />
+
+        {isRunning ? (
+          <button
+            type="button"
+            onClick={onCancel}
+            className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[12px] font-medium bg-danger/10 text-danger hover:bg-danger/20 transition-colors"
+          >
+            {runStatus === "pending" ? (
+              <Loader2 size={13} className="animate-spin" />
+            ) : (
+              <Square size={12} strokeWidth={2.5} />
+            )}
+            {runStatus === "pending" ? "Starting…" : "Stop"}
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={onRun}
+            className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[12px] font-medium bg-success/10 text-success hover:bg-success/20 transition-colors"
+          >
+            <Play size={12} strokeWidth={2.5} />
+            Run
+          </button>
+        )}
       </div>
     </div>
   );

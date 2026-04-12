@@ -54,4 +54,15 @@ export const workflowsApi = {
   getRun(id: string, runId: string) {
     return http.get<WorkflowRun>(`/workflows/${id}/runs/${runId}`);
   },
+
+  triggerRun(id: string, triggerData: Record<string, unknown> = {}) {
+    return http.post<WorkflowRun>(`/workflows/${id}/runs`, {
+      trigger_type: "manual",
+      trigger_data: triggerData,
+    });
+  },
+
+  cancelRun(id: string, runId: string) {
+    return http.post(`/workflows/${id}/runs/${runId}/cancel`, {});
+  },
 };

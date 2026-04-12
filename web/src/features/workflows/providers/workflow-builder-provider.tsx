@@ -62,15 +62,39 @@ export function WorkflowBuilderProvider({ workflow, children }: Props) {
   const selectedNodeId = nodes.find((n) => n.selected)?.id ?? null;
 
   // --- Auto-save ---
-  // Strip React Flow internal properties before persisting to backend.
-  // Only keep the fields we own: id, type, position, data.
+  // Deep-strip React Flow internals (measured, internals, __reactFiber, etc.)
+  // to produce a plain JSON-safe object for backend persistence.
+  const safeClone = (obj: Record<string, unknown>): Record<string, unknown> => {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(obj)) {
+      if (v === null || v === undefined) { out[k] = v; continue; }
+      if (typeof v === "string" || typeof v === "number" || typeof v === "boolean") {
+        out[k] = v;
+      } else if (Array.isArray(v)) {
+        out[k] = v.map((item) =>
+          typeof item === "object" && item !== null ? safeClone(item as Record<string, unknown>) : item,
+        );
+      } else if (typeof v === "object" && v.constructor === Object) {
+        out[k] = safeClone(v as Record<string, unknown>);
+      }
+      // Skip DOM elements, functions, class instances, etc.
+    }
+    return out;
+  };
+
   const stripForSave = (n: WorkflowNode[], e: WorkflowEdge[]) => ({
-    nodes: n.map(({ id, type, position, data }) => ({ id, type, position, data })),
-    edges: e.map(({ id, source, target, sourceHandle, targetHandle, data }) => ({
-      id, source, target,
-      ...(sourceHandle != null && { sourceHandle }),
-      ...(targetHandle != null && { targetHandle }),
-      ...(data != null && { data }),
+    nodes: n.map((node) => ({
+      id: node.id,
+      type: node.type,
+      position: { x: node.position.x, y: node.position.y },
+      data: safeClone(node.data as Record<string, unknown>),
+    })),
+    edges: e.map((edge) => ({
+      id: edge.id,
+      source: edge.source,
+      target: edge.target,
+      ...(edge.sourceHandle != null && { sourceHandle: edge.sourceHandle }),
+      ...(edge.targetHandle != null && { targetHandle: edge.targetHandle }),
     })),
   });
 
