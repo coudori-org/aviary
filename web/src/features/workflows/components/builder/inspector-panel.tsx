@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useWorkflowBuilder } from "@/features/workflows/providers/workflow-builder-provider";
+import { ModelSelect } from "./model-select";
 import type { WorkflowNode } from "@/features/workflows/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -151,6 +152,13 @@ export function InspectorPanel() {
 
         {node.type === "agent_step" && (
           <>
+            <ModelSelect
+              backend={(d.model_config as Record<string, string>)?.backend ?? ""}
+              model={(d.model_config as Record<string, string>)?.model ?? ""}
+              onChange={(backend, model) =>
+                updateNodeData(node.id, "model_config", { ...d.model_config as object, backend, model })
+              }
+            />
             <NodeField
               id="node-instruction"
               label="Instruction"

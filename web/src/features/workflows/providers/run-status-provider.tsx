@@ -22,3 +22,7 @@ export function RunStatusProvider({
 export function useNodeRunStatus(nodeId: string): NodeRunStatus | undefined {
   return useContext(RunStatusContext)[nodeId];
 }
+
+export function useAllNodeRunStatuses(): Record<string, NodeRunStatus> {
+  return useContext(RunStatusContext);
+}
