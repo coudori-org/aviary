@@ -37,7 +37,7 @@
             <span class="badge badge-offline">offline</span>
           {% endif %}
         </td>
-        <td class="text-sm text-muted">{{ agent.last_activity_at.strftime('%m/%d %H:%M') if agent.last_activity_at else '—' }}</td>
+        <td class="text-sm text-muted">{{ agent.policy.last_activity_at.strftime('%m/%d %H:%M') if agent.policy and agent.policy.last_activity_at else '—' }}</td>
         <td><a href="/agents/{{ agent.id }}" class="btn btn-sm">Manage</a></td>
       </tr>
       {% endfor %}

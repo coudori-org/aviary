@@ -110,6 +110,7 @@ async def agent_detail(
         "agent": agent,
         "deployment": deployment_status,
         "policy": policy_rules,
+        "policy_obj": policy_obj,
         "egress_rules": egress_rules,
         "flash": flash_data,
     })
