@@ -1,0 +1,8 @@
+.react-flow__edge.selected .react-flow__edge-path {
+  stroke: rgb(var(--brand-accent)) !important;
+  stroke-width: 3 !important;
+}
+
+.react-flow__edge .react-flow__edge-path {
+  cursor: pointer;
+}

@@ -5,6 +5,8 @@ import { useParams } from "next/navigation";
 import { LoadingState } from "@/components/feedback/loading-state";
 import { ErrorState } from "@/components/feedback/error-state";
 import { workflowsApi } from "@/features/workflows/api/workflows-api";
+import { WorkflowBuilderProvider } from "@/features/workflows/providers/workflow-builder-provider";
+import { WorkflowBuilder } from "@/features/workflows/components/builder/workflow-builder";
 import type { Workflow } from "@/types";
 
 export default function WorkflowBuilderPage() {
@@ -23,14 +25,10 @@ export default function WorkflowBuilderPage() {
   if (!workflow) return <LoadingState />;
 
   return (
-    <div className="flex h-full flex-col bg-canvas">
-      <div className="flex items-center justify-between border-b border-white/[0.06] px-4 py-3">
-        <h1 className="type-body text-fg-primary">{workflow.name}</h1>
-        <span className="type-caption text-fg-muted">Builder — coming next step</span>
-      </div>
-      <div className="flex-1 flex items-center justify-center text-fg-muted type-body">
-        React Flow canvas will be implemented in the next task.
-      </div>
+    <div className="h-full">
+      <WorkflowBuilderProvider workflow={workflow}>
+        <WorkflowBuilder />
+      </WorkflowBuilderProvider>
     </div>
   );
 }
