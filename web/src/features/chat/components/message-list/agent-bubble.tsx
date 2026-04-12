@@ -39,6 +39,7 @@ export function AgentBubble({ message, showAvatar = true }: AgentBubbleProps) {
   const savedBlocks = message.metadata?.blocks as Array<Record<string, unknown>> | undefined;
   const hasBlocks = Array.isArray(savedBlocks) && savedBlocks.length > 0;
   const isCancelled = message.metadata?.cancelled === true;
+  const isError = message.metadata?.error === true;
   const activeTargetId = useChatSearchTargetId();
 
   const items = useMemo(() => {
@@ -65,7 +66,11 @@ export function AgentBubble({ message, showAvatar = true }: AgentBubbleProps) {
       )}
 
       <div className="min-w-0 max-w-[80%] space-y-1.5">
-        {hasBlocks ? (
+        {isError ? (
+          <div className="rounded-xl rounded-tl-sm border border-danger/20 bg-danger/[0.06] px-4 py-3">
+            <p className="type-body text-danger">{message.content}</p>
+          </div>
+        ) : hasBlocks ? (
           items.map((item) => {
             if (item.kind === "tool-group") {
               return (

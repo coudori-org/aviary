@@ -21,7 +21,6 @@ import { SettingsPanel } from "./settings-panel";
 import { NodePalette } from "./node-palette";
 import { InspectorPanel } from "./inspector-panel";
 import { TestPanel } from "./test-panel";
-import { ConsolePanel } from "./console-panel";
 import { Toolbar } from "./toolbar";
 import { ManualTriggerNode, WebhookTriggerNode } from "./nodes/trigger-node";
 import { AgentStepNode } from "./nodes/agent-step-node";
@@ -153,21 +152,67 @@ function LeftPanel({ onAddNode }: { onAddNode: (type: NodeType) => void }) {
   );
 }
 
+// --- Resize handle (vertical, left edge) ---
+function PanelResizeHandle({ onResize }: { onResize: (delta: number) => void }) {
+  const dragging = useRef(false);
+  const lastX = useRef(0);
+
+  const onMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    dragging.current = true;
+    lastX.current = e.clientX;
+    const onMouseMove = (ev: MouseEvent) => {
+      if (!dragging.current) return;
+      onResize(lastX.current - ev.clientX);
+      lastX.current = ev.clientX;
+    };
+    const onMouseUp = () => {
+      dragging.current = false;
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+    };
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+  }, [onResize]);
+
+  return (
+    <div
+      onMouseDown={onMouseDown}
+      className="absolute left-0 top-0 h-full w-1 cursor-col-resize z-10 hover:bg-info/30 active:bg-info/50 transition-colors"
+    />
+  );
+}
+
+const RIGHT_MIN = 320;
+const RIGHT_MAX = 640;
+const RIGHT_DEFAULT = 380;
+
 // --- Right Panel (Inspector + Test tabs) ---
 function RightPanel({ run }: { run: ReturnType<typeof useWorkflowRun> }) {
   const [tab, setTab] = useState<"inspector" | "test">("inspector");
+  const [width, setWidth] = useState(RIGHT_DEFAULT);
+
+  const handleResize = useCallback((delta: number) => {
+    setWidth((w) => Math.min(RIGHT_MAX, Math.max(RIGHT_MIN, w + delta)));
+  }, []);
 
   return (
-    <div className="flex flex-col border-l border-white/[0.06]">
-      <div className="flex border-b border-white/[0.06] bg-[rgb(10_11_13)]">
+    <div
+      className="relative flex flex-col border-l border-white/[0.06] bg-[rgb(10_11_13)]"
+      style={{ width, minWidth: RIGHT_MIN, flexShrink: 0 }}
+    >
+      <PanelResizeHandle onResize={handleResize} />
+      <div className="flex shrink-0 border-b border-white/[0.06]">
         <TabButton active={tab === "inspector"} onClick={() => setTab("inspector")}>Inspector</TabButton>
         <TabButton active={tab === "test"} onClick={() => setTab("test")}>Test</TabButton>
       </div>
-      {tab === "inspector" ? (
-        <InspectorPanel />
-      ) : (
-        <ConsolePanel logs={run.logs} runStatus={run.runStatus} error={run.error} />
-      )}
+      <div className="flex-1 overflow-hidden">
+        {tab === "inspector" ? (
+          <InspectorPanel />
+        ) : (
+          <TestPanel run={run} />
+        )}
+      </div>
     </div>
   );
 }

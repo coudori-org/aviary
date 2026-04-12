@@ -13,10 +13,19 @@ export interface NodeLogEntry {
   timestamp: number;
 }
 
+export interface NodeRunData {
+  status: NodeRunStatus;
+  node_type?: string;
+  input_data?: Record<string, unknown> | null;
+  output_data?: Record<string, unknown> | null;
+  error?: string;
+}
+
 export function useWorkflowRun(workflowId: string) {
   const [runId, setRunId] = useState<string | null>(null);
   const [runStatus, setRunStatus] = useState<RunStatus>("idle");
   const [nodeStatuses, setNodeStatuses] = useState<Record<string, NodeRunStatus>>({});
+  const [nodeData, setNodeData] = useState<Record<string, NodeRunData>>({});
   const [logs, setLogs] = useState<NodeLogEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
@@ -32,9 +41,18 @@ export function useWorkflowRun(workflowId: string) {
 
       if (data.type === "node_status") {
         setNodeStatuses((prev) => ({ ...prev, [data.node_id]: data.status }));
-        if (data.error) {
-          setError(data.error);
-        }
+        setNodeData((prev) => ({
+          ...prev,
+          [data.node_id]: {
+            ...prev[data.node_id],
+            status: data.status,
+            node_type: data.node_type ?? prev[data.node_id]?.node_type,
+            ...(data.input_data !== undefined && { input_data: data.input_data }),
+            ...(data.output_data !== undefined && { output_data: data.output_data }),
+            ...(data.error && { error: data.error }),
+          },
+        }));
+        if (data.error) setError(data.error);
       } else if (data.type === "node_log") {
         setLogs((prev) => [...prev, { ...data, timestamp: Date.now() }]);
       } else if (data.type === "run_status") {
@@ -46,13 +64,8 @@ export function useWorkflowRun(workflowId: string) {
       }
     };
 
-    ws.onerror = () => {
-      setError("WebSocket connection failed");
-    };
-
-    ws.onclose = () => {
-      wsRef.current = null;
-    };
+    ws.onerror = () => { setError("WebSocket connection failed"); };
+    ws.onclose = () => { wsRef.current = null; };
   }, []);
 
   const trigger = useCallback(async (triggerData?: Record<string, unknown>) => {
@@ -60,14 +73,14 @@ export function useWorkflowRun(workflowId: string) {
 
     setRunStatus("pending");
     setNodeStatuses({});
+    setNodeData({});
     setLogs([]);
     setError(null);
 
     try {
-      const data = triggerData && typeof triggerData === "object" && !("nativeEvent" in triggerData)
-        ? triggerData
-        : {};
-      const run = await workflowsApi.triggerRun(workflowId, data);
+      const safe = triggerData && typeof triggerData === "object" && !("nativeEvent" in triggerData)
+        ? triggerData : {};
+      const run = await workflowsApi.triggerRun(workflowId, safe);
       setRunId(run.id);
       setRunStatus("running");
       connectWs(workflowId, run.id);
@@ -79,26 +92,16 @@ export function useWorkflowRun(workflowId: string) {
 
   const cancel = useCallback(async () => {
     if (!runId || runStatus !== "running") return;
-    try {
-      await workflowsApi.cancelRun(workflowId, runId);
-    } catch {
-      // Best-effort
-    }
+    try { await workflowsApi.cancelRun(workflowId, runId); } catch { /* best-effort */ }
   }, [workflowId, runId, runStatus]);
 
-  // Cleanup on unmount
   useEffect(() => {
     return () => { wsRef.current?.close(); };
   }, []);
 
   return {
-    runId,
-    runStatus,
-    nodeStatuses,
-    logs,
-    error,
-    trigger,
-    cancel,
+    runId, runStatus, nodeStatuses, nodeData, logs, error,
+    trigger, cancel,
     isRunning: runStatus === "running" || runStatus === "pending",
   };
 }

@@ -121,7 +121,7 @@ function hasSessionHistory(claudeDir: string, sessionId: string): boolean {
 }
 
 export interface SSEChunk {
-  type: "chunk" | "tool_use" | "tool_result" | "tool_progress" | "result" | "thinking" | "query_started";
+  type: "chunk" | "tool_use" | "tool_result" | "tool_progress" | "result" | "thinking" | "query_started" | "error";
   content?: string;
   name?: string;
   input?: unknown;
@@ -131,6 +131,8 @@ export interface SSEChunk {
   // tool_progress fields
   tool_name?: string;
   elapsed_time_seconds?: number;
+  // Error message (only on type: "error")
+  message?: string;
   // Result metadata (only on type: "result")
   session_id?: string;
   duration_ms?: number;
@@ -478,8 +480,8 @@ export async function* processMessage(
       return;
     }
     console.error(`[agent ${agentId}/${sessionId}] SDK query error:`, e);
-    const stack = e instanceof Error && e.stack ? e.stack : String(e);
-    yield { type: "chunk", content: `[${resolvedModel}] Error: ${stack}` };
+    const message = e instanceof Error ? e.message : String(e);
+    yield { type: "error", message };
   } finally {
     // Shut down the A2A HTTP server after the message is fully processed
     a2aServer?.close();

@@ -1,13 +1,12 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect } from "react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useWorkflowBuilder } from "@/features/workflows/providers/workflow-builder-provider";
 import { ModelSelect } from "./model-select";
 import type { WorkflowNode } from "@/features/workflows/lib/types";
-import { cn } from "@/lib/utils";
 
 function NodeField({
   id,
@@ -52,7 +51,7 @@ function NodeField({
         onFocus={() => setFocused(true)}
         onBlur={handleBlur}
         placeholder={placeholder}
-        className="!bg-white/[0.03] !border-white/[0.06] text-[13px]"
+        className="text-[13px]"
         {...(multiline ? { rows: 4 } : {})}
       />
       {hint && <p className="text-[10px] text-fg-disabled">{hint}</p>}
@@ -60,70 +59,19 @@ function NodeField({
   );
 }
 
-function ResizeHandle({ onResize }: { onResize: (delta: number) => void }) {
-  const dragging = useRef(false);
-  const lastX = useRef(0);
-
-  const onMouseDown = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    dragging.current = true;
-    lastX.current = e.clientX;
-
-    const onMouseMove = (ev: MouseEvent) => {
-      if (!dragging.current) return;
-      const delta = lastX.current - ev.clientX;
-      lastX.current = ev.clientX;
-      onResize(delta);
-    };
-
-    const onMouseUp = () => {
-      dragging.current = false;
-      window.removeEventListener("mousemove", onMouseMove);
-      window.removeEventListener("mouseup", onMouseUp);
-    };
-
-    window.addEventListener("mousemove", onMouseMove);
-    window.addEventListener("mouseup", onMouseUp);
-  }, [onResize]);
-
-  return (
-    <div
-      onMouseDown={onMouseDown}
-      className={cn(
-        "absolute left-0 top-0 h-full w-1 cursor-col-resize z-10",
-        "hover:bg-info/30 active:bg-info/50 transition-colors",
-      )}
-    />
-  );
-}
-
-const MIN_WIDTH = 240;
-const MAX_WIDTH = 480;
-const DEFAULT_WIDTH = 288;
-
 export function InspectorPanel() {
   const { nodes, selectedNodeId, updateNodeData } = useWorkflowBuilder();
-  const [width, setWidth] = useState(DEFAULT_WIDTH);
-
-  const handleResize = useCallback((delta: number) => {
-    setWidth((w) => Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, w + delta)));
-  }, []);
 
   const node = selectedNodeId
     ? (nodes.find((n) => n.id === selectedNodeId) as WorkflowNode | undefined)
     : null;
 
-  const panelStyle = { width: `${width}px`, minWidth: `${MIN_WIDTH}px` };
-
   if (!node) {
     return (
-      <div className="relative shrink-0 bg-[rgb(10_11_13)]" style={panelStyle}>
-        <ResizeHandle onResize={handleResize} />
-        <div className="flex h-full items-center justify-center px-6">
-          <p className="text-center text-[12px] text-fg-disabled leading-relaxed">
-            Select a node to<br />view its properties
-          </p>
-        </div>
+      <div className="flex h-full items-center justify-center px-6">
+        <p className="text-center text-[12px] text-fg-disabled leading-relaxed">
+          Select a node to<br />view its properties
+        </p>
       </div>
     );
   }
@@ -132,9 +80,7 @@ export function InspectorPanel() {
   const commit = (key: string) => (value: string) => updateNodeData(node.id, key, value);
 
   return (
-    <div className="relative shrink-0 overflow-y-auto bg-[rgb(10_11_13)]" style={panelStyle}>
-      <ResizeHandle onResize={handleResize} />
-
+    <div className="h-full overflow-y-auto">
       <div className="flex flex-col gap-4 px-4 py-4">
         <NodeField
           id="node-label"

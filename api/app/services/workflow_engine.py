@@ -178,6 +178,9 @@ async def _exec_agent_step(
             },
             timeout=None,
         ) as resp:
+            if resp.status_code >= 400:
+                body = await resp.aread()
+                raise RuntimeError(f"Agent runtime returned HTTP {resp.status_code}: {body.decode(errors='replace')[:500]}")
             async for line in resp.aiter_lines():
                 if not line.startswith("data: "):
                     continue
@@ -217,6 +220,9 @@ async def _exec_agent_step(
                     })
                 elif chunk_type == "error":
                     raise RuntimeError(chunk.get("message", "Agent runtime error"))
+
+    if not full_response.strip():
+        raise RuntimeError("Agent Step produced no output — the LLM may be unreachable or the request failed silently")
 
     # Best-effort session cleanup
     try:
@@ -283,14 +289,28 @@ async def _exec_payload_parser(node: dict, input_data: dict) -> dict:
 
 async def _exec_template(node: dict, input_data: dict) -> dict:
     template = node.get("data", {}).get("template", "")
-    # Replace {{key}} placeholders with input values
     result = template
+
+    # Build label→output mapping from input_data keys (node IDs)
+    # input_data is keyed by source node ID, each value is the node's output dict
+    all_outputs: list[str] = []
     for src_id, src_output in input_data.items():
+        out_text = ""
         if isinstance(src_output, dict):
-            out = src_output.get("output", "")
-            if isinstance(out, str):
-                result = result.replace(f"{{{{{src_id}}}}}", out)
-        result = result.replace("{{input}}", str(src_output))
+            out_text = src_output.get("output", "")
+            if not isinstance(out_text, str):
+                out_text = json.dumps(out_text, ensure_ascii=False)
+        else:
+            out_text = str(src_output)
+
+        # Replace by node ID: {{agent_step_1234}}
+        result = result.replace(f"{{{{{src_id}}}}}", out_text)
+        all_outputs.append(out_text)
+
+    # Replace {{input}} with all upstream outputs joined
+    if "{{input}}" in result:
+        result = result.replace("{{input}}", "\n\n".join(all_outputs))
+
     return {"output": result}
 
 
@@ -406,7 +426,9 @@ async def execute_run(
                 await _publish(run_id, {
                     "type": "node_status",
                     "node_id": node_id,
+                    "node_type": node_type,
                     "status": "skipped" if should_skip else "running",
+                    "input_data": input_data if input_data else None,
                 })
 
                 if should_skip:
@@ -436,6 +458,7 @@ async def execute_run(
                         "type": "node_status",
                         "node_id": node_id,
                         "status": "completed",
+                        "output_data": output,
                     })
 
                 except Exception as exc:
@@ -461,13 +484,14 @@ async def execute_run(
                         "status": "failed",
                         "error": error_msg,
                     })
-                    raise
-
-            # Execute nodes at this level in parallel
-            try:
-                await asyncio.gather(*[run_node(nid) for nid in level])
-            except Exception:
-                # A node failed — stop execution
+            # Execute nodes at this level in parallel, wait for ALL to finish
+            await asyncio.gather(*[run_node(nid) for nid in level])
+            # If any node in this level failed, stop executing further levels
+            level_failed = any(
+                isinstance(outputs.get(nid), dict) and "error" in outputs.get(nid, {})
+                for nid in level
+            )
+            if level_failed:
                 break
 
         # Determine final status

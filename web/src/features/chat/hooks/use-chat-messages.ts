@@ -234,8 +234,8 @@ export function useChatMessages(sessionId: string): UseChatMessagesResult {
               id: crypto.randomUUID(),
               session_id: sessionId,
               sender_type: "agent",
-              content: `Error: ${msg.message}`,
-              metadata: {},
+              content: msg.message,
+              metadata: { error: true },
               created_at: new Date().toISOString(),
             },
           ]);

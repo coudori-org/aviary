@@ -137,6 +137,19 @@ export const MessageList = forwardRef<HTMLDivElement, MessageListProps>(
       if (!didInitialScrollRef.current && messages.length > 0) {
         el.scrollTop = el.scrollHeight;
         didInitialScrollRef.current = true;
+        // Images may not be loaded yet — re-scroll after they finish.
+        const images = el.querySelectorAll("img");
+        if (images.length > 0) {
+          let pending = 0;
+          const rescroll = () => { el.scrollTop = el.scrollHeight; };
+          images.forEach((img) => {
+            if (!img.complete) {
+              pending++;
+              img.addEventListener("load", () => { if (--pending === 0) rescroll(); }, { once: true });
+              img.addEventListener("error", () => { if (--pending === 0) rescroll(); }, { once: true });
+            }
+          });
+        }
         return;
       }
       if (prevFirst !== null && firstId !== prevFirst && lastId === prevLast) {
@@ -253,7 +266,7 @@ export const MessageList = forwardRef<HTMLDivElement, MessageListProps>(
                     {dividerLabel && <TimeDivider label={dividerLabel} />}
                     <div
                       data-rail-id={msg.id}
-                      data-rail-kind={msg.sender_type === "user" ? "user" : "agent"}
+                      data-rail-kind={msg.sender_type === "user" ? "user" : msg.metadata?.error ? "tool-error" : "agent"}
                       data-rail-preview={
                         msg.content.split("\n")[0].slice(0, 100) || "(no text)"
                       }
