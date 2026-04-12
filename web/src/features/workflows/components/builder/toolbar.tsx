@@ -2,54 +2,70 @@
 
 import Link from "next/link";
 import { ArrowLeft, Trash2 } from "@/components/icons";
-import { Button } from "@/components/ui/button";
 import { useWorkflowBuilder } from "@/features/workflows/providers/workflow-builder-provider";
 import { routes } from "@/lib/constants/routes";
 import { cn } from "@/lib/utils";
+
+function ToolbarButton({
+  onClick,
+  disabled,
+  title,
+  children,
+  danger,
+}: {
+  onClick: () => void;
+  disabled?: boolean;
+  title: string;
+  children: React.ReactNode;
+  danger?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      title={title}
+      className={cn(
+        "flex items-center justify-center rounded-md px-2 py-1.5 text-[12px] font-medium transition-colors",
+        disabled
+          ? "text-fg-disabled cursor-not-allowed"
+          : danger
+            ? "text-fg-muted hover:text-danger hover:bg-danger/[0.06]"
+            : "text-fg-muted hover:text-fg-primary hover:bg-white/[0.04]",
+      )}
+    >
+      {children}
+    </button>
+  );
+}
 
 export function Toolbar() {
   const { workflowName, undo, redo, canUndo, canRedo, deleteSelected } = useWorkflowBuilder();
 
   return (
-    <div className="flex items-center justify-between border-b border-white/[0.06] bg-canvas px-3 py-2">
-      <div className="flex items-center gap-3">
-        <Link href={routes.workflows}>
-          <Button variant="ghost" size="icon">
-            <ArrowLeft size={16} strokeWidth={1.75} />
-          </Button>
+    <div className="flex items-center justify-between border-b border-white/[0.06] bg-[rgb(10_11_13)] px-2 py-1.5">
+      <div className="flex items-center gap-1">
+        <Link
+          href={routes.workflows}
+          className="flex items-center justify-center rounded-md p-1.5 text-fg-muted hover:text-fg-primary hover:bg-white/[0.04] transition-colors"
+        >
+          <ArrowLeft size={16} strokeWidth={1.75} />
         </Link>
-        <span className="type-body text-fg-primary">{workflowName}</span>
+        <div className="mx-1 h-4 w-px bg-white/[0.06]" />
+        <span className="text-[13px] font-medium text-fg-primary">{workflowName}</span>
       </div>
 
-      <div className="flex items-center gap-1">
-        <button
-          type="button"
-          onClick={undo}
-          disabled={!canUndo}
-          className={cn(
-            "rounded px-2 py-1 type-caption text-fg-muted transition-colors",
-            canUndo ? "hover:bg-raised hover:text-fg-primary" : "opacity-40 cursor-not-allowed",
-          )}
-          title="Undo (Ctrl+Z)"
-        >
+      <div className="flex items-center gap-0.5">
+        <ToolbarButton onClick={undo} disabled={!canUndo} title="Undo (Ctrl+Z)">
           Undo
-        </button>
-        <button
-          type="button"
-          onClick={redo}
-          disabled={!canRedo}
-          className={cn(
-            "rounded px-2 py-1 type-caption text-fg-muted transition-colors",
-            canRedo ? "hover:bg-raised hover:text-fg-primary" : "opacity-40 cursor-not-allowed",
-          )}
-          title="Redo (Ctrl+Shift+Z)"
-        >
+        </ToolbarButton>
+        <ToolbarButton onClick={redo} disabled={!canRedo} title="Redo (Ctrl+Shift+Z)">
           Redo
-        </button>
+        </ToolbarButton>
         <div className="mx-1 h-4 w-px bg-white/[0.06]" />
-        <Button variant="ghost" size="icon" onClick={deleteSelected} title="Delete selected">
+        <ToolbarButton onClick={deleteSelected} title="Delete selected" danger>
           <Trash2 size={14} strokeWidth={1.75} />
-        </Button>
+        </ToolbarButton>
       </div>
     </div>
   );

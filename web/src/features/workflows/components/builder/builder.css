@@ -1,8 +1,104 @@
-.react-flow__edge.selected .react-flow__edge-path {
-  stroke: rgb(var(--brand-accent)) !important;
-  stroke-width: 3 !important;
+/* ── React Flow overrides for Aviary dark theme ── */
+
+/* Canvas background */
+.react-flow {
+  --xy-background-color: rgb(7 8 10);
 }
 
+/* ── Edges ── */
 .react-flow__edge .react-flow__edge-path {
   cursor: pointer;
+  stroke: rgba(255, 255, 255, 0.08);
+  stroke-width: 2;
+}
+
+.react-flow__edge:hover .react-flow__edge-path {
+  stroke: rgba(255, 255, 255, 0.2);
+}
+
+.react-flow__edge.selected .react-flow__edge-path {
+  stroke: rgba(85, 179, 255, 0.7) !important;
+  stroke-width: 2.5 !important;
+}
+
+/* Animated dash for flow direction */
+.react-flow__edge.animated .react-flow__edge-path {
+  stroke-dasharray: 6 4;
+  animation: edge-flow 0.6s linear infinite;
+}
+
+@keyframes edge-flow {
+  to { stroke-dashoffset: -10; }
+}
+
+/* ── Connection line (while dragging a new edge) ── */
+.react-flow__connection-path {
+  stroke: rgba(85, 179, 255, 0.5);
+  stroke-width: 2;
+  stroke-dasharray: 6 4;
+}
+
+/* ── Handles ── */
+.react-flow__handle {
+  width: 10px !important;
+  height: 10px !important;
+  border-radius: 50% !important;
+  border: 2px solid rgb(27 28 30) !important;
+  background: rgba(255, 255, 255, 0.2) !important;
+  transition: background 0.15s, box-shadow 0.15s;
+}
+
+/* Invisible expanded hit area for easier clicking */
+.react-flow__handle::after {
+  content: "";
+  position: absolute;
+  inset: -8px;
+  border-radius: 50%;
+}
+
+.react-flow__handle:hover {
+  background: rgba(85, 179, 255, 0.8) !important;
+  box-shadow: 0 0 8px rgba(85, 179, 255, 0.4);
+}
+
+/* ── Controls panel ── */
+.react-flow__controls {
+  background: rgb(16 17 17) !important;
+  border: 1px solid rgba(255, 255, 255, 0.06) !important;
+  border-radius: 8px !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4) !important;
+  overflow: hidden;
+}
+
+.react-flow__controls button {
+  background: rgb(16 17 17) !important;
+  border: none !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06) !important;
+  fill: rgba(255, 255, 255, 0.4) !important;
+  width: 32px !important;
+  height: 32px !important;
+}
+
+.react-flow__controls button:hover {
+  background: rgb(27 28 30) !important;
+  fill: rgba(255, 255, 255, 0.7) !important;
+}
+
+.react-flow__controls button:last-child {
+  border-bottom: none !important;
+}
+
+/* ── MiniMap ── */
+.react-flow__minimap {
+  background: rgb(16 17 17) !important;
+  border: 1px solid rgba(255, 255, 255, 0.06) !important;
+  border-radius: 8px !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4) !important;
+}
+
+/* ── Selection box ── */
+.react-flow__selection {
+  background: rgba(85, 179, 255, 0.06);
+  border: 1px solid rgba(85, 179, 255, 0.3);
+  border-radius: 4px;
 }

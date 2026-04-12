@@ -6,6 +6,8 @@ import { Bot } from "@/components/icons";
 import { BaseNode } from "./base-node";
 import type { AgentStepData } from "@/features/workflows/lib/types";
 
+const AGENT_COLOR = "#55b3ff";
+
 export const AgentStepNode = memo(function AgentStepNode({
   data,
   selected,
@@ -15,11 +17,11 @@ export const AgentStepNode = memo(function AgentStepNode({
     <BaseNode
       label={d.label}
       icon={<Bot size={14} strokeWidth={1.75} />}
-      accent="border-brand/30"
+      color={AGENT_COLOR}
       selected={selected}
     >
       {d.instruction && (
-        <p className="type-caption text-fg-muted line-clamp-2">{d.instruction}</p>
+        <p className="text-[11px] text-fg-disabled line-clamp-2 leading-relaxed">{d.instruction}</p>
       )}
     </BaseNode>
   );

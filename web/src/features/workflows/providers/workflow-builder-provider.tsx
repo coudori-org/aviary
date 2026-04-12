@@ -192,8 +192,11 @@ export function WorkflowBuilderProvider({ workflow, children }: Props) {
         type,
         position,
         data: { ...def.defaultData } as NodeData,
+        selected: true,
       };
-      commit([...nodes, newNode], edges);
+      // Deselect all existing nodes, select only the new one
+      const deselected = nodes.map((n) => (n.selected ? { ...n, selected: false } : n));
+      commit([...deselected, newNode], edges);
     },
     [nodes, edges, commit],
   );

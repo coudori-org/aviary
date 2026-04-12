@@ -20,7 +20,7 @@ interface AgentGridProps {
 export function AgentGrid({ agents, loading, emptyAction, searchActive }: AgentGridProps) {
   if (loading) {
     return (
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3">
         {[...Array(6)].map((_, i) => (
           <Skeleton key={i} className="h-44 rounded-lg" />
         ))}
@@ -45,7 +45,7 @@ export function AgentGrid({ agents, loading, emptyAction, searchActive }: AgentG
   return (
     <>
       {active.length > 0 && (
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3">
           {active.map((agent) => (
             <AgentCard key={agent.id} agent={agent} />
           ))}
@@ -55,7 +55,7 @@ export function AgentGrid({ agents, loading, emptyAction, searchActive }: AgentG
       {deleted.length > 0 && (
         <div className={active.length > 0 ? "mt-10" : ""}>
           <h2 className="mb-4 type-small text-fg-disabled">Archived</h2>
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3">
             {deleted.map((agent) => (
               <AgentCard key={agent.id} agent={agent} deleted />
             ))}

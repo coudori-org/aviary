@@ -6,6 +6,9 @@ import { GitBranch, Layers } from "@/components/icons";
 import { BaseNode } from "./base-node";
 import type { ConditionData, MergeData } from "@/features/workflows/lib/types";
 
+const CONDITION_COLOR = "#ffbc33";
+const MERGE_COLOR = "#b48eff";
+
 export const ConditionNode = memo(function ConditionNode({
   data,
   selected,
@@ -15,13 +18,13 @@ export const ConditionNode = memo(function ConditionNode({
     <BaseNode
       label={d.label}
       icon={<GitBranch size={14} strokeWidth={1.75} />}
-      accent="border-warning/30"
+      color={CONDITION_COLOR}
       selected={selected}
       outputs={2}
       outputLabels={["True", "False"]}
     >
       {d.expression && (
-        <p className="type-caption text-fg-muted truncate font-mono">{d.expression}</p>
+        <p className="text-[11px] text-fg-disabled truncate font-mono">{d.expression}</p>
       )}
     </BaseNode>
   );
@@ -36,8 +39,9 @@ export const MergeNode = memo(function MergeNode({
     <BaseNode
       label={d.label}
       icon={<Layers size={14} strokeWidth={1.75} />}
-      accent="border-info/30"
+      color={MERGE_COLOR}
       selected={selected}
+      compact
     />
   );
 });

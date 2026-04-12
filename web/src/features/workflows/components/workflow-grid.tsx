@@ -16,7 +16,7 @@ interface WorkflowGridProps {
 export function WorkflowGrid({ workflows, loading, emptyAction, searchActive }: WorkflowGridProps) {
   if (loading) {
     return (
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3">
         {[...Array(6)].map((_, i) => (
           <Skeleton key={i} className="h-44 rounded-lg" />
         ))}
@@ -36,7 +36,7 @@ export function WorkflowGrid({ workflows, loading, emptyAction, searchActive }: 
   }
 
   return (
-    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+    <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3">
       {workflows.map((w) => (
         <WorkflowCard key={w.id} workflow={w} />
       ))}

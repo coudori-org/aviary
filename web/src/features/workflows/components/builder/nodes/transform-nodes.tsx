@@ -6,6 +6,8 @@ import { Filter, FileText } from "@/components/icons";
 import { BaseNode } from "./base-node";
 import type { PayloadParserData, TemplateData } from "@/features/workflows/lib/types";
 
+const TRANSFORM_COLOR = "#e085d0";
+
 export const PayloadParserNode = memo(function PayloadParserNode({
   data,
   selected,
@@ -16,9 +18,10 @@ export const PayloadParserNode = memo(function PayloadParserNode({
     <BaseNode
       label={d.label}
       icon={<Filter size={14} strokeWidth={1.75} />}
+      color={TRANSFORM_COLOR}
       selected={selected}
     >
-      <p className="type-caption text-fg-muted">
+      <p className="text-[11px] text-fg-disabled">
         {fieldCount > 0 ? `${fieldCount} field${fieldCount !== 1 ? "s" : ""}` : "No mappings"}
       </p>
     </BaseNode>
@@ -34,10 +37,11 @@ export const TemplateNode = memo(function TemplateNode({
     <BaseNode
       label={d.label}
       icon={<FileText size={14} strokeWidth={1.75} />}
+      color={TRANSFORM_COLOR}
       selected={selected}
     >
       {d.template && (
-        <p className="type-caption text-fg-muted truncate font-mono">{d.template}</p>
+        <p className="text-[11px] text-fg-disabled truncate font-mono">{d.template}</p>
       )}
     </BaseNode>
   );

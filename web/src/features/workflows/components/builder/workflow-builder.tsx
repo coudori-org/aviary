@@ -26,7 +26,6 @@ import type { NodeType } from "@/features/workflows/lib/types";
 
 const defaultEdgeOptions: DefaultEdgeOptions = {
   animated: true,
-  style: { stroke: "rgba(255,255,255,0.12)", strokeWidth: 2 },
 };
 
 const nodeTypes = {
@@ -57,7 +56,6 @@ function Canvas() {
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
   const { screenToFlowPosition } = useReactFlow();
 
-  // Keyboard shortcuts
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       const key = e.key.toLowerCase();
@@ -115,14 +113,15 @@ function Canvas() {
         deleteKeyCode={null}
         edgesFocusable
         edgesReconnectable
-        className="bg-canvas"
+        proOptions={{ hideAttribution: true }}
       >
-        <Background gap={20} size={1} color="rgba(255,255,255,0.03)" />
-        <Controls className="!bg-elevated !border-white/10 !shadow-2 [&>button]:!bg-elevated [&>button]:!border-white/10 [&>button]:!fill-fg-muted" />
+        <Background gap={24} size={1} color="rgba(255,255,255,0.025)" />
+        <Controls />
         <MiniMap
-          className="!bg-elevated !border-white/10"
-          nodeColor="rgba(255,255,255,0.1)"
-          maskColor="rgba(0,0,0,0.6)"
+          nodeColor="rgba(255,255,255,0.08)"
+          maskColor="rgba(0,0,0,0.7)"
+          pannable
+          zoomable
         />
       </ReactFlow>
     </div>

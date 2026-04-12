@@ -6,6 +6,8 @@ import { Play, Globe } from "@/components/icons";
 import { BaseNode } from "./base-node";
 import type { ManualTriggerData, WebhookTriggerData } from "@/features/workflows/lib/types";
 
+const TRIGGER_COLOR = "#5fc992";
+
 export const ManualTriggerNode = memo(function ManualTriggerNode({
   data,
   selected,
@@ -14,9 +16,10 @@ export const ManualTriggerNode = memo(function ManualTriggerNode({
   return (
     <BaseNode
       label={d.label}
-      icon={<Play size={14} strokeWidth={1.75} />}
-      accent="border-success/30"
+      icon={<Play size={14} strokeWidth={2} />}
+      color={TRIGGER_COLOR}
       selected={selected}
+      compact
       inputs={0}
       outputs={1}
     />
@@ -32,12 +35,12 @@ export const WebhookTriggerNode = memo(function WebhookTriggerNode({
     <BaseNode
       label={d.label}
       icon={<Globe size={14} strokeWidth={1.75} />}
-      accent="border-success/30"
+      color={TRIGGER_COLOR}
       selected={selected}
       inputs={0}
       outputs={1}
     >
-      <p className="type-caption text-fg-muted truncate">{d.path}</p>
+      <p className="text-[11px] text-fg-disabled font-mono truncate">{d.path}</p>
     </BaseNode>
   );
 });
