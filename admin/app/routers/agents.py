@@ -30,13 +30,10 @@ class AgentResponse(BaseModel):
     model_config_data: dict
     tools: list
     mcp_servers: list
-    policy: dict
     visibility: str
     category: str | None = None
     icon: str | None = None
-    pod_strategy: str
-    min_pods: int
-    max_pods: int
+    policy_id: str | None = None
     status: str
     created_at: str
     updated_at: str
@@ -53,13 +50,10 @@ class AgentResponse(BaseModel):
             model_config_data=agent.model_config_json,
             tools=agent.tools,
             mcp_servers=agent.mcp_servers,
-            policy=agent.policy,
             visibility=agent.visibility,
             category=agent.category,
             icon=agent.icon,
-            pod_strategy=agent.pod_strategy,
-            min_pods=agent.min_pods,
-            max_pods=agent.max_pods,
+            policy_id=str(agent.policy_id) if agent.policy_id else None,
             status=agent.status,
             created_at=agent.created_at.isoformat(),
             updated_at=agent.updated_at.isoformat(),

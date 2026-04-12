@@ -7,6 +7,7 @@ import httpx
 from datetime import datetime, timezone
 
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 
 from aviary_shared.naming import (
     DEPLOYMENT_NAME,
@@ -23,16 +24,25 @@ logger = logging.getLogger(__name__)
 
 
 async def touch_activity(agent_id: str) -> None:
-    """Update last_activity_at. Failure logged at WARNING because it drives idle cleanup."""
-    from aviary_shared.db.models import Agent
+    """Update last_activity_at on the agent's policy. Failure logged at WARNING."""
+    from aviary_shared.db.models import Agent, Policy
 
     try:
         async with async_session_factory() as db:
-            result = await db.execute(select(Agent).where(Agent.id == agent_id))
+            result = await db.execute(
+                select(Agent).where(Agent.id == agent_id).options(selectinload(Agent.policy))
+            )
             agent = result.scalar_one_or_none()
-            if agent:
-                agent.last_activity_at = datetime.now(timezone.utc)
-                await db.commit()
+            if not agent:
+                return
+            if agent.policy:
+                agent.policy.last_activity_at = datetime.now(timezone.utc)
+            else:
+                policy = Policy(last_activity_at=datetime.now(timezone.utc))
+                db.add(policy)
+                await db.flush()
+                agent.policy_id = policy.id
+            await db.commit()
     except Exception:
         logger.warning("Failed to update activity for agent %s", agent_id, exc_info=True)
 
@@ -61,12 +71,15 @@ async def _check_and_scale() -> None:
 
     async with async_session_factory() as db:
         result = await db.execute(
-            select(Agent).where(Agent.status == "active")
+            select(Agent).where(Agent.status == "active").options(selectinload(Agent.policy))
         )
         agents = result.scalars().all()
 
     for agent in agents:
         ns = agent_namespace(str(agent.id))
+        min_pods = agent.policy.min_pods if agent.policy else 1
+        max_pods = agent.policy.max_pods if agent.policy else 3
+
         try:
             dep = await k8s_apply(
                 "GET", f"/apis/apps/v1/namespaces/{ns}/deployments/{DEPLOYMENT_NAME}"
@@ -83,7 +96,7 @@ async def _check_and_scale() -> None:
             continue
 
         try:
-            await _scale_agent(str(agent.id), ns, agent.min_pods, agent.max_pods)
+            await _scale_agent(str(agent.id), ns, min_pods, max_pods)
         except httpx.HTTPError:
             logger.warning("Scaling failed for agent %s", agent.id, exc_info=True)
 
@@ -172,7 +185,7 @@ async def _idle_cleanup() -> None:
 
     async with async_session_factory() as db:
         result = await db.execute(
-            select(Agent).where(Agent.status == "active")
+            select(Agent).where(Agent.status == "active").options(selectinload(Agent.policy))
         )
         agents = result.scalars().all()
 
@@ -195,7 +208,8 @@ async def _idle_cleanup() -> None:
         if dep.get("spec", {}).get("replicas", 0) == 0:
             continue
 
-        if agent.last_activity_at and agent.last_activity_at.timestamp() >= cutoff:
+        last_activity = agent.policy.last_activity_at if agent.policy else None
+        if last_activity and last_activity.timestamp() >= cutoff:
             continue
 
         try:

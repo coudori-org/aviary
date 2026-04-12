@@ -51,18 +51,29 @@ async def _get_pool() -> asyncpg.Pool:
 
 
 async def _get_policy(agent_id: str) -> PolicyChecker:
-    """Load per-agent policy from DB. Both missing row and empty policy deny by default."""
+    """Load policy from DB via policies table. Missing row or empty rules deny by default.
+
+    Looks up in both agents and workflows tables since supervisor uses the same
+    namespace pattern for both entity types.
+    """
     pool = await _get_pool()
+    # Try agents first, then workflows
     row = await pool.fetchrow(
-        "SELECT policy FROM agents WHERE id = $1::uuid", agent_id,
+        "SELECT p.policy_rules FROM agents a JOIN policies p ON a.policy_id = p.id WHERE a.id = $1::uuid",
+        agent_id,
     )
     if row is None:
-        logger.warning("No agent row for id=%s — denying egress by default", agent_id)
+        row = await pool.fetchrow(
+            "SELECT p.policy_rules FROM workflows w JOIN policies p ON w.policy_id = p.id WHERE w.id = $1::uuid",
+            agent_id,
+        )
+    if row is None:
+        logger.warning("No policy found for id=%s — denying egress by default", agent_id)
         return PolicyChecker.from_policy({})
-    if not row["policy"]:
-        logger.warning("Agent %s has no policy configured — denying egress by default", agent_id)
+    rules = row["policy_rules"]
+    if not rules:
         return PolicyChecker.from_policy({})
-    policy = row["policy"] if isinstance(row["policy"], dict) else json.loads(row["policy"])
+    policy = rules if isinstance(rules, dict) else json.loads(rules)
     return PolicyChecker.from_policy(policy)
 
 

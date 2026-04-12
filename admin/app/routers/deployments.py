@@ -48,7 +48,8 @@ async def deactivate_agent(agent_id: uuid.UUID, db: AsyncSession = Depends(get_d
 @router.get("/{agent_id}/deployment")
 async def get_deployment_status(agent_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
     """Get deployment status."""
-    result = await db.execute(select(Agent).where(Agent.id == agent_id))
+    from sqlalchemy.orm import selectinload
+    result = await db.execute(select(Agent).where(Agent.id == agent_id).options(selectinload(Agent.policy)))
     agent = result.scalar_one_or_none()
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
@@ -65,10 +66,11 @@ async def get_deployment_status(agent_id: uuid.UUID, db: AsyncSession = Depends(
     else:
         status_info = {"exists": True, **status_info}
 
+    policy = agent.policy
     return {
-        "pod_strategy": agent.pod_strategy,
-        "min_pods": agent.min_pods,
-        "max_pods": agent.max_pods,
+        "pod_strategy": policy.pod_strategy if policy else "lazy",
+        "min_pods": policy.min_pods if policy else 1,
+        "max_pods": policy.max_pods if policy else 3,
         **status_info,
     }
 
@@ -97,29 +99,42 @@ async def scale_agent(
     agent_id: uuid.UUID, body: ScaleRequest, db: AsyncSession = Depends(get_db),
 ):
     """Manual scaling."""
-    result = await db.execute(select(Agent).where(Agent.id == agent_id))
+    from sqlalchemy.orm import selectinload
+    from aviary_shared.db.models import Policy
+    result = await db.execute(
+        select(Agent).where(Agent.id == agent_id).options(selectinload(Agent.policy))
+    )
     agent = result.scalar_one_or_none()
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
 
+    # Ensure policy exists
+    if not agent.policy:
+        policy = Policy()
+        db.add(policy)
+        await db.flush()
+        agent.policy_id = policy.id
+        agent.policy = policy
+
     if body.min_pods is not None:
-        agent.min_pods = body.min_pods
+        agent.policy.min_pods = body.min_pods
     if body.max_pods is not None:
-        agent.max_pods = body.max_pods
+        agent.policy.max_pods = body.max_pods
     await db.flush()
 
+    min_pods = agent.policy.min_pods
+    max_pods = agent.policy.max_pods
     ns = agent_namespace(str(agent.id))
     try:
         status = await supervisor_client.get_deployment_status(ns)
     except httpx.HTTPStatusError as e:
         if e.response.status_code == 404:
-            # Deployment not provisioned yet — DB scaling fields are saved, no K8s sync needed.
             return {"status": "scaled", "replicas": body.replicas, "applied": False}
         raise HTTPException(status_code=502, detail=f"Status fetch failed: {e}") from e
 
     if status.get("replicas", 0) > 0 or status.get("ready_replicas", 0) > 0:
         try:
-            await supervisor_client.scale_deployment(ns, body.replicas, agent.min_pods, agent.max_pods)
+            await supervisor_client.scale_deployment(ns, body.replicas, min_pods, max_pods)
         except httpx.HTTPError as e:
             raise HTTPException(status_code=502, detail=f"Scale failed: {e}") from e
 

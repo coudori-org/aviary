@@ -70,7 +70,11 @@ async def get_agent(
 
 async def get_agent_by_slug(db: AsyncSession, slug: str) -> Agent | None:
     """Get an agent by slug."""
-    result = await db.execute(select(Agent).where(Agent.slug == slug, Agent.status != "deleted"))
+    from sqlalchemy.orm import selectinload
+    result = await db.execute(
+        select(Agent).where(Agent.slug == slug, Agent.status != "deleted")
+        .options(selectinload(Agent.policy))
+    )
     return result.scalar_one_or_none()
 
 

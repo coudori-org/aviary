@@ -77,6 +77,7 @@ async def a2a_message(
     agent_id = str(agent.id)
     session_id = body.session_id
     parent_tool_use_id = body.parent_tool_use_id
+    agent_policy_rules = agent.policy.policy_rules if agent.policy else {}
 
     # 3. Ensure sub-agent is running
     try:
@@ -114,7 +115,7 @@ async def a2a_message(
                             "instruction": agent.instruction,
                             "tools": agent.tools,
                             "mcp_servers": build_mcp_config(agent.mcp_servers or []),
-                            "policy": agent.policy,
+                            "policy": agent_policy_rules,
                             **({"credentials": credentials} if credentials else {}),
                             "is_sub_agent": True,
                         },

@@ -8,8 +8,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
-from aviary_shared.db.models import Agent
+from aviary_shared.db.models import Agent, Policy
 from aviary_shared.naming import agent_namespace
 from app.db import get_db
 from app.services import supervisor_client
@@ -19,20 +20,34 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-@router.get("/{agent_id}/policy")
-async def get_policy(agent_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
-    """Get current agent policy from DB."""
-    result = await db.execute(select(Agent).where(Agent.id == agent_id))
+async def _get_policy_for_agent(db: AsyncSession, agent_id: uuid.UUID) -> tuple[Agent, Policy]:
+    result = await db.execute(
+        select(Agent).where(Agent.id == agent_id).options(selectinload(Agent.policy))
+    )
     agent = result.scalar_one_or_none()
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
 
+    if not agent.policy:
+        policy = Policy()
+        db.add(policy)
+        await db.flush()
+        agent.policy_id = policy.id
+        await db.flush()
+        agent.policy = policy
+    return agent, agent.policy
+
+
+@router.get("/{agent_id}/policy")
+async def get_policy(agent_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    agent, policy = await _get_policy_for_agent(db, agent_id)
+
     return {
         "agent_id": str(agent.id),
-        "policy": agent.policy,
-        "pod_strategy": agent.pod_strategy,
-        "min_pods": agent.min_pods,
-        "max_pods": agent.max_pods,
+        "policy": policy.policy_rules,
+        "pod_strategy": policy.pod_strategy,
+        "min_pods": policy.min_pods,
+        "max_pods": policy.max_pods,
     }
 
 
@@ -49,31 +64,24 @@ async def update_policy(
     body: PolicyUpdateRequest,
     db: AsyncSession = Depends(get_db),
 ):
-    """Update policy: DB + K8s NetworkPolicy."""
-    result = await db.execute(select(Agent).where(Agent.id == agent_id))
-    agent = result.scalar_one_or_none()
-    if not agent:
-        raise HTTPException(status_code=404, detail="Agent not found")
+    agent, policy = await _get_policy_for_agent(db, agent_id)
 
     if body.policy is not None:
-        agent.policy = body.policy
+        policy.policy_rules = body.policy
     if body.pod_strategy is not None:
-        agent.pod_strategy = body.pod_strategy
+        policy.pod_strategy = body.pod_strategy
     if body.min_pods is not None:
-        agent.min_pods = body.min_pods
+        policy.min_pods = body.min_pods
     if body.max_pods is not None:
-        agent.max_pods = body.max_pods
+        policy.max_pods = body.max_pods
 
     await db.flush()
 
-    # The DB write alone is enough for HTTP-level enforcement (egress proxy reads
-    # policy from DB on every request); the NetworkPolicy sync is the CIDR-level
-    # second layer. Failures are reported instead of rolled back.
     ns = agent_namespace(str(agent.id))
     network_policy_synced = True
     sync_error: str | None = None
     try:
-        await supervisor_client.update_network_policy(ns, agent.policy)
+        await supervisor_client.update_network_policy(ns, policy.policy_rules)
     except httpx.HTTPStatusError as e:
         network_policy_synced = False
         if e.response.status_code != 404:
@@ -86,10 +94,10 @@ async def update_policy(
 
     return {
         "agent_id": str(agent.id),
-        "policy": agent.policy,
-        "pod_strategy": agent.pod_strategy,
-        "min_pods": agent.min_pods,
-        "max_pods": agent.max_pods,
+        "policy": policy.policy_rules,
+        "pod_strategy": policy.pod_strategy,
+        "min_pods": policy.min_pods,
+        "max_pods": policy.max_pods,
         "network_policy_synced": network_policy_synced,
         "sync_error": sync_error,
     }
@@ -97,21 +105,12 @@ async def update_policy(
 
 @router.post("/{agent_id}/policy/sync")
 async def force_sync_policy(agent_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
-    """Force re-sync policy to K8s (reconciliation).
-
-    A missing namespace (404) is not an error — it simply means the agent has never
-    been activated, so there is nothing to reconcile. Any other supervisor error
-    is surfaced as 502.
-    """
-    result = await db.execute(select(Agent).where(Agent.id == agent_id))
-    agent = result.scalar_one_or_none()
-    if not agent:
-        raise HTTPException(status_code=404, detail="Agent not found")
+    agent, policy = await _get_policy_for_agent(db, agent_id)
 
     ns = agent_namespace(str(agent.id))
     synced = True
     try:
-        await supervisor_client.update_network_policy(ns, agent.policy)
+        await supervisor_client.update_network_policy(ns, policy.policy_rules)
     except httpx.HTTPStatusError as e:
         if e.response.status_code != 404:
             raise HTTPException(status_code=502, detail=f"NetworkPolicy sync failed: {e}") from e

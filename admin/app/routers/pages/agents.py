@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from aviary_shared.db.models import Agent
 from aviary_shared.naming import agent_namespace
@@ -35,7 +36,7 @@ async def agent_list(
     total_pages = max(1, (total + per_page - 1) // per_page)
 
     result = await db.execute(
-        select(Agent).order_by(Agent.created_at.desc()).offset(offset).limit(per_page)
+        select(Agent).order_by(Agent.created_at.desc()).offset(offset).limit(per_page).options(selectinload(Agent.policy))
     )
     agents = list(result.scalars().all())
 
@@ -69,7 +70,7 @@ async def agent_list(
 async def agent_detail(
     request: Request, agent_id: uuid.UUID, db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(select(Agent).where(Agent.id == agent_id))
+    result = await db.execute(select(Agent).where(Agent.id == agent_id).options(selectinload(Agent.policy)))
     agent = result.scalar_one_or_none()
     if not agent:
         return HTMLResponse("<h1>Agent not found</h1>", status_code=404)
@@ -94,8 +95,9 @@ async def agent_detail(
         logger.warning("Status fetch failed for agent %s", agent.id, exc_info=True)
         deployment_status = {"state": "unknown", "active": False, "replicas": 0, "ready_replicas": 0}
 
-    policy = agent.policy or {}
-    egress_rules = policy.get("allowedEgress", [])
+    policy_obj = agent.policy
+    policy_rules = policy_obj.policy_rules if policy_obj else {}
+    egress_rules = policy_rules.get("allowedEgress", [])
     flash = request.query_params.get("flash")
     flash_data = None
     if flash:
@@ -107,7 +109,7 @@ async def agent_detail(
     return templates.TemplateResponse(request, "agent_detail.html", {
         "agent": agent,
         "deployment": deployment_status,
-        "policy": policy,
+        "policy": policy_rules,
         "egress_rules": egress_rules,
         "flash": flash_data,
     })
@@ -122,7 +124,7 @@ async def update_agent_config(
     instruction: str = Form(...),
     visibility: str = Form("private"),
 ):
-    result = await db.execute(select(Agent).where(Agent.id == agent_id))
+    result = await db.execute(select(Agent).where(Agent.id == agent_id).options(selectinload(Agent.policy)))
     agent = result.scalar_one_or_none()
     if not agent:
         return RedirectResponse(f"/agents/{agent_id}?error=Agent+not+found", status_code=303)
@@ -142,27 +144,39 @@ async def update_policy(
     request: Request,
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(select(Agent).where(Agent.id == agent_id))
+    from aviary_shared.db.models import Policy
+    result = await db.execute(
+        select(Agent).where(Agent.id == agent_id).options(selectinload(Agent.policy))
+    )
     agent = result.scalar_one_or_none()
     if not agent:
         return RedirectResponse(f"/agents/{agent_id}?error=Agent+not+found", status_code=303)
 
     form = await request.form()
 
-    # Parse scaling fields
-    agent.pod_strategy = form.get("pod_strategy", agent.pod_strategy)
-    agent.min_pods = int(form.get("min_pods", agent.min_pods))
-    agent.max_pods = int(form.get("max_pods", agent.max_pods))
+    # Ensure policy entity exists
+    if not agent.policy:
+        policy_obj = Policy()
+        db.add(policy_obj)
+        await db.flush()
+        agent.policy_id = policy_obj.id
+        agent.policy = policy_obj
 
-    # Build policy dict
-    policy = dict(agent.policy) if agent.policy else {}
-    policy["maxMemoryPerSession"] = form.get("max_memory", "4Gi")
-    policy["maxCpuPerSession"] = form.get("max_cpu", "4")
-    policy["maxConcurrentSessions"] = int(form.get("max_concurrent_sessions", 20))
-    # TODO: enforce in API server by clamping max_tokens before forwarding to supervisor
-    policy["maxTokensPerTurn"] = int(form.get("max_tokens_per_turn", 100000))
-    policy["containerImage"] = form.get("container_image", "aviary-runtime:latest")
-    policy["maxConcurrentSessionsPerPod"] = int(form.get("max_sessions_per_pod", 10))
+    policy_obj = agent.policy
+
+    # Parse scaling fields
+    policy_obj.pod_strategy = form.get("pod_strategy") or policy_obj.pod_strategy
+    policy_obj.min_pods = int(form.get("min_pods") or policy_obj.min_pods)
+    policy_obj.max_pods = int(form.get("max_pods") or policy_obj.max_pods)
+
+    # Build policy rules dict
+    policy_rules = dict(policy_obj.policy_rules) if policy_obj.policy_rules else {}
+    policy_rules["maxMemoryPerSession"] = form.get("max_memory", "4Gi")
+    policy_rules["maxCpuPerSession"] = form.get("max_cpu", "4")
+    policy_rules["maxConcurrentSessions"] = int(form.get("max_concurrent_sessions") or 20)
+    policy_rules["maxTokensPerTurn"] = int(form.get("max_tokens_per_turn") or 100000)
+    policy_rules["containerImage"] = form.get("container_image") or "aviary-runtime:latest"
+    policy_rules["maxConcurrentSessionsPerPod"] = int(form.get("max_sessions_per_pod") or 10)
     # Parse egress rules
     names = form.getlist("egress_name[]")
     types = form.getlist("egress_type[]")
@@ -180,7 +194,6 @@ async def update_policy(
             rule["cidr"] = target
         else:
             rule["domain"] = target
-        # Parse ports
         ports_str = ports_list[i].strip() if i < len(ports_list) else ""
         ports = []
         if ports_str:
@@ -191,13 +204,13 @@ async def update_policy(
         rule["ports"] = ports
         egress_rules.append(rule)
 
-    policy["allowedEgress"] = egress_rules
-    agent.policy = policy
+    policy_rules["allowedEgress"] = egress_rules
+    policy_obj.policy_rules = policy_rules
     await db.flush()
 
     ns = agent_namespace(str(agent.id))
     try:
-        await supervisor_client.update_network_policy(ns, policy)
+        await supervisor_client.update_network_policy(ns, policy_rules)
     except httpx.HTTPStatusError as e:
         if e.response.status_code != 404:
             logger.warning("NetworkPolicy update failed for agent %s", agent.id, exc_info=True)

@@ -9,6 +9,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect, status
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.auth.dependencies import get_current_user
 from app.auth.oidc import validate_token
@@ -475,8 +476,13 @@ async def websocket_chat(websocket: WebSocket, session_id: uuid.UUID):
                 await redis_service.publish_message(session_id_str, user_message_event)
 
                 async with async_session_factory() as db:
-                    result = await db.execute(select(Agent).where(Agent.id == session.agent_id))
+                    result = await db.execute(
+                        select(Agent)
+                        .where(Agent.id == session.agent_id)
+                        .options(selectinload(Agent.policy))
+                    )
                     agent = result.scalar_one()
+                    agent_policy = agent.policy.policy_rules if agent.policy else {}
 
                     # Parse @mentions from instruction + current message
                     mentioned_slugs = list(dict.fromkeys(
@@ -507,7 +513,7 @@ async def websocket_chat(websocket: WebSocket, session_id: uuid.UUID):
                     agent_instruction=agent.instruction,
                     agent_tools=agent.tools,
                     agent_mcp_servers=agent.mcp_servers,
-                    agent_policy=agent.policy,
+                    agent_policy=agent_policy,
                     content=content,
                     user_message_id=user_message_id,
                     user_token=fresh.access_token,
