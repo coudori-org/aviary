@@ -18,6 +18,7 @@ import { NODE_REGISTRY } from "../lib/node-registry";
 interface WorkflowBuilderContextValue {
   workflowId: string;
   workflowName: string;
+  workflowStatus: string;
   nodes: WorkflowNode[];
   edges: WorkflowEdge[];
   onNodesChange: OnNodesChange<WorkflowNode>;
@@ -140,7 +141,7 @@ export function WorkflowBuilderProvider({ workflow, children }: Props) {
     if (preDragRef.current) {
       // Only push to history if positions actually changed
       const pre = preDragRef.current.nodes;
-      const moved = nodes.some((n, i) => {
+      const moved = nodes.some((n) => {
         const old = pre.find((p) => p.id === n.id);
         return old && (old.position.x !== n.position.x || old.position.y !== n.position.y);
       });
@@ -257,6 +258,7 @@ export function WorkflowBuilderProvider({ workflow, children }: Props) {
       value={{
         workflowId: workflow.id,
         workflowName: workflow.name,
+        workflowStatus: workflow.status,
         nodes,
         edges,
         onNodesChange,

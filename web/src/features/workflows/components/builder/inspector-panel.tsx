@@ -117,7 +117,7 @@ export function InspectorPanel() {
 
   if (!node) {
     return (
-      <div className="relative shrink-0 border-l border-white/[0.06] bg-[rgb(10_11_13)]" style={panelStyle}>
+      <div className="relative shrink-0 bg-[rgb(10_11_13)]" style={panelStyle}>
         <ResizeHandle onResize={handleResize} />
         <div className="flex h-full items-center justify-center px-6">
           <p className="text-center text-[12px] text-fg-disabled leading-relaxed">
@@ -132,15 +132,8 @@ export function InspectorPanel() {
   const commit = (key: string) => (value: string) => updateNodeData(node.id, key, value);
 
   return (
-    <div className="relative shrink-0 overflow-y-auto border-l border-white/[0.06] bg-[rgb(10_11_13)]" style={panelStyle}>
+    <div className="relative shrink-0 overflow-y-auto bg-[rgb(10_11_13)]" style={panelStyle}>
       <ResizeHandle onResize={handleResize} />
-
-      {/* Header */}
-      <div className="sticky top-0 z-10 border-b border-white/[0.06] bg-[rgb(10_11_13)] px-4 py-3">
-        <p className="text-[10px] font-semibold uppercase tracking-widest text-fg-disabled">
-          Inspector
-        </p>
-      </div>
 
       <div className="flex flex-col gap-4 px-4 py-4">
         <NodeField

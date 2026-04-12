@@ -16,16 +16,18 @@ import "./builder.css";
 import { useWorkflowBuilder } from "@/features/workflows/providers/workflow-builder-provider";
 import { useWorkflowRun } from "@/features/workflows/hooks/use-workflow-run";
 import { RunStatusProvider, useAllNodeRunStatuses } from "@/features/workflows/providers/run-status-provider";
+import { workflowsApi } from "@/features/workflows/api/workflows-api";
+import { SettingsPanel } from "./settings-panel";
 import { NodePalette } from "./node-palette";
 import { InspectorPanel } from "./inspector-panel";
-import { Toolbar } from "./toolbar";
 import { ConsolePanel } from "./console-panel";
-import { RunDialog } from "./run-dialog";
+import { Toolbar } from "./toolbar";
 import { ManualTriggerNode, WebhookTriggerNode } from "./nodes/trigger-node";
 import { AgentStepNode } from "./nodes/agent-step-node";
 import { ConditionNode, MergeNode } from "./nodes/control-nodes";
 import { PayloadParserNode, TemplateNode } from "./nodes/transform-nodes";
 import type { NodeType } from "@/features/workflows/lib/types";
+import { cn } from "@/lib/utils";
 
 const defaultEdgeOptions: DefaultEdgeOptions = {
   animated: true,
@@ -41,19 +43,28 @@ const nodeTypes = {
   template: TemplateNode,
 };
 
+// --- Tab Button ---
+function TabButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "flex-1 py-1.5 text-[11px] font-medium transition-colors",
+        active ? "text-fg-primary border-b-2 border-info" : "text-fg-disabled hover:text-fg-muted",
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
+// --- Canvas ---
 function Canvas() {
   const {
-    nodes,
-    edges,
-    onNodesChange,
-    onEdgesChange,
-    onNodeDragStart,
-    onNodeDragStop,
-    onConnect,
-    addNode,
-    undo,
-    redo,
-    deleteSelected,
+    nodes, edges, onNodesChange, onEdgesChange,
+    onNodeDragStart, onNodeDragStop, onConnect,
+    addNode, undo, redo, deleteSelected,
   } = useWorkflowBuilder();
 
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
@@ -77,18 +88,12 @@ function Canvas() {
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       const key = e.key.toLowerCase();
-      if (key === "z" && (e.ctrlKey || e.metaKey) && e.shiftKey) {
-        e.preventDefault();
-        redo();
-      } else if (key === "y" && (e.ctrlKey || e.metaKey)) {
-        e.preventDefault();
-        redo();
-      } else if (key === "z" && (e.ctrlKey || e.metaKey)) {
-        e.preventDefault();
-        undo();
-      } else if (e.key === "Delete" || e.key === "Backspace") {
-        const target = e.target as HTMLElement;
-        if (target.tagName === "INPUT" || target.tagName === "TEXTAREA") return;
+      if (key === "z" && (e.ctrlKey || e.metaKey) && e.shiftKey) { e.preventDefault(); redo(); }
+      else if (key === "y" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); redo(); }
+      else if (key === "z" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); undo(); }
+      else if (e.key === "Delete" || e.key === "Backspace") {
+        const t = e.target as HTMLElement;
+        if (t.tagName === "INPUT" || t.tagName === "TEXTAREA") return;
         deleteSelected();
       }
     };
@@ -106,9 +111,7 @@ function Canvas() {
       e.preventDefault();
       const type = e.dataTransfer.getData("application/workflow-node-type") as NodeType;
       if (!type || !reactFlowWrapper.current) return;
-
-      const position = screenToFlowPosition({ x: e.clientX, y: e.clientY });
-      addNode(type, position);
+      addNode(type, screenToFlowPosition({ x: e.clientX, y: e.clientY }));
     },
     [addNode, screenToFlowPosition],
   );
@@ -116,40 +119,67 @@ function Canvas() {
   return (
     <div ref={reactFlowWrapper} className="flex-1">
       <ReactFlow
-        nodes={nodes}
-        edges={edges}
-        onNodesChange={onNodesChange}
-        onEdgesChange={onEdgesChange}
-        onConnect={onConnect}
-        onNodeDragStart={onNodeDragStart}
-        onNodeDragStop={onNodeDragStop}
-        onDragOver={onDragOver}
-        onDrop={onDrop}
-        nodeTypes={nodeTypes}
-        defaultEdgeOptions={defaultEdgeOptions}
-        fitView
-        deleteKeyCode={null}
-        edgesFocusable
-        edgesReconnectable
+        nodes={nodes} edges={edges}
+        onNodesChange={onNodesChange} onEdgesChange={onEdgesChange}
+        onConnect={onConnect} onNodeDragStart={onNodeDragStart} onNodeDragStop={onNodeDragStop}
+        onDragOver={onDragOver} onDrop={onDrop}
+        nodeTypes={nodeTypes} defaultEdgeOptions={defaultEdgeOptions}
+        fitView deleteKeyCode={null} edgesFocusable edgesReconnectable
         proOptions={{ hideAttribution: true }}
       >
         <Background gap={24} size={1} color="rgba(255,255,255,0.025)" />
         <Controls />
-        <MiniMap
-          nodeColor={miniMapNodeColor}
-          maskColor="rgba(0,0,0,0.7)"
-          pannable
-          zoomable
-        />
+        <MiniMap nodeColor={miniMapNodeColor} maskColor="rgba(0,0,0,0.7)" pannable zoomable />
       </ReactFlow>
     </div>
   );
 }
 
-export function WorkflowBuilder() {
-  const { workflowId, addNode } = useWorkflowBuilder();
+// --- Left Panel (Settings + Nodes tabs) ---
+function LeftPanel({ onAddNode }: { onAddNode: (type: NodeType) => void }) {
+  const [tab, setTab] = useState<"nodes" | "settings">("nodes");
+
+  return (
+    <div className="w-56 shrink-0 flex flex-col border-r border-white/[0.06] bg-[rgb(10_11_13)]">
+      <div className="flex border-b border-white/[0.06]">
+        <TabButton active={tab === "nodes"} onClick={() => setTab("nodes")}>Nodes</TabButton>
+        <TabButton active={tab === "settings"} onClick={() => setTab("settings")}>Settings</TabButton>
+      </div>
+      <div className="flex-1 overflow-y-auto">
+        {tab === "nodes" ? <NodePalette onAddNode={onAddNode} /> : <SettingsPanel />}
+      </div>
+    </div>
+  );
+}
+
+// --- Right Panel (Inspector + Test tabs) ---
+function RightPanel({ run }: { run: ReturnType<typeof useWorkflowRun> }) {
+  const [tab, setTab] = useState<"inspector" | "test">("inspector");
+
+  return (
+    <div className="flex flex-col border-l border-white/[0.06]">
+      <div className="flex border-b border-white/[0.06] bg-[rgb(10_11_13)]">
+        <TabButton active={tab === "inspector"} onClick={() => setTab("inspector")}>Inspector</TabButton>
+        <TabButton active={tab === "test"} onClick={() => setTab("test")}>Test</TabButton>
+      </div>
+      {tab === "inspector" ? (
+        <InspectorPanel />
+      ) : (
+        <ConsolePanel logs={run.logs} runStatus={run.runStatus} error={run.error} />
+      )}
+    </div>
+  );
+}
+
+// --- Main Builder ---
+interface WorkflowBuilderProps {
+  onStatusChange: () => void;
+}
+
+export function WorkflowBuilder({ onStatusChange }: WorkflowBuilderProps) {
+  const { workflowId, workflowStatus, addNode } = useWorkflowBuilder();
   const run = useWorkflowRun(workflowId);
-  const [runDialogOpen, setRunDialogOpen] = useState(false);
+  const [deploying, setDeploying] = useState(false);
 
   const handlePaletteAdd = useCallback(
     (type: NodeType) => {
@@ -158,35 +188,46 @@ export function WorkflowBuilder() {
     [addNode],
   );
 
-  const handleRunRequest = useCallback(() => {
-    setRunDialogOpen(true);
-  }, []);
+  const handleDeploy = useCallback(async () => {
+    setDeploying(true);
+    try {
+      await workflowsApi.deploy(workflowId);
+      onStatusChange();
+    } catch {
+      // TODO: show error
+    } finally {
+      setDeploying(false);
+    }
+  }, [workflowId, onStatusChange]);
 
-  const handleRunConfirm = useCallback(
-    (triggerData: Record<string, unknown>) => {
-      run.trigger(triggerData);
-    },
-    [run],
-  );
+  const handleEdit = useCallback(async () => {
+    try {
+      await workflowsApi.edit(workflowId);
+      onStatusChange();
+    } catch {
+      // TODO: show error
+    }
+  }, [workflowId, onStatusChange]);
 
   return (
     <RunStatusProvider nodeStatuses={run.nodeStatuses}>
       <div className="flex h-full flex-col">
-        <Toolbar runStatus={run.runStatus} onRun={handleRunRequest} onCancel={run.cancel} />
+        <Toolbar
+          workflowStatus={workflowStatus}
+          deploying={deploying}
+          onDeploy={handleDeploy}
+          onEdit={handleEdit}
+        />
         <div className="flex flex-1 overflow-hidden">
-          <NodePalette onAddNode={handlePaletteAdd} />
-          <div className="flex flex-1 flex-col overflow-hidden">
-            <ReactFlowProvider>
-              <div className="flex flex-1 overflow-hidden">
-                <Canvas />
-                <InspectorPanel />
-              </div>
-            </ReactFlowProvider>
-            <ConsolePanel logs={run.logs} runStatus={run.runStatus} error={run.error} />
-          </div>
+          <LeftPanel onAddNode={handlePaletteAdd} />
+          <ReactFlowProvider>
+            <div className="flex flex-1 overflow-hidden">
+              <Canvas />
+              <RightPanel run={run} />
+            </div>
+          </ReactFlowProvider>
         </div>
       </div>
-      <RunDialog open={runDialogOpen} onClose={() => setRunDialogOpen(false)} onRun={handleRunConfirm} />
     </RunStatusProvider>
   );
 }

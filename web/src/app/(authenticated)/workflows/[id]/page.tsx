@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useParams } from "next/navigation";
 import { LoadingState } from "@/components/feedback/loading-state";
 import { ErrorState } from "@/components/feedback/error-state";
@@ -14,12 +14,18 @@ export default function WorkflowBuilderPage() {
   const [workflow, setWorkflow] = useState<Workflow | null>(null);
   const [error, setError] = useState("");
 
-  useEffect(() => {
+  const loadWorkflow = useCallback(() => {
     workflowsApi
       .get(id)
       .then(setWorkflow)
       .catch((err) => setError(err.message || "Failed to load workflow"));
   }, [id]);
+
+  useEffect(() => { loadWorkflow(); }, [loadWorkflow]);
+
+  const handleStatusChange = useCallback(() => {
+    loadWorkflow();
+  }, [loadWorkflow]);
 
   if (error) return <ErrorState description={error} />;
   if (!workflow) return <LoadingState />;
@@ -27,7 +33,7 @@ export default function WorkflowBuilderPage() {
   return (
     <div className="h-full">
       <WorkflowBuilderProvider workflow={workflow}>
-        <WorkflowBuilder />
+        <WorkflowBuilder onStatusChange={handleStatusChange} />
       </WorkflowBuilderProvider>
     </div>
   );

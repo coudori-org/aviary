@@ -33,7 +33,7 @@ export function NodePalette({ onAddNode }: NodePaletteProps) {
   };
 
   return (
-    <div className="w-56 shrink-0 overflow-y-auto border-r border-white/[0.06] bg-[rgb(10_11_13)] px-3 py-4">
+    <div className="px-3 py-4">
       {NODE_CATEGORIES.map(({ key, label }) => {
         const items = NODE_REGISTRY.filter((n) => n.category === key);
         if (items.length === 0) return null;
