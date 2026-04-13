@@ -46,6 +46,7 @@ interface MessageRequestBody {
   session_id: string;
   model_config_data?: Record<string, unknown> | null;
   agent_config: Record<string, unknown>;
+  output_format?: { type: "json_schema"; schema: Record<string, unknown> };
 }
 
 app.post("/message", async (req, res) => {
@@ -91,6 +92,7 @@ app.post("/message", async (req, res) => {
       body.model_config_data as any,
       body.agent_config as any,
       abortController,
+      body.output_format,
     )) {
       if (res.writableEnded || abortController.signal.aborted) break;
       res.write(`data: ${JSON.stringify(chunk)}\n\n`);

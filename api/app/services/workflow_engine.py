@@ -91,6 +91,7 @@ async def _exec_agent_step(
     prompt_template = data.get("prompt_template", "{{input}}")
     instruction = data.get("instruction", "")
     model_config = data.get("model_config", {})
+    output_schema = data.get("output_schema")
 
     # Resolve template
     input_text = json.dumps(input_data, ensure_ascii=False) if input_data else ""
@@ -121,22 +122,27 @@ async def _exec_agent_step(
         )
 
     full_response = ""
+    structured_output = None
+
+    request_body: dict = {
+        "content_parts": [{"text": prompt}],
+        "session_id": session_id,
+        "model_config_data": model_config,
+        "agent_config": {
+            "instruction": instruction,
+            "tools": [],
+            "mcp_servers": {},
+            "policy": {},
+        },
+    }
+    if output_schema:
+        request_body["output_format"] = output_schema
 
     async with httpx.AsyncClient() as client:
         async with client.stream(
             "POST",
             stream_url,
-            json={
-                "content_parts": [{"text": prompt}],
-                "session_id": session_id,
-                "model_config_data": model_config,
-                "agent_config": {
-                    "instruction": instruction,
-                    "tools": [],
-                    "mcp_servers": {},
-                    "policy": {},
-                },
-            },
+            json=request_body,
             timeout=None,
         ) as resp:
             if resp.status_code >= 400:
@@ -179,8 +185,20 @@ async def _exec_agent_step(
                         "log_type": "tool_result",
                         "content": chunk.get("content", ""),
                     })
+                elif chunk_type == "result":
+                    so = chunk.get("structured_output")
+                    if so is not None:
+                        structured_output = so
                 elif chunk_type == "error":
                     raise RuntimeError(chunk.get("message", "Agent runtime error"))
+
+    if structured_output is not None:
+        # Best-effort session cleanup
+        try:
+            await agent_supervisor.cleanup_session(worker_agent_id, session_id)
+        except Exception:
+            pass
+        return {"output": structured_output}
 
     if not full_response.strip():
         raise RuntimeError("Agent Step produced no output — the LLM may be unreachable or the request failed silently")

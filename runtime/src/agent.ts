@@ -139,6 +139,7 @@ export interface SSEChunk {
   num_turns?: number;
   total_cost_usd?: number;
   usage?: Record<string, unknown>;
+  structured_output?: unknown;
 }
 
 /**
@@ -205,6 +206,7 @@ export async function* processMessage(
   modelConfig: ModelConfig | null | undefined,
   agentConfig: AgentConfig,
   abortController?: AbortController,
+  outputFormat?: { type: "json_schema"; schema: Record<string, unknown> },
 ): AsyncGenerator<SSEChunk> {
   const home = sessionHome(sessionId);
   const claudeDir = sessionClaudeDir(sessionId);
@@ -317,6 +319,7 @@ export async function* processMessage(
     ...(canResume ? {} : { extraArgs: { "session-id": sessionId } }),
     ...(canResume ? { resume: sessionId } : {}),
     ...(abortController ? { abortController } : {}),
+    ...(outputFormat ? { outputFormat } : {}),
   };
 
   // PreToolUse hook: when SDK is about to call an A2A tool, capture the real
@@ -471,6 +474,7 @@ export async function* processMessage(
           num_turns: msg.num_turns,
           total_cost_usd: msg.total_cost_usd,
           usage: msg.usage,
+          ...(msg.structured_output !== undefined ? { structured_output: msg.structured_output } : {}),
         };
       }
     }
