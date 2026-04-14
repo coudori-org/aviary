@@ -25,6 +25,9 @@ rules:
   - apiGroups: ["networking.k8s.io"]
     resources: [networkpolicies]
     verbs: [get, list, create, update, patch, delete]
+  - apiGroups: ["keda.sh"]
+    resources: [scaledobjects]
+    verbs: [get, list, create, update, patch, delete]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -73,7 +76,7 @@ spec:
             - name: HOST_GATEWAY_IP
               value: "${HOST_GATEWAY_IP}"
             - name: MAX_CONCURRENT_SESSIONS_PER_POD
-              value: "10"
+              value: "5"
             - name: DATABASE_URL
               value: "postgresql+asyncpg://aviary:aviary@host.k8s.internal:5432/aviary"
             - name: REDIS_URL

@@ -1,6 +1,6 @@
 # Aviary
 
-Multi-tenant AI agent platform. Users create/configure agents via Web UI, each running in isolated K8s namespaces with long-running agent Pods powered by claude-agent-sdk.
+Multi-tenant AI agent platform. Users create/configure agents via Web UI; each agent runs as a long-running K8s Deployment in the shared `agents` namespace, powered by claude-agent-sdk.
 
 ## Quick Start
 
@@ -15,59 +15,74 @@ Test accounts: `user1@test.com`, `user2@test.com` (all `password`).
 ## Architecture
 
 ```
-Browser → Next.js (:3000) → API rewrite proxy → FastAPI (:8000) → Agent Supervisor (:9000) → Agent Pods
-                                                      ↓
-                                               PostgreSQL / Redis / Vault / Keycloak
+Browser → Next.js (:3000) → API rewrite proxy → FastAPI (:8000) ─┐
+                                                  │               │
+                                                  ├─ Redis pub/sub ─┤
+                                                  │               │
+   WebSocket ◄───────────────── Redis subscribe ──┘               │
+                                                                   ▼
+                           Agent Supervisor (:9000) → K8s API ─ agents NS
+                                    │                              │
+                                    └─ SSE consume from pod ───────┘
+                                    │
+                                    └─ Redis publish (chunks + stream buffer)
 
 Admin Console (:8001) → Agent Supervisor (:9000) → K8s API
       ↓
-PostgreSQL / Redis
+PostgreSQL
 
 Platform services (docker compose):
   LiteLLM Gateway (:8090) → Portkey AI Gateway → Claude API / Ollama / vLLM / Bedrock
   MCP Gateway (:8100) → Backend MCP Servers (tool proxy with OIDC auth + ACL)
 
 Platform services (K8s, platform namespace):
-  Agent Supervisor (:9000, NodePort 30900) → K8s API (namespace/deployment/pod management)
-  Egress Proxy → per-agent outbound policy enforcement
+  Agent Supervisor (:9000, NodePort 30900) → K8s API
+  KEDA (scaling), kube-router (NetworkPolicy enforcement — k3s builtin)
 
-Agent Pod outbound:
-  LLM calls  → LiteLLM Gateway (host:8090) → Portkey AI Gateway → Claude API / Ollama / vLLM / Bedrock
-  MCP tools  → MCP Gateway (host:8100) → Backend MCP Servers
-  HTTP/HTTPS → Egress Proxy (K8s platform NS, per-agent policy) → External APIs
+Agent runtime namespace (K8s, agents namespace):
+  One Deployment per agent (selector: aviary/agent-id=<uuid>)
+  Namespace-wide baseline NetworkPolicy + optional per-agent NP for extra SGs
+
+Agent Pod outbound (enforced by NetworkPolicy):
+  LLM / MCP / API (platform)          — always allowed by baseline
+  External destinations (CIDR blocks) — only if agent's ServiceAccount adds them
 ```
 
 ### Service Responsibilities
 
 Three backend services with distinct roles:
 
-**API Server (`:8000`)** — User-facing. Agent CRUD (config only), OIDC auth, ACL, sessions, chat. Communicates with the Agent Supervisor via an abstract interface (`agent_supervisor.py`) using only `agent_id` and `session_id`. No infrastructure knowledge — does not read or write policy, namespace, deployment, or scaling fields.
+**API Server (`:8000`)** — User-facing. Agent CRUD (config only), OIDC auth, ACL, sessions, chat. Communicates with the Agent Supervisor via an abstract interface (`agent_supervisor.py`) using only `agent_id` and `session_id`. No infrastructure knowledge.
 
-**Admin Console (`:8001`)** — Operator-facing. No authentication (local-only). Edits and applies infrastructure configuration: network policies (egress rules), resource allocation, deployment lifecycle (activate/deactivate/restart). Syncs policy changes to K8s (NetworkPolicy) via the supervisor. Egress proxy reads policies directly from DB. Includes a built-in web UI (Jinja2 templates).
+**Admin Console (`:8001`)** — Operator-facing. No authentication (local-only). Edits scaling bounds (`min_pods`, `max_pods`), resource limits, container image, and the agent's ServiceAccount binding. Calls the supervisor to apply these to K8s. Also manages ServiceAccounts + SG refs and per-user Vault credentials.
 
-**Agent Supervisor (`:9000`)** — Infrastructure manager. Runs inside K8s. Manages all runtime resources: namespace/deployment/service/PVC lifecycle, auto-scaling based on session load, idle cleanup (scale to zero after inactivity). Has DB access for reading agent config (`min_pods`, `max_pods`) and updating `last_activity_at` on every agent request.
+**Agent Supervisor (`:9000`)** — Activator + SSE publisher. Runs inside K8s. Backend-abstracted via `RuntimeBackend` protocol; current implementation is K3S, EKS Native/Fargate stubbed. Owns: Deployment/Service/PVC lifecycle, SA creation + NetworkPolicy binding for extra SGs, 0→1 activation on demand, KEDA `ScaledObject` creation. Consumes agent runtime SSE and publishes every event to Redis (chunks + pub/sub) so the API stays off the SSE path. Has a Redis client but no DB access.
 
-**Shared DB package** (`shared/aviary_shared/`) — SQLAlchemy models and session factory used by all three services.
+**Shared DB package** (`shared/aviary_shared/`) — SQLAlchemy models, migrations, and session factory used by API + Admin. Migrations live at `shared/aviary_shared/db/migrations/` with alembic config at `shared/alembic.ini`.
 
 **Key flows:**
-- Agent creation → API saves config to DB + registers with supervisor (secure defaults) → admin later configures policy/scaling
-- Chat message → WebSocket → API asks supervisor to ensure agent running → Supervisor SSE proxy to agent Pod → claude-agent-sdk → LiteLLM Gateway → LLM backend
-- Policy edit → Admin updates DB + updates K8s NetworkPolicy via supervisor. Egress proxy reads policy from DB on every request. Immediate effect, no Pod restart.
-- Agent config edit (instruction, tools) → API updates DB only. Passed to runtime on every message request body. Immediate effect, no Pod restart.
+- Agent creation → API saves config to DB (no `service_account_id` set → baseline egress only) + registers infra via supervisor → admin can later attach a ServiceAccount / adjust scaling
+- Chat message → WebSocket → API's `stream_manager` calls supervisor `POST /v1/agents/{id}/sessions/{sid}/publish` → supervisor streams SSE from runtime and publishes each event to Redis → API re-assembles blocks from the Redis buffer on completion and saves to DB; WS clients receive live events via independent Redis subscription
+- ServiceAccount / scaling edit → Admin updates DB + calls supervisor `ensure_agent` / `bind_identity`. NetworkPolicy / KEDA ScaledObject updates take immediate effect. No pod restart needed unless image changes.
+- Agent config edit (instruction, tools, MCP servers) → API updates DB only. Passed to runtime on every message request body. No pod restart.
 
-**Pod Strategy (agent-per-pod):** Each agent gets a long-running Deployment with 1-N replicas. Multiple sessions share the same Pod(s), isolated by working directory (`/workspace/sessions/{session_id}/`). Pods auto-scale based on session load and are released after 7 days of inactivity (both managed by the agent supervisor).
+**Pod Strategy (agent-per-deployment, session-per-workdir):** Each agent gets a Deployment scaled from 0 to `max_pods` by KEDA (trigger: `COUNT(sessions WHERE status='active')`, target: 5 sessions/pod). Multiple sessions share the same pods, isolated by per-session bwrap workdirs. Supervisor handles the `0→1` cold-start synchronously (`ensure_active` patches replicas=1 before KEDA's next poll).
 
 **LiteLLM Gateway** (docker compose, `:8090`): All LLM calls go through LiteLLM OSS proxy. Backend is determined by the model name prefix (e.g., `anthropic/claude-sonnet-4-6` → Claude API, `ollama/gemma4:26b` → Ollama, `vllm/...` → vLLM, `bedrock/...` → Bedrock). Natively compatible with Anthropic SDK (`/v1/messages`), so claude-agent-sdk works transparently. Configuration in `config/litellm/config.yaml`. API server queries it for model listing (`/model/info`). Supports virtual keys, rate limiting, and per-user API key injection. Two startup patches loaded via `.pth` file: `fix_adapter_streaming.py` fixes Anthropic-to-OpenAI adapter streaming for non-Anthropic backends (see "LiteLLM Adapter Streaming Patch" below); `aviary_user_api_key.py` injects per-user Anthropic API keys from Vault (see "Per-User Anthropic API Key" below).
 
 **Portkey AI Gateway** (docker compose, internal `:8787`): Sits between LiteLLM and LLM backends as an AI gateway. LiteLLM routes all requests to Portkey via `api_base`, and Portkey forwards to the actual provider based on `x-portkey-provider` header. Provides guardrails, OpenTelemetry-based observability and tracing, request/response logging, and caching. Not exposed externally — only accessed by LiteLLM within the docker network.
 
-**Agent Supervisor** (K8s platform namespace, `:9000`): Manages all K8s resources and runtime operations. Has DB access for agent config and activity tracking. Exposes two API layers:
-- **Agent-centric API** (`/v1/agents/{id}/...`) — Used by the API server. Abstract operations: register, run, ready, wait, session message/abort/cleanup. Updates `last_activity_at` on every request. No K8s concepts exposed.
-- **K8s-specific API** (`/v1/namespaces/`, `/v1/deployments/`) — Used by the admin console. Direct namespace/deployment/NetworkPolicy management.
+**Agent Supervisor** (K8s platform namespace, `:9000`): Managed by `app/backends/` driver (K3S today). All endpoints are agent-id-centric:
+- **Agent-centric** (used by API server): `POST /v1/agents/{id}/register|run`, `GET /ready|/wait`, `POST /sessions/{sid}/publish|/abort`, `DELETE /sessions/{sid}`. The `/publish` endpoint is the SSE consumer → Redis publisher.
+- **Admin-facing** (used by admin console): `POST /v1/agents/{id}/ensure|/restart`, `PATCH /scale|/scale-to-zero`, `GET /status|/metrics`, `PUT|DELETE /identity`, `DELETE /deployment`.
 
-Runs background tasks: auto-scaling (30s interval, based on pod metrics vs `min_pods`/`max_pods`) and idle cleanup (5min interval, scales to zero when `last_activity_at` exceeds timeout).
+No background loops. Scaling (1↔N↔0) is entirely KEDA-driven. Supervisor only does 0→1 cold-start activation on demand.
 
-**Egress policy** is enforced at the K8s NetworkPolicy layer, keyed by the agent's ServiceAccount (K3S backend) or by Pod Security Group (planned EKS backends). Pre-registered "egress profiles" in the `egress-profiles` ConfigMap act as AWS SG equivalents in K3S — each profile is a list of NetworkPolicy egress rule fragments. Admin binds an agent to a profile via `PUT /v1/agents/{id}/identity {sg_ref}`.
+**Egress policy** is split into two layers:
+- **Baseline** (`k8s/platform/default-egress.yaml`): namespace-wide `NetworkPolicy` selecting `aviary/role=agent-runtime`; allows DNS + platform NS + gateway ports (LiteLLM 8090, MCP 8100, API 8000). Always in effect.
+- **Per-agent extras** (optional `ServiceAccount` binding): a `ServiceAccount` DB entity names a bundle of `sg_refs` (profile names). When an agent is bound, supervisor loads the referenced profiles from the `egress-profiles` ConfigMap, merges their egress rule fragments, and applies a per-agent `NetworkPolicy` scoped by `aviary/agent-id=<uuid>`. K8s NP evaluates as a disjunction, so this unions with baseline — matching AWS SG semantics.
+
+Agents with `service_account_id=NULL` get only baseline. Admin's UI: "— baseline only —" dropdown option vs named SAs.
 
 ## Critical Patterns & Gotchas
 
@@ -78,14 +93,10 @@ Keycloak tokens have `iss=http://localhost:8080/...` (browser URL), but API cont
 `model_config` is a reserved Pydantic class variable. Use `Field(alias="model_config")` with `model_config_data` as the Python field name. The `model_config = {...}` class var must be declared BEFORE field definitions. See `api/app/schemas/agent.py`.
 
 ### API Server Knows Nothing About Infrastructure
-The API server (`api/`) has no references to K8s concepts (namespace, pod, deployment, NetworkPolicy). It communicates with the agent supervisor via `agent_supervisor.py` which uses only `agent_id` and `session_id`. The Agent model's infrastructure fields (`namespace`, `pod_strategy`, `min_pods`, `max_pods`, `deployment_active`) exist in the shared DB model but the API never reads or writes them. Policy is not part of the API's schema — the API does not accept, return, or store policy data. Policy management is exclusively handled by the admin console.
+The API server (`api/`) has no K8s concepts (namespace, pod, deployment, NetworkPolicy). It talks to the supervisor via `agent_supervisor.py` using only `agent_id` and `session_id`. Policy / SA / scaling is owned by the admin console; the API never reads or writes those fields.
 
-### Agent Supervisor Dual API
-The supervisor exposes two layers:
-- `/v1/agents/{id}/register`, `/v1/agents/{id}/run`, `/v1/agents/{id}/ready`, `/v1/agents/{id}/sessions/{sid}/message` — agent-centric, used by API server. Updates `last_activity_at` in DB on every call.
-- `/v1/namespaces/`, `/v1/deployments/{ns}/ensure`, `/v1/deployments/{ns}/scale` — K8s-specific, used by admin console.
-
-The agent-centric API internally delegates to the K8s-specific endpoints, deriving namespace as `agent-{agent_id}`. The supervisor also has DB access (`shared/aviary_shared`) for reading agent scaling config and tracking activity.
+### Backend Abstraction (`agent-supervisor/app/backends/`)
+Supervisor logic is split behind a `RuntimeBackend` protocol (`backends/protocol.py`) composed of `WorkspaceStore` (PV/PVC provisioning), `IdentityBinder` (SA + SG binding), and lifecycle methods. `BACKEND_KIND` env var selects `k3s` / `eks_native` / `eks_fargate`. Only K3S is fully implemented; EKS entries are stubs for future work (EFS access points, `SecurityGroupPolicy`, Fargate profile). Router code never touches K8s directly — everything goes through the backend.
 
 ### claude-agent-sdk Multi-Turn (TypeScript)
 Uses the `query()` function from `@anthropic-ai/claude-agent-sdk` (TypeScript). TS SDK doesn't expose a `sessionId` option — Aviary session_id is injected via `extraArgs: { "session-id": sessionId }` which passes `--session-id <uuid>` to the CLI on the first message. Subsequent messages use `resume: sessionId` to load existing conversation history. Resume is determined by checking for existing JSONL in `<workspace>/.claude/projects/`. CLI session data persists on PVC at `<workspace>/.claude/`, accessible inside the bwrap sandbox at `/home/usr/.claude` (HOME=/home/usr). Runtime is a Node.js/Express server (`src/server.ts`) — no Python dependency. Agent config (instruction, tools, MCP servers) is sent by the API server in every message request body — no ConfigMap or on-disk config. MCP servers from agent config are passed through to the SDK via `mcpServers` option. The runtime emits a final `result` SSE event with metadata (`total_cost_usd`, `usage`, `duration_ms`, `num_turns`) from the SDK's `ResultMessage` — the API can opt in to consuming this for billing/logging.
@@ -107,13 +118,15 @@ All agents in the same session share `/workspace` via hostPath, enabling seamles
 ### GitHub Token Injection
 The API server fetches the user's GitHub token from Vault (`secret/aviary/credentials/{sub}/github-token`) on every message and passes it in `agent_config.credentials.github_token`. The runtime injects it as `GITHUB_TOKEN` and `GH_TOKEN` env vars, and configures a git credential helper (`scripts/git-credential-github.sh`) via `GIT_CONFIG_*` env vars. Inside the sandbox, both `git` and `gh` CLI are pre-authenticated — no MCP server needed for GitHub operations.
 
-### Auto-Scaling and Idle Cleanup
-Both run as background tasks in the agent supervisor (`agent-supervisor/app/scaling.py`):
-- **Auto-scaling** (30s interval): queries pod metrics directly from K8s, scales up/down based on sessions/pod vs `min_pods`/`max_pods` from DB.
-- **Idle cleanup** (5min interval): checks `last_activity_at` from DB against the configured timeout (default 7 days). Scales to zero if expired. The supervisor updates `last_activity_at` on every agent-centric API call, so any user interaction resets the idle timer.
+### KEDA-Driven Scaling
+Supervisor creates one `ScaledObject` per agent on `register_agent` (builder at `backends/_common/keda.py`). Trigger: PostgreSQL scaler counting active sessions (`SELECT COUNT(*) FROM sessions WHERE agent_id=$1 AND status='active'`), target 5 sessions/pod. `minReplicaCount=min_pods` (default 0), `maxReplicaCount=max_pods` (default 3), `cooldownPeriod=300s`. 0→1 cold-start is handled by supervisor's `ensure_active` (direct `replicas=1` patch) because KEDA polling would add up to 30s to first-request latency. KEDA takes over for 1→N and N→0. Requires a pre-provisioned `TriggerAuthentication` `aviary-postgres-auth` referencing a DB DSN `Secret` in the `agents` namespace.
 
 ### Egress Enforcement
-K8s NetworkPolicy (K3S) or Pod Security Group (EKS) selects agent pods by `aviary/agent-id` label and applies the rule set referenced by the agent's policy. In K3S the rule set is one of the named profiles in the `egress-profiles` ConfigMap; in EKS it is an AWS SG ID. Admin binds/unbinds via `agent-supervisor`'s `/v1/agents/{id}/identity` endpoint. CIDR management is an infra concern — the app layer only stores `sg_ref`.
+Two layers:
+- **Baseline NetworkPolicy** (`k8s/platform/default-egress.yaml`) — installed by `setup-dev.sh`, selects `aviary/role=agent-runtime` pods in the `agents` namespace. Allows DNS + platform NS + gateway ports (LiteLLM 8090, MCP 8100, API 8000). Always in effect.
+- **Per-agent extras** — optional. If the agent has a DB `ServiceAccount` attached, `admin.agent_lifecycle.sync_identity` → `supervisor.bind_identity(sg_refs)` merges the referenced profiles from the `egress-profiles` ConfigMap into a per-agent NetworkPolicy scoped by `aviary/agent-id=<uuid>`. Empty `sg_refs` / `service_account_id=NULL` → per-agent NP is deleted (baseline only).
+
+K3s enforces NetworkPolicies via bundled kube-router even with flannel CNI.
 
 ### Claude Code Managed Settings
 `runtime/config/managed-settings.json` is installed to `/etc/claude-code/managed-settings.json` (the hardcoded path Claude Code CLI reads on Linux). Currently sets `skipWebFetchPreflight: true` to prevent CLI from calling `api.anthropic.com/api/web/domain_info` before each WebFetch — this endpoint is unreachable in air-gapped/fintech environments. All model tiers (`ANTHROPIC_MODEL`, `ANTHROPIC_SMALL_FAST_MODEL`, `ANTHROPIC_DEFAULT_HAIKU_MODEL`, etc.) are remapped to the agent's configured model in `src/agent.ts` so that CLI internal tasks (WebFetch summarization, subagents) route through LiteLLM.
@@ -140,10 +153,17 @@ The runtime (`runtime/src/agent.ts`) handles two distinct streaming paths based 
 
 Both paths share the same counters so they never double-emit.
 
-### Thinking Block Support
-Thinking content flows through the full pipeline: runtime → supervisor (transparent SSE proxy) → API stream_manager → Redis pub/sub → WebSocket → frontend.
+### Chat Streaming Pipeline (API ↔ Supervisor ↔ Redis)
+The API server stays off the SSE data path. On a new message:
+1. `api/app/services/stream/manager.py` → POST `/v1/agents/{id}/sessions/{sid}/publish` (blocks until supervisor completes).
+2. Supervisor opens SSE to the runtime pod, and for every event: `redis_client.append_stream_chunk` (list for replay) + `redis_client.publish_message` (pub/sub for live WS). Returns `{status, reached_runtime}`.
+3. API fetches the full chunk list from Redis, uses `rebuild_blocks_from_chunks` + `merge_a2a_events` to assemble the final message, writes to DB, then publishes the `done` event with `messageId`.
+4. WS clients subscribe to `session:{id}:messages` pub/sub independently — they receive the live event stream without the API parsing SSE.
 
-- **stream_manager** (`api/app/services/stream_manager.py`): Buffers `thinking` events and flushes to `blocks_meta` before `chunk` (text) events and before `tool_use` events, preserving correct block ordering in saved messages.
+Workflow engine and A2A sub-agent paths (`routers/a2a.py`, `services/workflow_engine.py`) still use the older SSE `/message` endpoint — they need in-process event transformation, not the Redis bus.
+
+### Thinking Block Support
+- **stream_manager** (`api/app/services/stream/manager.py`): block assembly happens in `rebuild_blocks_from_chunks` — `thinking` events are folded into `blocks_meta` before `chunk` / `tool_use` events, preserving order in the saved message.
 - **Frontend**: `ThinkingChip` component (collapsible, default open during streaming) renders real-time thinking content. Saved messages restore thinking blocks via `SavedThinkingChip` (default closed). Thinking blocks are part of the `StreamBlock` union type alongside `TextBlock` and `ToolCallBlock`.
 
 ### K8s Image Loading
@@ -153,9 +173,9 @@ All K8s custom images use `imagePullPolicy: Never`. Loaded via `docker save | do
 `--node-name=aviary-node` in docker-compose.yml prevents stale node accumulation on container restart. Without it, PVCs bind to old node names causing scheduling failures.
 
 ### PVC Strategy
-Each agent gets a static, cluster-scoped PV (`agent-{agent_id}-workspace`) bound 1:1 to a per-namespace PVC (`agent-workspace`, 5Gi, `ReadWriteOnce`). The PV uses a deterministic hostPath at `/var/lib/aviary/agent-workspace/{agent_id}/` instead of going through the `local-path` provisioner — this is what lets `quick-rebuild full` wipe `k8sdata` (etcd + image cache) without losing chat history or per-agent Python venvs (which live on this PVC at `.venvs/{session_id}/`). The host directory is backed by a dedicated docker volume (`agent_workspace_pv`) so it's independent of the K3s cluster state. The cross-agent shared session workspace (`/workspace-shared`) is similarly backed by a separate `shared_workspace` docker volume so files an agent dropped for another agent in the same session also survive `quick-rebuild full`. Reclaim policy is `Retain`, so the host directory survives an accidental PV delete (e.g. cluster-state wipes) and can be re-bound on the next provisioning. Multi-node migration would replace the hostPath with `ReadWriteMany` storage (NFS, Longhorn) and drop the per-agent PV definition.
+Each agent gets a static, cluster-scoped PV named `agent-{agent_id}-workspace` (K3S `WorkspaceStore.ensure_agent_workspace`), bound 1:1 to a PVC of the same name in the `agents` namespace. PV uses a deterministic hostPath at `/var/lib/aviary/agent-workspace/{agent_id}/` instead of the `local-path` provisioner — this lets `quick-rebuild full` wipe `k8sdata` (etcd + image cache) without losing chat history or per-agent Python venvs (`.venvs/{session_id}/`). The host directory is backed by a dedicated docker volume (`agent_workspace_pv`), independent of K3s cluster state. The cross-agent shared session workspace (`/workspace-shared`) is similarly backed by a separate `shared_workspace` docker volume. Reclaim policy is `Retain` so host directories survive an accidental PV delete. Multi-node EKS migration would replace hostPath with EFS access points (`eks_fargate` backend stub).
 
-`delete_deployment` is the full agent teardown — it removes the Deployment, Service, PVC, and PV. The host directory still survives because reclaim is `Retain`; ops can clean up `/var/lib/aviary/agent-workspace/{agent_id}/` separately if disk pressure becomes an issue.
+`supervisor.unregister_agent` is the full teardown — removes Deployment, Service, PVC, PV, NetworkPolicy, and ScaledObject. Host directory survives (Retain); ops can clean up `/var/lib/aviary/agent-workspace/{agent_id}/` separately if disk pressure becomes an issue.
 
 ### React Strict Mode
 Use `useRef` guards for WebSocket connections and OIDC callbacks to prevent duplicate execution in dev mode.
@@ -245,12 +265,14 @@ docker compose restart litellm
 
 | Variable | Purpose |
 |----------|---------|
-| `DATABASE_URL` | PostgreSQL async connection (for agent config + activity tracking) |
+| `BACKEND_KIND` | `k3s` (default) / `eks_native` / `eks_fargate` |
+| `DATABASE_URL` | PostgreSQL DSN — only for KEDA's `TriggerAuthentication`; supervisor itself doesn't connect |
+| `REDIS_URL` | Redis DSN for publishing agent stream events (default: `redis://redis:6379/0`) |
 | `AGENT_RUNTIME_IMAGE` | Container image for agent Pods (default: `aviary-runtime:latest`) |
 | `HOST_GATEWAY_IP` | Host IP for Pod hostAliases (injected by setup script) |
-| `MAX_CONCURRENT_SESSIONS_PER_POD` | Max sessions per pod (default: 10) |
-| `SCALING_CHECK_INTERVAL` | Auto-scaling check interval in seconds (default: 30) |
-| `AGENT_IDLE_TIMEOUT` | Agent idle timeout in seconds (default: 604800 = 7 days) |
+| `MAX_CONCURRENT_SESSIONS_PER_POD` | KEDA scaling target, sessions per pod (default: 5) |
+| `INFERENCE_ROUTER_URL` / `LITELLM_API_KEY` | Injected into runtime pod env |
+| `MCP_GATEWAY_URL` / `AVIARY_API_URL` / `INTERNAL_API_KEY` | Injected into runtime pod env |
 
 ## Key Environment Variables (LiteLLM Gateway)
 

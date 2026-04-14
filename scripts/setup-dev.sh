@@ -61,9 +61,24 @@ docker save \
   | docker compose exec -T k8s ctr images import -
 echo "  All images loaded."
 
-# 6. Apply K8s platform manifests (namespace first, then the rest)
+# 6. Apply K8s platform manifests (namespace first, then KEDA, then the rest)
 echo "[6/7] Applying K8s platform resources..."
 docker compose exec -T k8s kubectl apply -f - < ./k8s/platform/namespace.yaml
+
+# KEDA — required before TriggerAuthentication / ScaledObject CRDs can apply.
+# Supervisor creates ScaledObjects per agent; its auto-scaling is no-op
+# without KEDA. Pinned version — bump deliberately.
+KEDA_VERSION="v2.15.1"
+echo "  Installing KEDA ${KEDA_VERSION}..."
+docker compose exec -T k8s kubectl apply --server-side -f \
+  "https://github.com/kedacore/keda/releases/download/${KEDA_VERSION}/keda-${KEDA_VERSION}.yaml" \
+  > /dev/null
+echo -n "  Waiting for KEDA operator..."
+docker compose exec -T k8s kubectl wait --for=condition=Available \
+  deployment/keda-operator deployment/keda-metrics-apiserver deployment/keda-admission \
+  -n keda --timeout=180s > /dev/null
+echo " ready."
+
 for f in ./k8s/platform/*.yaml; do
   [ "$(basename "$f")" = "namespace.yaml" ] && continue
   HOST_GATEWAY_IP="$K8S_GATEWAY_IP" envsubst '${HOST_GATEWAY_IP}' < "$f" \

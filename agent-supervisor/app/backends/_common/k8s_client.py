@@ -26,8 +26,15 @@ def new_client() -> httpx.AsyncClient:
     )
 
 
-async def k8s_apply(method: str, path: str, body: dict | None = None) -> dict:
-    """K8s request with idempotent 409/404 handling."""
+async def k8s_apply(
+    method: str, path: str, body: dict | None = None,
+    *, patch_type: str = "strategic-merge-patch+json",
+) -> dict:
+    """K8s request with idempotent 409/404 handling.
+
+    `patch_type` only applies when method == 'PATCH'. CRDs require
+    `merge-patch+json` (strategic merge is only defined for built-in types).
+    """
     async with new_client() as client:
         if method == "GET":
             resp = await client.get(path)
@@ -39,7 +46,7 @@ async def k8s_apply(method: str, path: str, body: dict | None = None) -> dict:
             resp = await client.patch(
                 path,
                 content=json.dumps(body),
-                headers={"Content-Type": "application/strategic-merge-patch+json"},
+                headers={"Content-Type": f"application/{patch_type}"},
             )
         elif method == "DELETE":
             resp = await client.delete(path)
@@ -57,7 +64,16 @@ async def k8s_apply(method: str, path: str, body: dict | None = None) -> dict:
 
 
 async def apply_or_replace(path: str, name: str, manifest: dict) -> None:
-    """POST; on 409 fall back to PUT to the named resource URL."""
+    """POST; on 409 fall back to merge-patch against the named resource.
+
+    Uses merge-patch (RFC 7396) rather than PUT — PUT requires a
+    `metadata.resourceVersion` round-trip and doesn't work on CRDs that
+    protect status subresources. Merge-patch is portable across native
+    types and CRDs.
+    """
     result = await k8s_apply("POST", path, manifest)
     if result.get("code") == 409 or result.get("reason") == "AlreadyExists":
-        await k8s_apply("PUT", f"{path}/{name}", manifest)
+        await k8s_apply(
+            "PATCH", f"{path}/{name}", manifest,
+            patch_type="merge-patch+json",
+        )

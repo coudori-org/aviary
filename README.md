@@ -4,7 +4,7 @@
 
 [한국어](./README.ko.md)
 
-Aviary is an enterprise platform where users can create, configure, and use purpose-built AI agents through a web UI. Each agent runs in an isolated Kubernetes namespace with long-running Pods that serve multiple sessions concurrently, isolated at the kernel level via bubblewrap sandboxing.
+Aviary is an enterprise platform where users can create, configure, and use purpose-built AI agents through a web UI. Each agent runs as a long-running Kubernetes Deployment in a shared namespace, serving multiple sessions concurrently, isolated at the kernel level via bubblewrap sandboxing and at the network level via baseline + per-agent NetworkPolicies.
 
 ## Architecture
 
@@ -55,25 +55,26 @@ Aviary is an enterprise platform where users can create, configure, and use purp
     │   │                   Kubernetes Cluster                    │
     │   │                                                        │
     │   │  ┌─── NS: platform ──────────────────────────────────┐ │
-    │   │  │  ┌─────────────────┐  ┌────────────────────────┐  │ │
-    │   │  │  │  Egress Proxy   │  │  Agent Supervisor      │  │ │
-    │   │  │  │  (forward proxy │  │  (K8s lifecycle,       │  │ │
-    │   │  │  │   + allowlist)  │  │   auto-scaling,        │  │ │
-    │   │  │  │                 │  │   idle cleanup)        │  │ │
-    │   │  │  └────────┬────────┘  └────────────────────────┘  │ │
-    │   │  │           ▼                                        │ │
-    │   │  │     External APIs (GitHub, S3, ...)                │ │
+    │   │  │  ┌────────────────────────────────────────────┐    │ │
+    │   │  │  │ Agent Supervisor                           │    │ │
+    │   │  │  │ (activator + SSE→Redis publisher,          │    │ │
+    │   │  │  │  NetworkPolicy + ScaledObject mgmt)        │    │ │
+    │   │  │  └────────────────────────────────────────────┘    │ │
+    │   │  │   KEDA (scaling 0↔N) · kube-router (NP enforce)    │ │
     │   │  └────────────────────────────────────────────────────┘ │
     │   │                                                        │
-    │   │  ┌─── NS: agent-{id} ──────────────────────────────┐   │
-    │   │  │  Agent Pod (1-N replicas)                        │   │
-    │   │  │  claude-agent-sdk + Claude Code CLI + Python     │   │
-    │   │  │  bwrap sandbox · shared home · per-agent .claude │   │
-    │   │  │                                                  │   │
-    │   │  │  LLM ──▶ LiteLLM    NetworkPolicy:              │   │
-    │   │  │  Tools ▶ MCP GW     deny-by-default             │   │
-    │   │  │  HTTP ──▶ Egress    A2A ──▶ API Server           │   │
-    │   │  └──────────────────────────────────────────────────┘   │
+    │   │  ┌─── NS: agents ───────────────────────────────────┐  │
+    │   │  │  baseline NetworkPolicy (DNS + platform +        │  │
+    │   │  │    LiteLLM + MCP GW + API)                       │  │
+    │   │  │                                                  │  │
+    │   │  │  Agent Deployment × N  (one per agent)           │  │
+    │   │  │  claude-agent-sdk + Claude Code CLI + Python     │  │
+    │   │  │  bwrap sandbox · shared home · per-agent .claude │  │
+    │   │  │                                                  │  │
+    │   │  │  LLM ──▶ LiteLLM                                 │  │
+    │   │  │  Tools ▶ MCP GW                                  │  │
+    │   │  │  External APIs ▶ only if attached SG allows      │  │
+    │   │  └──────────────────────────────────────────────────┘  │
     │   └────────────────────────────────────────────────────────┘
     │
     └─▶ PostgreSQL · Redis · Keycloak · Vault
@@ -81,13 +82,16 @@ Aviary is an enterprise platform where users can create, configure, and use purp
 
 ## Key Features
 
-- **Agent-per-Pod with Multi-Session** — Each agent gets a long-running Deployment (1-N replicas) serving multiple sessions concurrently, auto-scaled based on session load
+- **Agent-per-Deployment with Multi-Session** — Each agent gets a Deployment scaled 0↔N by KEDA; multiple sessions share the same pods, isolated by per-session bwrap workdirs
+- **Portable Runtime Backend** — `RuntimeBackend` protocol (K3S today; EKS Native / EKS Fargate stubs) — workspace, identity, and lifecycle ops behind one interface
 - **Bubblewrap Session Isolation** — Each session runs in a kernel-level mount namespace; agents in the same session share a workspace directory for file exchange, while each agent's `.claude/` context is isolated via PVC overlay
 - **Agent-to-Agent (A2A)** — Agents invoke other agents via `@mention` in instructions or chat messages; sub-agent tool calls render inline under the parent tool card in real-time
 - **MCP Gateway** — Centralized tool management via [Model Context Protocol](https://modelcontextprotocol.io/); admin registers MCP servers, tools are auto-discovered, users bind tools to agents with per-user ACL (default-deny)
 - **LiteLLM + Portkey Gateway** — Two-layer LLM gateway: [LiteLLM](https://github.com/BerriAI/litellm) for model routing and per-user API key injection, [Portkey](https://github.com/portkey-ai/gateway) for guardrails, tracing, and caching
 - **Multi-Backend Inference** — Claude API, Ollama, vLLM, AWS Bedrock; add new backends via config
-- **Egress Control** — Deny-by-default outbound proxy with per-agent allowlists (CIDR, domain, wildcard); changes apply immediately
+- **AWS-style Egress** — Namespace-wide baseline NetworkPolicy + optional per-agent ServiceAccount binding extra SG profiles; rules union just like AWS SGs
+- **KEDA-Driven Scaling** — PostgreSQL scaler counts active sessions per agent; supervisor handles the cold-start 0→1 synchronously, KEDA owns 1↔N↔0
+- **Redis-Decoupled Streaming** — Supervisor consumes runtime SSE and publishes to Redis; API server and WebSocket clients subscribe independently
 - **Live Config** — Agent instruction and tools update from DB on every message turn, no Pod restarts
 - **OIDC + ACL** — Keycloak/Okta auth with team sync; role hierarchy (`viewer` < `user` < `admin` < `owner`)
 - **Vault Secrets** — Per-user API keys and tool credentials injected at gateway level, never exposed to Pods
