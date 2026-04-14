@@ -55,7 +55,7 @@
       <span class="text-muted">Created</span>
       <span>{{ agent.created_at.strftime('%Y-%m-%d %H:%M') }}</span>
       <span class="text-muted">Last Activity</span>
-      <span>{{ policy_obj.last_activity_at.strftime('%Y-%m-%d %H:%M') if policy_obj and policy_obj.last_activity_at else '—' }}</span>
+      <span>{{ last_activity.strftime('%Y-%m-%d %H:%M') if last_activity else '—' }}</span>
     </div>
   </div>
   <div class="card">

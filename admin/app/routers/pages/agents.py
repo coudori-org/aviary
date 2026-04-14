@@ -6,11 +6,11 @@ import logging
 import httpx
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from aviary_shared.db.models import Agent, ServiceAccount
+from aviary_shared.db.models import Agent, ServiceAccount, Session as SessionModel
 from app.db import get_db
 from app.services import agent_lifecycle, supervisor_client
 from app.routers.pages._templates import templates
@@ -29,7 +29,6 @@ async def agent_list(
     per_page = 20
     offset = (page - 1) * per_page
 
-    from sqlalchemy import func
     count_result = await db.execute(select(func.count()).select_from(Agent))
     total = count_result.scalar() or 0
     total_pages = max(1, (total + per_page - 1) // per_page)
@@ -38,6 +37,18 @@ async def agent_list(
         select(Agent).order_by(Agent.created_at.desc()).offset(offset).limit(per_page).options(selectinload(Agent.policy))
     )
     agents = list(result.scalars().all())
+
+    # Last activity = most recent session message per agent. One grouped query
+    # bounded to the current page's agent IDs.
+    agent_ids = [a.id for a in agents]
+    activity_map: dict[str, "datetime | None"] = {}
+    if agent_ids:
+        activity_rows = await db.execute(
+            select(SessionModel.agent_id, func.max(SessionModel.last_message_at))
+            .where(SessionModel.agent_id.in_(agent_ids))
+            .group_by(SessionModel.agent_id)
+        )
+        activity_map = {str(aid): ts for aid, ts in activity_rows.all()}
 
     deployment_map: dict[str, dict] = {}
     for agent in agents:
@@ -58,6 +69,7 @@ async def agent_list(
     return templates.TemplateResponse(request, "agents.html", {
         "agents": agents,
         "deployments": deployment_map,
+        "last_activity": activity_map,
         "page": page,
         "total_pages": total_pages,
         "total": total,
@@ -79,6 +91,11 @@ async def agent_detail(
 
     sa_result = await db.execute(select(ServiceAccount).order_by(ServiceAccount.name))
     service_accounts = list(sa_result.scalars().all())
+
+    last_activity = (await db.execute(
+        select(func.max(SessionModel.last_message_at))
+        .where(SessionModel.agent_id == agent.id)
+    )).scalar_one_or_none()
 
     deployment_status = {"state": "inactive", "active": False, "replicas": 0, "ready_replicas": 0}
     try:
@@ -115,6 +132,7 @@ async def agent_detail(
         "policy": policy_rules,
         "policy_obj": policy_obj,
         "service_accounts": service_accounts,
+        "last_activity": last_activity,
         "flash": flash_data,
     })
 

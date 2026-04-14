@@ -22,7 +22,6 @@ class Policy(Base):
     min_pods: Mapped[int] = mapped_column(default=0, server_default="0")
     max_pods: Mapped[int] = mapped_column(default=3, server_default="3")
     policy_rules: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default="{}")
-    last_activity_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now()

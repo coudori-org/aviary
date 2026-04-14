@@ -51,8 +51,6 @@
       <span>{{ policy_obj.min_pods if policy_obj else 0 }}</span>
       <span class="text-muted">Max Pods</span>
       <span>{{ policy_obj.max_pods if policy_obj else 3 }}</span>
-      <span class="text-muted">Last Activity</span>
-      <span>{{ policy_obj.last_activity_at.strftime('%Y-%m-%d %H:%M') if policy_obj and policy_obj.last_activity_at else '—' }}</span>
     </div>
   </div>
 </div>
