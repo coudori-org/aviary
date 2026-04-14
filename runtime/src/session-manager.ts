@@ -1,11 +1,15 @@
 /**
- * Per-Pod concurrency limiter and per-session mutex for the agent runtime.
+ * Session registry + per-session mutex for the agent runtime.
+ *
+ * No hard concurrency cap — KEDA (on the supervisor side) triggers pod
+ * scale-up when average active sessions per pod exceeds its target.
+ * Transient overshoot during scale-up is accepted; new pods absorb
+ * the next batch of sessions as they become Ready.
  */
 
 import * as fs from "node:fs";
 import * as path from "node:path";
 import {
-  DEFAULT_MAX_CONCURRENT_SESSIONS,
   SHARED_WORKSPACE_ROOT,
   WORKSPACE_ROOT,
   sessionClaudeDir,
@@ -15,11 +19,6 @@ import {
 } from "./constants.js";
 
 export { WORKSPACE_ROOT, SHARED_WORKSPACE_ROOT };
-
-const MAX_CONCURRENT_SESSIONS = parseInt(
-  process.env.MAX_CONCURRENT_SESSIONS ?? String(DEFAULT_MAX_CONCURRENT_SESSIONS),
-  10,
-);
 
 export interface SessionEntry {
   sessionId: string;
@@ -59,28 +58,15 @@ function createMutex() {
 
 export class SessionManager {
   private _sessions = new Map<string, SessionEntry>();
-  readonly maxSessions: number;
-
-  constructor(maxSessions = MAX_CONCURRENT_SESSIONS) {
-    this.maxSessions = maxSessions;
-  }
 
   get activeCount(): number {
     return this._sessions.size;
-  }
-
-  get hasCapacity(): boolean {
-    return this.activeCount < this.maxSessions;
   }
 
   getOrCreate(sessionId: string, agentId: string): SessionEntry {
     const key = `${sessionId}/${agentId}`;
     const existing = this._sessions.get(key);
     if (existing) return existing;
-
-    if (!this.hasCapacity) {
-      throw new Error(`Pod at capacity (${this.maxSessions} sessions)`);
-    }
 
     const home = sessionHome(sessionId);
     fs.mkdirSync(home, { recursive: true });

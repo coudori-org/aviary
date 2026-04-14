@@ -24,12 +24,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get update && apt-get install -y --no-install-recommends gh \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Claude Code CLI globally + undici for proxy support
-# Node 22's built-in fetch() ignores HTTP_PROXY. Installing undici as a
-# standalone package allows proxy-bootstrap.js to set EnvHttpProxyAgent
-# as the global dispatcher via require('undici'). (Node 24+ has NODE_USE_ENV_PROXY.)
 ARG NPM_CONFIG_REGISTRY
-RUN npm install -g @anthropic-ai/claude-code undici \
+RUN npm install -g @anthropic-ai/claude-code \
     && chmod +x /usr/local/lib/node_modules/@anthropic-ai/claude-code/vendor/ripgrep/*/rg
 
 # Replace `claude` binary with bubblewrap sandbox wrapper.

@@ -10,7 +10,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from aviary_shared.db.models import Agent
-from aviary_shared.naming import agent_namespace
 from app.db import get_db
 from app.services import agent_lifecycle, supervisor_client
 
@@ -54,9 +53,8 @@ async def get_deployment_status(agent_id: uuid.UUID, db: AsyncSession = Depends(
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
 
-    ns = agent_namespace(str(agent.id))
     try:
-        status_info = await supervisor_client.get_deployment_status(ns)
+        status_info = await supervisor_client.get_deployment_status(str(agent.id))
     except httpx.HTTPStatusError as e:
         if e.response.status_code == 404:
             # Deployment genuinely does not exist (never activated or already torn down).
@@ -68,8 +66,7 @@ async def get_deployment_status(agent_id: uuid.UUID, db: AsyncSession = Depends(
 
     policy = agent.policy
     return {
-        "pod_strategy": policy.pod_strategy if policy else "lazy",
-        "min_pods": policy.min_pods if policy else 1,
+        "min_pods": policy.min_pods if policy else 0,
         "max_pods": policy.max_pods if policy else 3,
         **status_info,
     }
@@ -122,11 +119,8 @@ async def scale_agent(
         agent.policy.max_pods = body.max_pods
     await db.flush()
 
-    min_pods = agent.policy.min_pods
-    max_pods = agent.policy.max_pods
-    ns = agent_namespace(str(agent.id))
     try:
-        status = await supervisor_client.get_deployment_status(ns)
+        status = await supervisor_client.get_deployment_status(str(agent.id))
     except httpx.HTTPStatusError as e:
         if e.response.status_code == 404:
             return {"status": "scaled", "replicas": body.replicas, "applied": False}
@@ -134,7 +128,7 @@ async def scale_agent(
 
     if status.get("replicas", 0) > 0 or status.get("ready_replicas", 0) > 0:
         try:
-            await supervisor_client.scale_deployment(ns, body.replicas, min_pods, max_pods)
+            await supervisor_client.scale_deployment(str(agent.id), body.replicas)
         except httpx.HTTPError as e:
             raise HTTPException(status_code=502, detail=f"Scale failed: {e}") from e
 

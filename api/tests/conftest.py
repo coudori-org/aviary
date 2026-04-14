@@ -98,6 +98,7 @@ _TABLES = [
     "messages", "session_participants", "sessions",
     "agent_credentials", "agent_acl", "agents",
     "team_members", "teams", "users",
+    "service_accounts",
 ]
 
 

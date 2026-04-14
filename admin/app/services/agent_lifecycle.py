@@ -10,59 +10,75 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from aviary_shared.db.models import Agent, Session as SessionModel
-from aviary_shared.naming import agent_namespace
 
 from app.services import supervisor_client
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_K8S_SA = "default"
+
 
 async def activate(agent: Agent) -> None:
-    ns = agent_namespace(str(agent.id))
     policy = agent.policy
     policy_rules = policy.policy_rules if policy else {}
-    min_pods = policy.min_pods if policy else 1
+    min_pods = policy.min_pods if policy else 0
     max_pods = policy.max_pods if policy else 3
+    image = policy_rules.get("containerImage") if policy_rules else None
+    cpu_limit = policy_rules.get("maxCpuPerSession") if policy_rules else None
+    memory_limit = policy_rules.get("maxMemoryPerSession") if policy_rules else None
 
-    try:
-        await supervisor_client.create_namespace(
-            agent_id=str(agent.id), owner_id=str(agent.owner_id),
-            policy=policy_rules,
-        )
-    except httpx.HTTPStatusError as e:
-        if e.response.status_code != 409:
-            raise
-
-    await supervisor_client.ensure_deployment(
-        namespace=ns,
+    sa = agent.service_account
+    sa_name = sa.name if sa else DEFAULT_K8S_SA
+    await supervisor_client.ensure_agent(
         agent_id=str(agent.id),
         owner_id=str(agent.owner_id),
-        policy=policy_rules,
+        image=image,
+        sa_name=sa_name,
         min_pods=min_pods,
         max_pods=max_pods,
+        cpu_limit=cpu_limit,
+        memory_limit=memory_limit,
     )
+    await _sync_identity(agent)
+
+
+async def _sync_identity(agent: Agent) -> None:
+    """Apply the agent's SA-scoped egress rules on top of the namespace baseline.
+
+    No SA or empty sg_refs → unbind any per-agent NetworkPolicy (baseline
+    still applies). SA with sg_refs → per-agent NetworkPolicy with those SGs.
+    """
+    sa = agent.service_account
+    sg_refs = list(sa.sg_refs) if sa and sa.sg_refs else []
+    try:
+        if sg_refs:
+            await supervisor_client.bind_identity(
+                str(agent.id), sg_refs, sa_name=sa.name,
+            )
+        else:
+            await supervisor_client.unbind_identity(str(agent.id))
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code != 404:
+            logger.warning("Identity sync failed for agent %s", agent.id, exc_info=True)
+    except httpx.HTTPError:
+        logger.warning("Identity sync failed for agent %s", agent.id, exc_info=True)
 
 
 async def deactivate(agent: Agent) -> None:
-    await supervisor_client.scale_to_zero(agent_namespace(str(agent.id)))
+    await supervisor_client.scale_to_zero(str(agent.id))
 
 
 async def rolling_restart(agent: Agent) -> None:
-    await supervisor_client.rolling_restart(agent_namespace(str(agent.id)))
+    await supervisor_client.rolling_restart(str(agent.id))
 
 
 async def delete_agent(db: AsyncSession, agent: Agent) -> None:
     """Tear down K8s resources then drop the agent from DB. 404s ignored."""
-    ns = agent_namespace(str(agent.id))
-    for cleanup in (
-        lambda: supervisor_client.delete_deployment(ns),
-        lambda: supervisor_client.delete_namespace(str(agent.id)),
-    ):
-        try:
-            await cleanup()
-        except httpx.HTTPStatusError as e:
-            if e.response.status_code != 404:
-                raise
+    try:
+        await supervisor_client.delete_agent(str(agent.id))
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code != 404:
+            raise
 
     await db.execute(delete(SessionModel).where(SessionModel.agent_id == agent.id))
     await db.delete(agent)
@@ -71,6 +87,13 @@ async def delete_agent(db: AsyncSession, agent: Agent) -> None:
 
 async def find_agent_or_none(db: AsyncSession, agent_id) -> Agent | None:
     result = await db.execute(
-        select(Agent).where(Agent.id == agent_id).options(selectinload(Agent.policy))
+        select(Agent).where(Agent.id == agent_id).options(
+            selectinload(Agent.policy), selectinload(Agent.service_account),
+        )
     )
     return result.scalar_one_or_none()
+
+
+async def sync_identity(agent: Agent) -> None:
+    """Public helper for policy routers — apply SA egress rules after DB update."""
+    await _sync_identity(agent)

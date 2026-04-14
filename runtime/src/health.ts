@@ -1,26 +1,17 @@
 /**
- * Health and readiness probes for the agent runtime.
+ * Liveness / readiness probes.
  *
- * Capacity is reported by the server via setCapacityProbe() so this module
- * does not import SessionManager directly.
+ * Readiness only reports whether the server has finished booting — it does
+ * NOT gate on session count. KEDA handles scale-up based on session load;
+ * there's no hard per-pod cap.
  */
 
 import { Router, type Request, type Response } from "express";
 
-interface CapacityProbe {
-  hasCapacity: boolean;
-  activeCount: number;
-}
-
 let _ready = false;
-let _capacityProbe: (() => CapacityProbe) | null = null;
 
 export function setReady(ready = true): void {
   _ready = ready;
-}
-
-export function setCapacityProbe(probe: () => CapacityProbe): void {
-  _capacityProbe = probe;
 }
 
 export const healthRouter = Router();
@@ -34,13 +25,5 @@ healthRouter.get("/ready", (_req: Request, res: Response) => {
     res.status(503).json({ status: "not_ready" });
     return;
   }
-  if (!_capacityProbe) {
-    throw new Error("Health: capacity probe not registered");
-  }
-  const probe = _capacityProbe();
-  if (!probe.hasCapacity) {
-    res.status(503).json({ status: "at_capacity", active: probe.activeCount });
-    return;
-  }
-  res.json({ status: "ready", active: probe.activeCount });
+  res.json({ status: "ready" });
 });

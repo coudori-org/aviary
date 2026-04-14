@@ -68,11 +68,6 @@ if [ -x "$VENV_HOST/bin/python" ]; then
     VENV_BIND=(--bind "$VENV_HOST" "$VENV_GUEST")
 fi
 
-# Ensure Node.js fetch() respects proxy env vars inside the sandbox.
-if [ -f /app/scripts/proxy-bootstrap.js ] && [ -n "${HTTP_PROXY:-}" ]; then
-    export NODE_OPTIONS="--require /app/scripts/proxy-bootstrap.js ${NODE_OPTIONS:-}"
-fi
-
 exec bwrap \
     --ro-bind / / \
     --dev /dev \

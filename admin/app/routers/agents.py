@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from aviary_shared.db.models import Agent
 from app.db import get_db
@@ -34,12 +35,17 @@ class AgentResponse(BaseModel):
     category: str | None = None
     icon: str | None = None
     policy_id: str | None = None
+    policy: dict
+    min_pods: int
+    max_pods: int
+    service_account_id: str | None
     status: str
     created_at: str
     updated_at: str
 
     @classmethod
     def from_agent(cls, agent: Agent) -> "AgentResponse":
+        policy = agent.policy
         return cls(
             id=str(agent.id),
             name=agent.name,
@@ -54,6 +60,10 @@ class AgentResponse(BaseModel):
             category=agent.category,
             icon=agent.icon,
             policy_id=str(agent.policy_id) if agent.policy_id else None,
+            policy=policy.policy_rules if policy else {},
+            min_pods=policy.min_pods if policy else 0,
+            max_pods=policy.max_pods if policy else 3,
+            service_account_id=str(agent.service_account_id) if agent.service_account_id else None,
             status=agent.status,
             created_at=agent.created_at.isoformat(),
             updated_at=agent.updated_at.isoformat(),
@@ -89,7 +99,8 @@ async def list_agents(
     total = count_result.scalar() or 0
 
     result = await db.execute(
-        select(Agent).order_by(Agent.created_at.desc()).offset(offset).limit(limit)
+        select(Agent).options(selectinload(Agent.policy))
+        .order_by(Agent.created_at.desc()).offset(offset).limit(limit)
     )
     agents = result.scalars().all()
 
@@ -101,7 +112,9 @@ async def list_agents(
 
 @router.get("/{agent_id}", response_model=AgentResponse)
 async def get_agent(agent_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(Agent).where(Agent.id == agent_id))
+    result = await db.execute(
+        select(Agent).where(Agent.id == agent_id).options(selectinload(Agent.policy))
+    )
     agent = result.scalar_one_or_none()
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
@@ -114,7 +127,9 @@ async def update_agent(
     body: AgentUpdateRequest,
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(select(Agent).where(Agent.id == agent_id))
+    result = await db.execute(
+        select(Agent).where(Agent.id == agent_id).options(selectinload(Agent.policy))
+    )
     agent = result.scalar_one_or_none()
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")

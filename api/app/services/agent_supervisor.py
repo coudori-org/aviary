@@ -65,8 +65,23 @@ async def wait_for_agent_ready(agent_id: str, timeout: int = 90) -> bool:
 
 
 def get_stream_url(agent_id: str, session_id: str) -> str:
-    """Get the SSE stream URL for sending a message to an agent session."""
+    """SSE stream URL for sub-agent / workflow callers that still need raw SSE."""
     return f"{settings.agent_supervisor_url}/v1/agents/{agent_id}/sessions/{session_id}/message"
+
+
+async def publish_stream(agent_id: str, session_id: str, body: dict) -> dict:
+    """Ask the supervisor to consume runtime SSE and publish events to Redis.
+
+    Returns `{status: 'complete'|'error', reached_runtime: bool, message?: str}`.
+    Events are available to the caller via the shared Redis stream buffer and
+    pub/sub channel — the HTTP response here is only a completion summary.
+    """
+    resp = await _supervisor.client.post(
+        f"/v1/agents/{agent_id}/sessions/{session_id}/publish",
+        json=body, timeout=None,
+    )
+    resp.raise_for_status()
+    return resp.json()
 
 
 async def abort_session(agent_id: str, session_id: str) -> None:

@@ -1,64 +1,43 @@
-"""Aviary Agent Supervisor — K8s gateway + infrastructure manager.
+"""Agent Supervisor — activator + SSE proxy + Redis publisher.
 
-Runs inside the K8s platform namespace. Manages agent runtime resources:
-- K8s namespace/deployment/service/PVC lifecycle
-- Auto-scaling based on session load
-- Idle cleanup (scale to zero after inactivity)
-- Activity tracking via DB (last_activity_at)
+Scaling (1→N, N→0) is owned by KEDA. The supervisor only activates idle
+agents (0→1) on demand, consumes runtime SSE, and publishes events to
+Redis (for WS broadcast + replay buffer) so the API stays off the SSE path.
 """
 
-import asyncio
 import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from app.routers import agents, deployments, namespaces, streaming
-from app import scaling
+from app.backends import get_backend
+from app.config import settings
+from app import redis_client
+from app.routers import agents, deployments
 
 logging.basicConfig(level=logging.INFO)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    scaling_task = asyncio.create_task(scaling.scaling_loop())
-    cleanup_task = asyncio.create_task(scaling.idle_cleanup_loop())
-
-    yield
-
-    scaling_task.cancel()
-    cleanup_task.cancel()
+    await redis_client.init_redis()
     try:
-        await scaling_task
-    except asyncio.CancelledError:
-        pass
-    try:
-        await cleanup_task
-    except asyncio.CancelledError:
-        pass
+        yield
+    finally:
+        await redis_client.close_redis()
 
 
-app = FastAPI(title="Aviary Agent Supervisor", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="Aviary Agent Supervisor", version="0.3.0", lifespan=lifespan)
 
 app.include_router(agents.router, prefix="/v1", tags=["agents"])
-app.include_router(namespaces.router, prefix="/v1", tags=["namespaces"])
-app.include_router(deployments.router, prefix="/v1", tags=["deployments"])
-app.include_router(streaming.router, prefix="/v1", tags=["streaming"])
+app.include_router(deployments.router, prefix="/v1", tags=["admin"])
 
 
 @app.get("/v1/health")
 async def health():
-    """Health check — verifies K8s API connectivity."""
-    from app.k8s import k8s_apply
-
-    k8s_ok = False
-    try:
-        await k8s_apply("GET", "/api/v1/namespaces/platform")
-        k8s_ok = True
-    except Exception:  # Best-effort: health check probes K8s connectivity
-        pass
-
+    backend = get_backend()
+    ok = await backend.health()
     return {
-        "status": "ok" if k8s_ok else "degraded",
-        "k8s": "connected" if k8s_ok else "unavailable",
+        "status": "ok" if ok else "degraded",
+        "backend": settings.backend_kind,
     }

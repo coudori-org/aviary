@@ -5,3 +5,11 @@ metadata:
   labels:
     aviary/namespace: platform
     aviary/managed: "true"
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: agents
+  labels:
+    aviary/namespace: agents
+    aviary/managed: "true"

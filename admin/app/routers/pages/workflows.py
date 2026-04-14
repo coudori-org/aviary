@@ -12,7 +12,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from aviary_shared.db.models import Workflow, Policy
-from aviary_shared.naming import agent_namespace
 from app.db import get_db
 from app.services import supervisor_client
 from app.routers.pages._templates import templates
@@ -38,9 +37,8 @@ async def workflow_list(request: Request, page: int = 1, db: AsyncSession = Depe
 
     deployment_map: dict[str, dict] = {}
     for wf in workflows:
-        ns = agent_namespace(str(wf.id))
         try:
-            status_info = await supervisor_client.get_deployment_status(ns)
+            status_info = await supervisor_client.get_deployment_status(str(wf.id))
             ready = status_info.get("ready_replicas") or 0
             deployment_map[str(wf.id)] = {"state": "active" if ready > 0 else "inactive", "ready": ready}
         except httpx.HTTPStatusError as e:
@@ -71,9 +69,8 @@ async def workflow_detail(
     if not workflow:
         return RedirectResponse("/workflows?error=Workflow+not+found", status_code=303)
 
-    ns = agent_namespace(str(workflow.id))
     try:
-        dep_info = await supervisor_client.get_deployment_status(ns)
+        dep_info = await supervisor_client.get_deployment_status(str(workflow.id))
         deployment_status = {
             "active": (dep_info.get("ready_replicas") or 0) > 0,
             "state": "active" if (dep_info.get("ready_replicas") or 0) > 0 else "inactive",
@@ -89,14 +86,12 @@ async def workflow_detail(
 
     policy_obj = workflow.policy
     policy_rules = policy_obj.policy_rules if policy_obj else {}
-    egress_rules = policy_rules.get("allowedEgress", [])
 
     return templates.TemplateResponse(request, "workflow_detail.html", {
         "workflow": workflow,
         "deployment": deployment_status,
         "policy": policy_rules,
         "policy_obj": policy_obj,
-        "egress_rules": egress_rules,
     })
 
 
@@ -121,52 +116,14 @@ async def update_workflow_policy(
         workflow.policy = policy_obj
 
     policy_obj = workflow.policy
-    policy_obj.pod_strategy = form.get("pod_strategy") or policy_obj.pod_strategy
     policy_obj.min_pods = int(form.get("min_pods") or policy_obj.min_pods)
     policy_obj.max_pods = int(form.get("max_pods") or policy_obj.max_pods)
 
     policy_rules = dict(policy_obj.policy_rules) if policy_obj.policy_rules else {}
     policy_rules["maxMemoryPerSession"] = form.get("max_memory") or "4Gi"
     policy_rules["maxCpuPerSession"] = form.get("max_cpu") or "4"
-    policy_rules["maxConcurrentSessions"] = int(form.get("max_concurrent_sessions") or 20)
-
-    names = form.getlist("egress_name[]")
-    types = form.getlist("egress_type[]")
-    targets = form.getlist("egress_target[]")
-    ports_list = form.getlist("egress_ports[]")
-    egress_rules = []
-    for i in range(len(names)):
-        name = names[i].strip()
-        target = targets[i].strip() if i < len(targets) else ""
-        if not name or not target:
-            continue
-        rule = {"name": name}
-        if i < len(types) and types[i] == "cidr":
-            rule["cidr"] = target
-        else:
-            rule["domain"] = target
-        ports_str = ports_list[i].strip() if i < len(ports_list) else ""
-        ports = []
-        if ports_str:
-            for p in ports_str.split(","):
-                p = p.strip()
-                if p.isdigit():
-                    ports.append({"port": int(p), "protocol": "TCP"})
-        rule["ports"] = ports
-        egress_rules.append(rule)
-
-    policy_rules["allowedEgress"] = egress_rules
     policy_obj.policy_rules = policy_rules
     await db.flush()
-
-    ns = agent_namespace(str(workflow.id))
-    try:
-        await supervisor_client.update_network_policy(ns, policy_rules)
-    except httpx.HTTPStatusError as e:
-        if e.response.status_code != 404:
-            logger.warning("NetworkPolicy sync failed for workflow %s", workflow.id, exc_info=True)
-    except httpx.HTTPError:
-        logger.warning("NetworkPolicy sync failed for workflow %s", workflow.id, exc_info=True)
 
     return RedirectResponse(f"/workflows/{workflow_id}?flash=Policy+saved", status_code=303)
 
@@ -178,9 +135,8 @@ async def delete_workflow(workflow_id: uuid.UUID, db: AsyncSession = Depends(get
     if not workflow:
         return RedirectResponse("/workflows?error=Not+found", status_code=303)
 
-    ns = agent_namespace(str(workflow.id))
     try:
-        await supervisor_client.delete_deployment(ns)
+        await supervisor_client.delete_agent(str(workflow.id))
     except httpx.HTTPStatusError as e:
         if e.response.status_code != 404:
             logger.warning("Cleanup failed for workflow %s", workflow.id, exc_info=True)

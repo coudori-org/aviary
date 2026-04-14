@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import ForeignKey, String, func
+from sqlalchemy import func
 from sqlalchemy.dialects.postgresql import JSONB, TIMESTAMP, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -19,12 +19,9 @@ class Policy(Base):
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, server_default=func.gen_random_uuid()
     )
 
-    pod_strategy: Mapped[str] = mapped_column(String(20), default="lazy", server_default="lazy")
-    min_pods: Mapped[int] = mapped_column(default=1, server_default="1")
+    min_pods: Mapped[int] = mapped_column(default=0, server_default="0")
     max_pods: Mapped[int] = mapped_column(default=3, server_default="3")
     policy_rules: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default="{}")
-    resource_limits: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default="{}")
-    last_activity_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now()

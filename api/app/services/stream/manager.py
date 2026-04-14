@@ -7,7 +7,6 @@ Decouples agent response streaming from WebSocket lifecycle so that:
 """
 
 import asyncio
-import json
 import logging
 import uuid
 
@@ -22,11 +21,7 @@ from app.db.models import SessionParticipant
 from app.db.session import async_session_factory
 from app.services import agent_supervisor, redis_service, session_service, vault_service
 from app.services.stream.a2a import merge_a2a_events
-from app.services.stream.blocks import (
-    attach_tool_results,
-    rebuild_blocks_from_chunks,
-    truncate_tool_result,
-)
+from app.services.stream.blocks import rebuild_blocks_from_chunks
 
 logger = logging.getLogger(__name__)
 
@@ -215,108 +210,36 @@ async def _run_stream(
             content_part["attachments"] = resolved
     content_parts = [content_part] if content_part else []
 
-    full_response = ""
-    blocks_meta: list[dict] = []
-    current_thinking = ""
-    current_text = ""
-    tool_results: dict[str, dict] = {}
-    # True once runtime emits a real SSE event (not an error), meaning
-    # query() was invoked and the message is in SDK conversation history.
+    # Reached-runtime = the SDK ack'd our query and the user message is in
+    # conversation history, so we must NOT rollback on subsequent errors.
     reached_runtime = False
 
     try:
-        stream_url = agent_supervisor.get_stream_url(agent_id, session_id)
-
-        if not stream_url:
-            raise RuntimeError("Agent stream URL not available")
-        
-        async with httpx.AsyncClient() as client:
-            async with client.stream(
-                "POST",
-                stream_url,
-                json={
-                    "content_parts": content_parts,
-                    "session_id": session_id,
-                    "model_config_data": agent_model_config,
-                    "agent_config": {
-                        "instruction": agent_instruction,
-                        "tools": agent_tools,
-                        "mcp_servers": build_mcp_config(agent_mcp_servers),
-                        "policy": agent_policy,
-                        "user_token": user_token,
-                        "user_external_id": user_external_id,
-                        **({"credentials": credentials} if credentials else {}),
-                        **({"accessible_agents": accessible_agents} if accessible_agents else {}),
-                    },
+        result = await agent_supervisor.publish_stream(
+            agent_id=agent_id,
+            session_id=session_id,
+            body={
+                "content_parts": content_parts,
+                "session_id": session_id,
+                "model_config_data": agent_model_config,
+                "agent_config": {
+                    "instruction": agent_instruction,
+                    "tools": agent_tools,
+                    "mcp_servers": build_mcp_config(agent_mcp_servers),
+                    "policy": agent_policy,
+                    "user_token": user_token,
+                    "user_external_id": user_external_id,
+                    **({"credentials": credentials} if credentials else {}),
+                    **({"accessible_agents": accessible_agents} if accessible_agents else {}),
                 },
-                timeout=None,
-            ) as resp:
-                async for line in resp.aiter_lines():
-                    if not line.startswith("data: "):
-                        continue
-                    chunk_data = json.loads(line[6:])
-                    chunk_type = chunk_data.get("type")
+            },
+        )
+        reached_runtime = bool(result.get("reached_runtime"))
+        if result.get("status") != "complete":
+            raise RuntimeError(result.get("message", "Agent runtime error"))
 
-                    if chunk_type == "query_started":
-                        reached_runtime = True
-                        continue
-
-                    if chunk_type == "chunk":
-                        if current_thinking:
-                            blocks_meta.append({"type": "thinking", "content": current_thinking})
-                            current_thinking = ""
-                        chunk_text = chunk_data["content"]
-                        full_response += chunk_text
-                        current_text += chunk_text
-                        chunk_event = {"type": "chunk", "content": chunk_text}
-                        await redis_service.append_stream_chunk(session_id, chunk_event)
-                        await redis_service.publish_message(session_id, chunk_event)
-                    elif chunk_type == "tool_use":
-                        if current_thinking:
-                            blocks_meta.append({"type": "thinking", "content": current_thinking})
-                            current_thinking = ""
-                        if current_text:
-                            blocks_meta.append({"type": "text", "content": current_text})
-                            current_text = ""
-                        tool_block: dict = {
-                            "type": "tool_call",
-                            "name": chunk_data.get("name"),
-                            "input": chunk_data.get("input"),
-                            "tool_use_id": chunk_data.get("tool_use_id"),
-                        }
-                        if chunk_data.get("parent_tool_use_id"):
-                            tool_block["parent_tool_use_id"] = chunk_data["parent_tool_use_id"]
-                        blocks_meta.append(tool_block)
-                        await redis_service.append_stream_chunk(session_id, chunk_data)
-                        await redis_service.publish_message(session_id, chunk_data)
-                    elif chunk_type == "tool_result":
-                        tid = chunk_data.get("tool_use_id")
-                        result_content = truncate_tool_result(chunk_data.get("content", ""))
-                        if tid:
-                            tool_results[tid] = {
-                                "content": result_content,
-                                "is_error": chunk_data.get("is_error", False),
-                            }
-                        result_data = {**chunk_data, "content": result_content}
-                        await redis_service.append_stream_chunk(session_id, result_data)
-                        await redis_service.publish_message(session_id, result_data)
-                    elif chunk_type == "tool_progress":
-                        await redis_service.publish_message(session_id, chunk_data)
-                    elif chunk_type == "error":
-                        raise RuntimeError(chunk_data.get("message", "Agent runtime error"))
-                    elif chunk_type == "thinking":
-                        thinking_text = chunk_data.get("content", "")
-                        current_thinking += thinking_text
-                        await redis_service.append_stream_chunk(session_id, chunk_data)
-                        await redis_service.publish_message(session_id, chunk_data)
-
-        # Flush remaining thinking and text, then attach tool results
-        if current_thinking:
-            blocks_meta.append({"type": "thinking", "content": current_thinking})
-        if current_text:
-            blocks_meta.append({"type": "text", "content": current_text})
-        attach_tool_results(blocks_meta, tool_results)
-
+        chunks = await redis_service.get_stream_chunks(session_id)
+        full_response, blocks_meta = rebuild_blocks_from_chunks(chunks)
         await merge_a2a_events(session_id, blocks_meta)
 
         meta = {"blocks": blocks_meta} if blocks_meta else None

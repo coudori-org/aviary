@@ -5,7 +5,6 @@
 # Usage:
 #   ./scripts/quick-rebuild.sh runtime           # Rebuild runtime image + load to K8s
 #   ./scripts/quick-rebuild.sh agent-supervisor  # Rebuild agent-supervisor + load to K8s
-#   ./scripts/quick-rebuild.sh egress            # Rebuild egress-proxy + load to K8s
 #   ./scripts/quick-rebuild.sh k8s              # All K8s images
 #   ./scripts/quick-rebuild.sh compose          # Rebuild docker compose services
 #   ./scripts/quick-rebuild.sh full             # docker compose down -v + setup-dev.sh
@@ -61,10 +60,8 @@ rebuild_runtime() {
   docker build "${BUILD_ARGS[@]}" -t aviary-runtime:latest ./runtime/
   load_k8s_image "aviary-runtime:latest"
   echo -e "${CYAN}Rolling restart runtime pods...${NC}"
-  docker compose exec -T k8s sh -c \
-    'for ns in $(kubectl get ns -l aviary/managed=true -o name 2>/dev/null); do
-       kubectl rollout restart deployment -n "${ns#namespace/}" 2>/dev/null || true
-     done' 2>/dev/null || true
+  docker compose exec -T k8s kubectl rollout restart deployment -n agents \
+    -l aviary/role=agent-runtime 2>/dev/null || true
 }
 
 rebuild_agent_supervisor() {
@@ -75,14 +72,6 @@ rebuild_agent_supervisor() {
   docker compose exec -T k8s kubectl rollout restart deployment/agent-supervisor -n platform
 }
 
-rebuild_egress() {
-  echo -e "${BOLD}Rebuilding egress-proxy...${NC}"
-  docker build "${BUILD_ARGS[@]}" -t aviary-egress-proxy:latest ./egress-proxy/
-  load_k8s_image "aviary-egress-proxy:latest"
-  echo -e "${CYAN}Restarting egress-proxy deployment...${NC}"
-  docker compose exec -T k8s kubectl rollout restart deployment/egress-proxy -n platform
-}
-
 case "$TARGET" in
   runtime)
     rebuild_runtime
@@ -90,13 +79,9 @@ case "$TARGET" in
   agent-supervisor)
     rebuild_agent_supervisor
     ;;
-  egress)
-    rebuild_egress
-    ;;
   k8s)
     rebuild_runtime
     rebuild_agent_supervisor
-    rebuild_egress
     ;;
   compose)
     echo -e "${BOLD}Rebuilding compose services...${NC}"
@@ -122,8 +107,7 @@ case "$TARGET" in
     echo "Targets:"
     echo "  runtime            Rebuild runtime image + load to K8s + rolling restart"
     echo "  agent-supervisor   Rebuild agent-supervisor + load to K8s + restart"
-    echo "  egress             Rebuild egress-proxy + load to K8s + restart"
-    echo "  k8s                All K8s images (runtime + agent-supervisor + egress)"
+    echo "  k8s                All K8s images (runtime + agent-supervisor)"
     echo "  compose            Rebuild docker compose services (hot-reload)"
     echo "  full               Full rebuild — preserves DB, Vault, and per-agent chat history"
     echo "  full-clean         Full rebuild — wipes all volumes including chat history"

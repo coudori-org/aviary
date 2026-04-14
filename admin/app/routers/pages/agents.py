@@ -6,12 +6,11 @@ import logging
 import httpx
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from aviary_shared.db.models import Agent
-from aviary_shared.naming import agent_namespace
+from aviary_shared.db.models import Agent, ServiceAccount, Session as SessionModel
 from app.db import get_db
 from app.services import agent_lifecycle, supervisor_client
 from app.routers.pages._templates import templates
@@ -30,7 +29,6 @@ async def agent_list(
     per_page = 20
     offset = (page - 1) * per_page
 
-    from sqlalchemy import func
     count_result = await db.execute(select(func.count()).select_from(Agent))
     total = count_result.scalar() or 0
     total_pages = max(1, (total + per_page - 1) // per_page)
@@ -40,11 +38,22 @@ async def agent_list(
     )
     agents = list(result.scalars().all())
 
+    # Last activity = most recent session message per agent. One grouped query
+    # bounded to the current page's agent IDs.
+    agent_ids = [a.id for a in agents]
+    activity_map: dict[str, "datetime | None"] = {}
+    if agent_ids:
+        activity_rows = await db.execute(
+            select(SessionModel.agent_id, func.max(SessionModel.last_message_at))
+            .where(SessionModel.agent_id.in_(agent_ids))
+            .group_by(SessionModel.agent_id)
+        )
+        activity_map = {str(aid): ts for aid, ts in activity_rows.all()}
+
     deployment_map: dict[str, dict] = {}
     for agent in agents:
-        ns = agent_namespace(str(agent.id))
         try:
-            status_info = await supervisor_client.get_deployment_status(ns)
+            status_info = await supervisor_client.get_deployment_status(str(agent.id))
             ready = status_info.get("ready_replicas") or 0
             deployment_map[str(agent.id)] = {"state": "active" if ready > 0 else "inactive", "ready": ready}
         except httpx.HTTPStatusError as e:
@@ -60,6 +69,7 @@ async def agent_list(
     return templates.TemplateResponse(request, "agents.html", {
         "agents": agents,
         "deployments": deployment_map,
+        "last_activity": activity_map,
         "page": page,
         "total_pages": total_pages,
         "total": total,
@@ -70,15 +80,26 @@ async def agent_list(
 async def agent_detail(
     request: Request, agent_id: uuid.UUID, db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(select(Agent).where(Agent.id == agent_id).options(selectinload(Agent.policy)))
+    result = await db.execute(
+        select(Agent).where(Agent.id == agent_id).options(
+            selectinload(Agent.policy), selectinload(Agent.service_account),
+        )
+    )
     agent = result.scalar_one_or_none()
     if not agent:
         return HTMLResponse("<h1>Agent not found</h1>", status_code=404)
 
-    ns = agent_namespace(str(agent.id))
+    sa_result = await db.execute(select(ServiceAccount).order_by(ServiceAccount.name))
+    service_accounts = list(sa_result.scalars().all())
+
+    last_activity = (await db.execute(
+        select(func.max(SessionModel.last_message_at))
+        .where(SessionModel.agent_id == agent.id)
+    )).scalar_one_or_none()
+
     deployment_status = {"state": "inactive", "active": False, "replicas": 0, "ready_replicas": 0}
     try:
-        status_info = await supervisor_client.get_deployment_status(ns)
+        status_info = await supervisor_client.get_deployment_status(str(agent.id))
         replicas = status_info.get("replicas", 0)
         ready = status_info.get("ready_replicas", 0)
         deployment_status = {
@@ -97,7 +118,6 @@ async def agent_detail(
 
     policy_obj = agent.policy
     policy_rules = policy_obj.policy_rules if policy_obj else {}
-    egress_rules = policy_rules.get("allowedEgress", [])
     flash = request.query_params.get("flash")
     flash_data = None
     if flash:
@@ -111,7 +131,8 @@ async def agent_detail(
         "deployment": deployment_status,
         "policy": policy_rules,
         "policy_obj": policy_obj,
-        "egress_rules": egress_rules,
+        "service_accounts": service_accounts,
+        "last_activity": last_activity,
         "flash": flash_data,
     })
 
@@ -147,7 +168,9 @@ async def update_policy(
 ):
     from aviary_shared.db.models import Policy
     result = await db.execute(
-        select(Agent).where(Agent.id == agent_id).options(selectinload(Agent.policy))
+        select(Agent).where(Agent.id == agent_id).options(
+            selectinload(Agent.policy), selectinload(Agent.service_account),
+        )
     )
     agent = result.scalar_one_or_none()
     if not agent:
@@ -155,7 +178,6 @@ async def update_policy(
 
     form = await request.form()
 
-    # Ensure policy entity exists
     if not agent.policy:
         policy_obj = Policy()
         db.add(policy_obj)
@@ -165,60 +187,25 @@ async def update_policy(
 
     policy_obj = agent.policy
 
-    # Parse scaling fields
-    policy_obj.pod_strategy = form.get("pod_strategy") or policy_obj.pod_strategy
     policy_obj.min_pods = int(form.get("min_pods") or policy_obj.min_pods)
     policy_obj.max_pods = int(form.get("max_pods") or policy_obj.max_pods)
 
-    # Build policy rules dict
     policy_rules = dict(policy_obj.policy_rules) if policy_obj.policy_rules else {}
     policy_rules["maxMemoryPerSession"] = form.get("max_memory", "4Gi")
     policy_rules["maxCpuPerSession"] = form.get("max_cpu", "4")
-    policy_rules["maxConcurrentSessions"] = int(form.get("max_concurrent_sessions") or 20)
-    policy_rules["maxTokensPerTurn"] = int(form.get("max_tokens_per_turn") or 100000)
     policy_rules["containerImage"] = form.get("container_image") or "aviary-runtime:latest"
-    policy_rules["maxConcurrentSessionsPerPod"] = int(form.get("max_sessions_per_pod") or 10)
-    # Parse egress rules
-    names = form.getlist("egress_name[]")
-    types = form.getlist("egress_type[]")
-    targets = form.getlist("egress_target[]")
-    ports_list = form.getlist("egress_ports[]")
-
-    egress_rules = []
-    for i in range(len(names)):
-        name = names[i].strip()
-        target = targets[i].strip() if i < len(targets) else ""
-        if not name or not target:
-            continue
-        rule = {"name": name}
-        if i < len(types) and types[i] == "cidr":
-            rule["cidr"] = target
-        else:
-            rule["domain"] = target
-        ports_str = ports_list[i].strip() if i < len(ports_list) else ""
-        ports = []
-        if ports_str:
-            for p in ports_str.split(","):
-                p = p.strip()
-                if p.isdigit():
-                    ports.append({"port": int(p), "protocol": "TCP"})
-        rule["ports"] = ports
-        egress_rules.append(rule)
-
-    policy_rules["allowedEgress"] = egress_rules
     policy_obj.policy_rules = policy_rules
-    await db.flush()
 
-    ns = agent_namespace(str(agent.id))
+    sa_id_raw = form.get("service_account_id")
+    agent.service_account_id = uuid.UUID(sa_id_raw) if sa_id_raw else None
+    await db.flush()
+    await db.refresh(agent, attribute_names=["service_account"])
+
     try:
-        await supervisor_client.update_network_policy(ns, policy_rules)
-    except httpx.HTTPStatusError as e:
-        if e.response.status_code != 404:
-            logger.warning("NetworkPolicy update failed for agent %s", agent.id, exc_info=True)
-            return RedirectResponse(f"/agents/{agent_id}?error=Policy+saved+but+K8s+sync+failed:+{e}", status_code=303)
+        await agent_lifecycle.sync_identity(agent)
     except httpx.HTTPError as e:
-        logger.warning("NetworkPolicy update failed for agent %s", agent.id, exc_info=True)
-        return RedirectResponse(f"/agents/{agent_id}?error=Policy+saved+but+K8s+sync+failed:+{e}", status_code=303)
+        logger.warning("Identity sync failed for agent %s", agent.id, exc_info=True)
+        return RedirectResponse(f"/agents/{agent_id}?error=Policy+saved+but+sync+failed:+{e}", status_code=303)
 
     return RedirectResponse(f"/agents/{agent_id}?flash=Policy+saved", status_code=303)
 

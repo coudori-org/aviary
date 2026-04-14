@@ -25,6 +25,9 @@ rules:
   - apiGroups: ["networking.k8s.io"]
     resources: [networkpolicies]
     verbs: [get, list, create, update, patch, delete]
+  - apiGroups: ["keda.sh"]
+    resources: [scaledobjects]
+    verbs: [get, list, create, update, patch, delete]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -73,17 +76,19 @@ spec:
             - name: HOST_GATEWAY_IP
               value: "${HOST_GATEWAY_IP}"
             - name: MAX_CONCURRENT_SESSIONS_PER_POD
-              value: "10"
+              value: "5"
+            - name: SESSION_IDLE_THRESHOLD_SECONDS
+              value: "300"
             - name: DATABASE_URL
               value: "postgresql+asyncpg://aviary:aviary@host.k8s.internal:5432/aviary"
+            - name: REDIS_URL
+              value: "redis://host.k8s.internal:6379/0"
             - name: INFERENCE_ROUTER_URL
               value: "http://litellm.platform.svc:4000"
             - name: MCP_GATEWAY_URL
               value: "http://mcp-gateway.platform.svc:8100"
             - name: LITELLM_API_KEY
               value: "sk-aviary-dev"
-            - name: EGRESS_PROXY_URL
-              value: "http://egress-proxy.platform.svc:8080"
             - name: AVIARY_API_URL
               value: "http://host.k8s.internal:8000/api"
             - name: INTERNAL_API_KEY

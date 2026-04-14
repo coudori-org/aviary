@@ -50,21 +50,19 @@
         <span class="badge badge-offline">inactive</span>
       {% endif %}
       </span>
-      <span class="text-muted">Namespace</span>
-      <span class="text-mono">agent-{{ agent.id }}</span>
+      <span class="text-muted">Service Account</span>
+      <span class="mono">{{ agent.service_account.name if agent.service_account else 'baseline only' }}</span>
       <span class="text-muted">Created</span>
       <span>{{ agent.created_at.strftime('%Y-%m-%d %H:%M') }}</span>
       <span class="text-muted">Last Activity</span>
-      <span>{{ policy_obj.last_activity_at.strftime('%Y-%m-%d %H:%M') if policy_obj and policy_obj.last_activity_at else '—' }}</span>
+      <span>{{ last_activity.strftime('%Y-%m-%d %H:%M') if last_activity else '—' }}</span>
     </div>
   </div>
   <div class="card">
     <div class="card-header"><h3>Scaling</h3></div>
     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 13px;">
-      <span class="text-muted">Pod Strategy</span>
-      <span>{{ policy_obj.pod_strategy if policy_obj else 'lazy' }}</span>
       <span class="text-muted">Min Pods</span>
-      <span>{{ policy_obj.min_pods if policy_obj else 1 }}</span>
+      <span>{{ policy_obj.min_pods if policy_obj else 0 }}</span>
       <span class="text-muted">Max Pods</span>
       <span>{{ policy_obj.max_pods if policy_obj else 3 }}</span>
     </div>
@@ -107,19 +105,11 @@
     <div class="card-header"><h2>Infrastructure Policy</h2></div>
 
     <div class="section-title">Scaling</div>
-    <div class="form-row-3">
-      <div class="form-group">
-        <label>Pod Strategy</label>
-        <select name="pod_strategy">
-          {% set ps = policy_obj.pod_strategy if policy_obj else 'lazy' %}
-          <option value="lazy" {{ 'selected' if ps == 'lazy' }}>Lazy</option>
-          <option value="eager" {{ 'selected' if ps == 'eager' }}>Eager</option>
-          <option value="manual" {{ 'selected' if ps == 'manual' }}>Manual</option>
-        </select>
-      </div>
+    <div class="form-row">
       <div class="form-group">
         <label>Min Pods</label>
-        <input type="number" name="min_pods" value="{{ policy_obj.min_pods if policy_obj else 1 }}" min="0" max="20">
+        <input type="number" name="min_pods" value="{{ policy_obj.min_pods if policy_obj else 0 }}" min="0" max="20">
+        <small class="text-muted">0 = scale-to-zero when idle (KEDA handles 0↔N).</small>
       </div>
       <div class="form-group">
         <label>Max Pods</label>
@@ -128,65 +118,39 @@
     </div>
 
     <div class="section-title">Resource Limits</div>
-    <div class="form-row-3">
+    <div class="form-row">
       <div class="form-group">
-        <label>Max Memory per Session</label>
-        <input name="max_memory" value="{{ policy.maxMemoryPerSession | default('4Gi') }}">
-      </div>
-      <div class="form-group">
-        <label>Max CPU per Session</label>
+        <label>CPU limit (per pod)</label>
         <input name="max_cpu" value="{{ policy.maxCpuPerSession | default('4') }}">
       </div>
       <div class="form-group">
-        <label>Max Concurrent Sessions</label>
-        <input type="number" name="max_concurrent_sessions" value="{{ policy.maxConcurrentSessions | default(20) }}">
+        <label>Memory limit (per pod)</label>
+        <input name="max_memory" value="{{ policy.maxMemoryPerSession | default('4Gi') }}">
       </div>
     </div>
-    <div class="form-row-3">
-      <div class="form-group">
-        <label>Max Tokens per Turn</label>
-        <input type="number" name="max_tokens_per_turn" value="{{ policy.maxTokensPerTurn | default(100000) }}">
-      </div>
-      <div class="form-group">
-        <label>Container Image</label>
-        <input name="container_image" value="{{ policy.containerImage | default('aviary-runtime:latest') }}">
-      </div>
-      <div class="form-group">
-        <label>Sessions per Pod</label>
-        <input type="number" name="max_sessions_per_pod" value="{{ policy.maxConcurrentSessionsPerPod | default(10) }}">
-      </div>
+    <div class="form-group">
+      <label>Container Image</label>
+      <input name="container_image" value="{{ policy.containerImage | default('aviary-runtime:latest') }}">
     </div>
 
-    <div class="section-title">Network Policy (Egress Rules)</div>
-    <p class="text-sm text-dim mb-4">All outbound traffic is blocked by default. Add rules to allow specific destinations.</p>
-
-    <div id="egress-rules">
-      {% for rule in egress_rules %}
-      <div class="egress-rule" data-index="{{ loop.index0 }}">
-        <div class="form-group">
-          <label>Name</label>
-          <input name="egress_name[]" value="{{ rule.name }}" placeholder="e.g. GitHub API">
-        </div>
-        <div class="form-group">
-          <label>Type</label>
-          <select name="egress_type[]" onchange="toggleEgressField(this)">
-            <option value="domain" {{ 'selected' if rule.domain is defined and rule.domain is not none }}>Domain</option>
-            <option value="cidr" {{ 'selected' if rule.cidr is defined and rule.cidr is not none }}>CIDR</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label>Target</label>
-          <input name="egress_target[]" value="{{ rule.domain or rule.cidr or '' }}" placeholder="*.example.com or 10.0.0.0/8">
-        </div>
-        <div class="form-group">
-          <label>Ports</label>
-          <input name="egress_ports[]" value="{{ rule.ports | map(attribute='port') | join(', ') if rule.ports else '' }}" placeholder="443, 8080">
-        </div>
-        <button type="button" class="btn-remove" onclick="this.closest('.egress-rule').remove()" title="Remove">✕</button>
-      </div>
-      {% endfor %}
+    <div class="section-title">Egress Identity</div>
+    <p class="text-sm text-dim mb-4">
+      Every agent pod is subject to the namespace baseline egress policy
+      (DNS, platform services, LLM/MCP/API gateways). Optionally attach a
+      service account to grant extra SGs on top. Manage SAs on the
+      <a href="/service-accounts">Service Accounts</a> page.
+    </p>
+    <div class="form-group">
+      <label>Service Account</label>
+      <select name="service_account_id">
+        <option value="" {{ 'selected' if not agent.service_account_id }}>— baseline only —</option>
+        {% for sa in service_accounts %}
+        <option value="{{ sa.id }}" {{ 'selected' if sa.id == agent.service_account_id }}>
+          {{ sa.name }} — {{ sa.sg_refs | join(', ') or '(empty)' }}
+        </option>
+        {% endfor %}
+      </select>
     </div>
-    <button type="button" class="btn btn-sm mt-4" onclick="addEgressRule()">+ Add Egress Rule</button>
 
     <div class="mt-4">
       <button type="submit" class="btn btn-primary">Save Policy</button>
@@ -212,34 +176,6 @@
 
 {% block scripts %}
 <script>
-function addEgressRule() {
-  const container = document.getElementById('egress-rules');
-  const html = `
-    <div class="egress-rule">
-      <div class="form-group">
-        <label>Name</label>
-        <input name="egress_name[]" placeholder="e.g. GitHub API">
-      </div>
-      <div class="form-group">
-        <label>Type</label>
-        <select name="egress_type[]">
-          <option value="domain">Domain</option>
-          <option value="cidr">CIDR</option>
-        </select>
-      </div>
-      <div class="form-group">
-        <label>Target</label>
-        <input name="egress_target[]" placeholder="*.example.com or 10.0.0.0/8">
-      </div>
-      <div class="form-group">
-        <label>Ports</label>
-        <input name="egress_ports[]" placeholder="443, 8080">
-      </div>
-      <button type="button" class="btn-remove" onclick="this.closest('.egress-rule').remove()" title="Remove">✕</button>
-    </div>`;
-  container.insertAdjacentHTML('beforeend', html);
-}
-
 const AGENT_ID = '{{ agent.id }}';
 
 function showFlash(message, type, { pulse = false, autoDismiss = false } = {}) {
@@ -343,14 +279,14 @@ function submitForm(form, successMsg) {
       btn.style.opacity = '';
     });
 
-  return false;  // Prevent default form submit
+  return false;
 }
 
 async function syncPolicy(agentId) {
   try {
     const resp = await fetch(`/api/agents/${agentId}/policy/sync`, { method: 'POST' });
     const data = await resp.json();
-    showFlash(`Sync: Redis=${data.synced.redis}, NetworkPolicy=${data.synced.network_policy}`, 'success', { autoDismiss: true });
+    showFlash(`Synced: identity=${data.synced.identity}`, 'success', { autoDismiss: true });
   } catch (e) {
     showFlash('Sync failed: ' + e.message, 'error');
   }
