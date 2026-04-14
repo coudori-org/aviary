@@ -1,0 +1,61 @@
+# Egress profiles — AWS SG equivalents for the K3S backend.
+#
+# Each data key `{profile}.json` is a JSON array of NetworkPolicy egress rule
+# fragments. `IdentityBinder.bind_identity(agent_id, sa_name, sg_ref)` looks
+# up the profile named by `sg_ref` and applies it as a NetworkPolicy scoped
+# to the agent's pods (by `aviary/agent-id` label).
+#
+# ${HOST_GATEWAY_IP} is substituted by setup-dev.sh at apply time.
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: egress-profiles
+  namespace: platform
+  labels:
+    aviary/service: egress-profiles
+data:
+  # Base profile — DNS, platform services, LLM/MCP/API gateways.
+  default.json: |
+    [
+      {
+        "to": [{"namespaceSelector": {}, "podSelector": {"matchLabels": {"k8s-app": "kube-dns"}}}],
+        "ports": [{"port": 53, "protocol": "UDP"}]
+      },
+      {
+        "to": [{"namespaceSelector": {"matchLabels": {"aviary/namespace": "platform"}}}],
+        "ports": [{"port": 8080, "protocol": "TCP"}]
+      },
+      {
+        "to": [{"ipBlock": {"cidr": "${HOST_GATEWAY_IP}/32"}}],
+        "ports": [
+          {"port": 8000, "protocol": "TCP"},
+          {"port": 8090, "protocol": "TCP"},
+          {"port": 8100, "protocol": "TCP"}
+        ]
+      }
+    ]
+  # Example: default + github.com range (140.82.112.0/20).
+  github.json: |
+    [
+      {
+        "to": [{"namespaceSelector": {}, "podSelector": {"matchLabels": {"k8s-app": "kube-dns"}}}],
+        "ports": [{"port": 53, "protocol": "UDP"}]
+      },
+      {
+        "to": [{"namespaceSelector": {"matchLabels": {"aviary/namespace": "platform"}}}],
+        "ports": [{"port": 8080, "protocol": "TCP"}]
+      },
+      {
+        "to": [{"ipBlock": {"cidr": "${HOST_GATEWAY_IP}/32"}}],
+        "ports": [
+          {"port": 8000, "protocol": "TCP"},
+          {"port": 8090, "protocol": "TCP"},
+          {"port": 8100, "protocol": "TCP"}
+        ]
+      },
+      {
+        "to": [{"ipBlock": {"cidr": "140.82.112.0/20"}}],
+        "ports": [{"port": 443, "protocol": "TCP"}]
+      }
+    ]

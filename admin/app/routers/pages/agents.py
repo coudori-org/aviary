@@ -11,7 +11,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from aviary_shared.db.models import Agent
-from aviary_shared.naming import agent_namespace
 from app.db import get_db
 from app.services import agent_lifecycle, supervisor_client
 from app.routers.pages._templates import templates
@@ -42,9 +41,8 @@ async def agent_list(
 
     deployment_map: dict[str, dict] = {}
     for agent in agents:
-        ns = agent_namespace(str(agent.id))
         try:
-            status_info = await supervisor_client.get_deployment_status(ns)
+            status_info = await supervisor_client.get_deployment_status(str(agent.id))
             ready = status_info.get("ready_replicas") or 0
             deployment_map[str(agent.id)] = {"state": "active" if ready > 0 else "inactive", "ready": ready}
         except httpx.HTTPStatusError as e:
@@ -75,10 +73,9 @@ async def agent_detail(
     if not agent:
         return HTMLResponse("<h1>Agent not found</h1>", status_code=404)
 
-    ns = agent_namespace(str(agent.id))
     deployment_status = {"state": "inactive", "active": False, "replicas": 0, "ready_replicas": 0}
     try:
-        status_info = await supervisor_client.get_deployment_status(ns)
+        status_info = await supervisor_client.get_deployment_status(str(agent.id))
         replicas = status_info.get("replicas", 0)
         ready = status_info.get("ready_replicas", 0)
         deployment_status = {
@@ -206,19 +203,15 @@ async def update_policy(
         egress_rules.append(rule)
 
     policy_rules["allowedEgress"] = egress_rules
+    policy_rules["sg_ref"] = form.get("sg_ref") or policy_rules.get("sg_ref")
     policy_obj.policy_rules = policy_rules
     await db.flush()
 
-    ns = agent_namespace(str(agent.id))
     try:
-        await supervisor_client.update_network_policy(ns, policy_rules)
-    except httpx.HTTPStatusError as e:
-        if e.response.status_code != 404:
-            logger.warning("NetworkPolicy update failed for agent %s", agent.id, exc_info=True)
-            return RedirectResponse(f"/agents/{agent_id}?error=Policy+saved+but+K8s+sync+failed:+{e}", status_code=303)
+        await agent_lifecycle.sync_identity(agent)
     except httpx.HTTPError as e:
-        logger.warning("NetworkPolicy update failed for agent %s", agent.id, exc_info=True)
-        return RedirectResponse(f"/agents/{agent_id}?error=Policy+saved+but+K8s+sync+failed:+{e}", status_code=303)
+        logger.warning("Identity sync failed for agent %s", agent.id, exc_info=True)
+        return RedirectResponse(f"/agents/{agent_id}?error=Policy+saved+but+sync+failed:+{e}", status_code=303)
 
     return RedirectResponse(f"/agents/{agent_id}?flash=Policy+saved", status_code=303)
 

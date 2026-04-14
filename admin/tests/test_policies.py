@@ -145,4 +145,5 @@ async def test_force_sync_policy_without_namespace(client: AsyncClient, seed_age
 
     assert resp.status_code == 200
     data = resp.json()
-    assert data["synced"]["network_policy"] is False  # No namespace
+    # No sg_ref in policy → unbind_identity is attempted (mocked, returns success).
+    assert data["synced"]["identity"] is True

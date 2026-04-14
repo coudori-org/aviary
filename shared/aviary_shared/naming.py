@@ -1,18 +1,34 @@
 """Centralized naming conventions for Aviary resources."""
 
-# K8s resource names — used by agent-supervisor and admin console
-DEPLOYMENT_NAME = "agent-runtime"
-SERVICE_NAME = "agent-runtime-svc"
-PVC_NAME = "agent-workspace"
-PVC_SIZE = "5Gi"
-RUNTIME_PORT = 3000
-NETWORK_POLICY_NAME = "session-egress"
-RESOURCE_QUOTA_NAME = "session-quota"
-SERVICE_ACCOUNT_NAME = "session-runner"
 PLATFORM_NAMESPACE = "platform"
-NETWORK_POLICY_BASE_CONFIGMAP = "network-policy-base"
+AGENTS_NAMESPACE = "agents"
+
+RUNTIME_PORT = 3000
+PVC_SIZE = "5Gi"
 
 PV_HOST_ROOT = "/var/lib/aviary/agent-workspace"
+
+LABEL_ROLE = "aviary/role"
+LABEL_AGENT_ID = "aviary/agent-id"
+LABEL_OWNER = "aviary/owner"
+LABEL_MANAGED = "aviary/managed"
+LABEL_SG_REF = "aviary/sg-ref"
+
+ROLE_RUNTIME = "agent-runtime"
+
+DEFAULT_SA_NAME = "agent-default-sa"
+
+
+def agent_deployment_name(agent_id: str) -> str:
+    return f"agent-{agent_id}"
+
+
+def agent_service_name(agent_id: str) -> str:
+    return f"agent-{agent_id}-svc"
+
+
+def agent_pvc_name(agent_id: str) -> str:
+    return f"agent-{agent_id}-workspace"
 
 
 def agent_pv_name(agent_id: str) -> str:
@@ -23,20 +39,23 @@ def agent_pv_host_path(agent_id: str) -> str:
     return f"{PV_HOST_ROOT}/{agent_id}"
 
 
-# K8s labels
-LABEL_ROLE = "aviary/role"
-LABEL_AGENT_ID = "aviary/agent-id"
-LABEL_OWNER = "aviary/owner"
-LABEL_MANAGED = "aviary/managed"
+def agent_network_policy_name(agent_id: str) -> str:
+    return f"agent-{agent_id}-egress"
 
 
-def agent_namespace(agent_id: str | object) -> str:
+def agent_scaledobject_name(agent_id: str) -> str:
     return f"agent-{agent_id}"
 
 
-def agent_id_from_namespace(namespace: str) -> str:
-    return namespace.removeprefix("agent-")
+def agent_service_account_name(agent_id: str, sa_name: str | None = None) -> str:
+    if sa_name and sa_name != DEFAULT_SA_NAME:
+        return sa_name
+    return DEFAULT_SA_NAME
+
+
+def agent_label_selector(agent_id: str) -> str:
+    return f"{LABEL_AGENT_ID}={agent_id}"
 
 
 def runtime_label_selector() -> str:
-    return f"{LABEL_ROLE}={DEPLOYMENT_NAME}"
+    return f"{LABEL_ROLE}={ROLE_RUNTIME}"

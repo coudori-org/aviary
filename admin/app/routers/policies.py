@@ -11,9 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from aviary_shared.db.models import Agent, Policy
-from aviary_shared.naming import agent_namespace
 from app.db import get_db
-from app.services import supervisor_client
+from app.services import agent_lifecycle
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +40,6 @@ async def _get_policy_for_agent(db: AsyncSession, agent_id: uuid.UUID) -> tuple[
 @router.get("/{agent_id}/policy")
 async def get_policy(agent_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
     agent, policy = await _get_policy_for_agent(db, agent_id)
-
     return {
         "agent_id": str(agent.id),
         "policy": policy.policy_rules,
@@ -77,20 +75,13 @@ async def update_policy(
 
     await db.flush()
 
-    ns = agent_namespace(str(agent.id))
-    network_policy_synced = True
+    identity_synced = True
     sync_error: str | None = None
     try:
-        await supervisor_client.update_network_policy(ns, policy.policy_rules)
-    except httpx.HTTPStatusError as e:
-        network_policy_synced = False
-        if e.response.status_code != 404:
-            sync_error = str(e)
-            logger.warning("NetworkPolicy update failed for agent %s", agent.id, exc_info=True)
+        await agent_lifecycle.sync_identity(agent)
     except httpx.HTTPError as e:
-        network_policy_synced = False
+        identity_synced = False
         sync_error = str(e)
-        logger.warning("NetworkPolicy update failed for agent %s", agent.id, exc_info=True)
 
     return {
         "agent_id": str(agent.id),
@@ -98,24 +89,16 @@ async def update_policy(
         "pod_strategy": policy.pod_strategy,
         "min_pods": policy.min_pods,
         "max_pods": policy.max_pods,
-        "network_policy_synced": network_policy_synced,
+        "identity_synced": identity_synced,
         "sync_error": sync_error,
     }
 
 
 @router.post("/{agent_id}/policy/sync")
 async def force_sync_policy(agent_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
-    agent, policy = await _get_policy_for_agent(db, agent_id)
-
-    ns = agent_namespace(str(agent.id))
-    synced = True
+    agent, _ = await _get_policy_for_agent(db, agent_id)
     try:
-        await supervisor_client.update_network_policy(ns, policy.policy_rules)
-    except httpx.HTTPStatusError as e:
-        if e.response.status_code != 404:
-            raise HTTPException(status_code=502, detail=f"NetworkPolicy sync failed: {e}") from e
-        synced = False
+        await agent_lifecycle.sync_identity(agent)
     except httpx.HTTPError as e:
-        raise HTTPException(status_code=502, detail=f"NetworkPolicy sync failed: {e}") from e
-
-    return {"agent_id": str(agent.id), "synced": {"network_policy": synced}}
+        raise HTTPException(status_code=502, detail=f"Identity sync failed: {e}") from e
+    return {"agent_id": str(agent.id), "synced": {"identity": True}}
