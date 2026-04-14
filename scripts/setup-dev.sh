@@ -73,14 +73,14 @@ done
 # Owned by UID 1000 (node user) so agent Pods can write without root.
 docker compose exec -T k8s sh -c 'mkdir -p /workspace-shared && chown 1000:1000 /workspace-shared'
 
-# Restart platform pods to pick up freshly loaded images
+# Restart platform pods to pick up freshly loaded images.
+# Agent runtime pods in `agents` NS pick up the new image on their next
+# rolling restart — see `quick-rebuild.sh runtime` or
+# `POST /v1/agents/{id}/restart` via admin.
 docker compose exec -T k8s kubectl rollout restart deployment -n platform 2>/dev/null || true
-# Also restart any existing agent runtime pods so they pick up the new image
-docker compose exec -T k8s sh -c \
-  'for ns in $(kubectl get ns -l aviary/managed=true -o name 2>/dev/null); do
-     kubectl rollout restart deployment -n "${ns#namespace/}" 2>/dev/null || true
-   done' 2>/dev/null || true
-echo "  Platform namespace ready."
+docker compose exec -T k8s kubectl rollout restart deployment -n agents \
+  -l aviary/role=agent-runtime 2>/dev/null || true
+echo "  Platform + agents namespaces ready."
 
 # 7. Wait for application services
 echo "[7/7] Waiting for application services..."
