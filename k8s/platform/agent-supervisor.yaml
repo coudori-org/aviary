@@ -77,6 +77,8 @@ spec:
               value: "${HOST_GATEWAY_IP}"
             - name: MAX_CONCURRENT_SESSIONS_PER_POD
               value: "5"
+            - name: SESSION_IDLE_THRESHOLD_SECONDS
+              value: "300"
             - name: DATABASE_URL
               value: "postgresql+asyncpg://aviary:aviary@host.k8s.internal:5432/aviary"
             - name: REDIS_URL

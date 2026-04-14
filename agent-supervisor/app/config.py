@@ -14,6 +14,11 @@ class Settings(BaseSettings):
     default_min_pods: int = 0
     default_max_pods: int = 3
 
+    # A session is "active" for scaling purposes only if its last message is
+    # newer than this threshold. Older sessions are treated as idle and
+    # excluded from KEDA's active-session count so pods can scale down.
+    session_idle_threshold_seconds: int = 300
+
     # Database
     database_url: str
 

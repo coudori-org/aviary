@@ -163,13 +163,19 @@ const server = app.listen(PORT, "0.0.0.0", () => {
   console.log(`Aviary Runtime listening on :${PORT}`);
 });
 
-// Graceful shutdown
+// Graceful shutdown.
+// Pod spec sets terminationGracePeriodSeconds=600 (see agent-supervisor
+// manifest builder); we wait up to 570s for in-flight Claude turns to
+// finish, leaving a 30s buffer before K8s SIGKILLs. `setReady(false)` makes
+// /ready return 503 so kube-proxy removes this pod from the Service's
+// endpoints — new messages route elsewhere while we drain.
+const GRACEFUL_SHUTDOWN_MS = 570_000;
 for (const signal of ["SIGTERM", "SIGINT"] as const) {
   process.on(signal, async () => {
-    console.log(`Received ${signal}, shutting down gracefully...`);
+    console.log(`Received ${signal}, draining ${manager.activeCount} session(s)...`);
     setReady(false);
     server.close();
-    await manager.gracefulShutdown(30_000);
+    await manager.gracefulShutdown(GRACEFUL_SHUTDOWN_MS);
     process.exit(0);
   });
 }

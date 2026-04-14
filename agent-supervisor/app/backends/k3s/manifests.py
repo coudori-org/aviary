@@ -55,6 +55,9 @@ def build_deployment_manifest(spec: AgentSpec, workspace: WorkspaceRef) -> dict:
                 },
                 "spec": {
                     "serviceAccountName": spec.sa_name,
+                    # Give in-flight Claude turns room to finish on SIGTERM —
+                    # runtime drains for up to 570s (see runtime/src/server.ts).
+                    "terminationGracePeriodSeconds": 600,
                     "securityContext": {
                         "runAsUser": 1000,
                         "runAsGroup": 1000,

@@ -86,6 +86,7 @@ class K3SBackend(RuntimeBackend):
             min_pods=spec.min_pods,
             max_pods=spec.max_pods,
             sessions_per_pod_target=settings.max_concurrent_sessions_per_pod,
+            idle_threshold_seconds=settings.session_idle_threshold_seconds,
         )
         try:
             await apply_or_replace(

@@ -23,12 +23,17 @@ def build_scaledobject_manifest(
     min_pods: int,
     max_pods: int,
     sessions_per_pod_target: int,
+    idle_threshold_seconds: int,
     polling_interval: int = 30,
     cooldown_period: int = 300,
 ) -> dict:
+    # Counts sessions with recent activity. A session whose last message is
+    # older than `idle_threshold_seconds` is excluded so KEDA can scale
+    # pods down when traffic subsides.
     query = (
         "SELECT COUNT(*) FROM sessions "
-        f"WHERE agent_id='{agent_id}' AND status='active'"
+        f"WHERE agent_id='{agent_id}' "
+        f"AND last_message_at > NOW() - INTERVAL '{idle_threshold_seconds} seconds'"
     )
     return {
         "apiVersion": "keda.sh/v1alpha1",
