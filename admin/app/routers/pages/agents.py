@@ -77,11 +77,7 @@ async def agent_detail(
     if not agent:
         return HTMLResponse("<h1>Agent not found</h1>", status_code=404)
 
-    sa_result = await db.execute(
-        select(ServiceAccount).order_by(
-            ServiceAccount.is_system.desc(), ServiceAccount.name,
-        )
-    )
+    sa_result = await db.execute(select(ServiceAccount).order_by(ServiceAccount.name))
     service_accounts = list(sa_result.scalars().all())
 
     deployment_status = {"state": "inactive", "active": False, "replicas": 0, "ready_replicas": 0}
@@ -182,13 +178,10 @@ async def update_policy(
     policy_rules["containerImage"] = form.get("container_image") or "aviary-runtime:latest"
     policy_obj.policy_rules = policy_rules
 
-    sa_id = form.get("service_account_id")
-    if sa_id:
-        agent.service_account_id = uuid.UUID(sa_id)
-        await db.flush()
-        await db.refresh(agent, attribute_names=["service_account"])
-
+    sa_id_raw = form.get("service_account_id")
+    agent.service_account_id = uuid.UUID(sa_id_raw) if sa_id_raw else None
     await db.flush()
+    await db.refresh(agent, attribute_names=["service_account"])
 
     try:
         await agent_lifecycle.sync_identity(agent)

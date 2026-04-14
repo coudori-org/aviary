@@ -51,7 +51,7 @@
       {% endif %}
       </span>
       <span class="text-muted">Service Account</span>
-      <span class="mono">{{ agent.service_account.name if agent.service_account else '—' }}</span>
+      <span class="mono">{{ agent.service_account.name if agent.service_account else 'baseline only' }}</span>
       <span class="text-muted">Created</span>
       <span>{{ agent.created_at.strftime('%Y-%m-%d %H:%M') }}</span>
       <span class="text-muted">Last Activity</span>
@@ -135,15 +135,18 @@
 
     <div class="section-title">Egress Identity</div>
     <p class="text-sm text-dim mb-4">
-      The agent's network egress follows the SGs attached to its service account.
-      Manage SAs on the <a href="/service-accounts">Service Accounts</a> page.
+      Every agent pod is subject to the namespace baseline egress policy
+      (DNS, platform services, LLM/MCP/API gateways). Optionally attach a
+      service account to grant extra SGs on top. Manage SAs on the
+      <a href="/service-accounts">Service Accounts</a> page.
     </p>
     <div class="form-group">
       <label>Service Account</label>
       <select name="service_account_id">
+        <option value="" {{ 'selected' if not agent.service_account_id }}>— baseline only —</option>
         {% for sa in service_accounts %}
         <option value="{{ sa.id }}" {{ 'selected' if sa.id == agent.service_account_id }}>
-          {{ sa.name }}{% if sa.is_system %} (system){% endif %} — {{ sa.sg_refs | join(', ') }}
+          {{ sa.name }} — {{ sa.sg_refs | join(', ') or '(empty)' }}
         </option>
         {% endfor %}
       </select>

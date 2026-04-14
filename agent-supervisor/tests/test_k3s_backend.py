@@ -166,12 +166,15 @@ async def test_bind_identity_unknown_profile_raises_400(k8s_apply):
 
 
 @pytest.mark.asyncio
-async def test_bind_identity_empty_refs_raises_400(k8s_apply):
-    from fastapi import HTTPException
+async def test_bind_identity_empty_refs_unbinds(k8s_apply):
+    """Empty sg_refs means no extras beyond baseline → delete per-agent NP."""
     binder = K3SIdentityBinder()
-    with pytest.raises(HTTPException) as exc:
-        await binder.bind_identity("agent-test-1", "agent-default-sa", [])
-    assert exc.value.status_code == 400
+    await binder.bind_identity("agent-test-1", "agent-default-sa", [])
+
+    # Should call DELETE on the per-agent NetworkPolicy
+    delete_calls = [c for c in k8s_apply["identity"].await_args_list if c.args[0] == "DELETE"]
+    assert len(delete_calls) == 1
+    assert "networkpolicies" in delete_calls[0].args[1]
 
 
 @pytest.mark.asyncio

@@ -15,7 +15,7 @@ async def test_get_policy_defaults(client: AsyncClient, seed_agent: Agent):
     assert data["policy"] == {}
     assert data["min_pods"] == 0
     assert data["max_pods"] == 3
-    assert data["service_account_id"] == str(seed_agent.service_account_id)
+    assert data["service_account_id"] is None
 
 
 @pytest.mark.asyncio

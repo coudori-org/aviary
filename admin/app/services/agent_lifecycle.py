@@ -15,6 +15,8 @@ from app.services import supervisor_client
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_K8S_SA = "default"
+
 
 async def activate(agent: Agent) -> None:
     policy = agent.policy
@@ -26,11 +28,12 @@ async def activate(agent: Agent) -> None:
     memory_limit = policy_rules.get("maxMemoryPerSession") if policy_rules else None
 
     sa = agent.service_account
+    sa_name = sa.name if sa else DEFAULT_K8S_SA
     await supervisor_client.ensure_agent(
         agent_id=str(agent.id),
         owner_id=str(agent.owner_id),
         image=image,
-        sa_name=sa.name,
+        sa_name=sa_name,
         min_pods=min_pods,
         max_pods=max_pods,
         cpu_limit=cpu_limit,
@@ -40,7 +43,11 @@ async def activate(agent: Agent) -> None:
 
 
 async def _sync_identity(agent: Agent) -> None:
-    """Bind egress identity based on the agent's ServiceAccount sg_refs."""
+    """Apply the agent's SA-scoped egress rules on top of the namespace baseline.
+
+    No SA or empty sg_refs → unbind any per-agent NetworkPolicy (baseline
+    still applies). SA with sg_refs → per-agent NetworkPolicy with those SGs.
+    """
     sa = agent.service_account
     sg_refs = list(sa.sg_refs) if sa and sa.sg_refs else []
     try:
@@ -88,5 +95,5 @@ async def find_agent_or_none(db: AsyncSession, agent_id) -> Agent | None:
 
 
 async def sync_identity(agent: Agent) -> None:
-    """Public helper for policy routers — bind or unbind identity after DB update."""
+    """Public helper for policy routers — apply SA egress rules after DB update."""
     await _sync_identity(agent)

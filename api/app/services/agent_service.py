@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from sqlalchemy import or_, exists
 
-from app.db.models import Agent, ServiceAccount, Session, User
+from app.db.models import Agent, Session, User
 from app.schemas.agent import AgentCreate, AgentUpdate
 from app.services import acl_service, agent_supervisor
 
@@ -26,12 +26,6 @@ async def create_agent(db: AsyncSession, user: User, data: AgentCreate) -> Agent
     if existing.scalar_one_or_none():
         raise ValueError(f"Agent slug '{data.slug}' already exists")
 
-    default_sa = (await db.execute(
-        select(ServiceAccount).where(ServiceAccount.name == "agent-default-sa")
-    )).scalar_one_or_none()
-    if not default_sa:
-        raise RuntimeError("Default ServiceAccount missing — DB seed incomplete")
-
     agent = Agent(
         name=data.name,
         slug=data.slug,
@@ -44,7 +38,6 @@ async def create_agent(db: AsyncSession, user: User, data: AgentCreate) -> Agent
         visibility=data.visibility,
         category=data.category,
         icon=data.icon,
-        service_account_id=default_sa.id,
     )
     db.add(agent)
     await db.flush()

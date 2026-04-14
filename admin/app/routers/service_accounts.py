@@ -1,4 +1,9 @@
-"""Service Account JSON API — CRUD for egress identity + SG binding."""
+"""Service Account JSON API — CRUD for extra SG bundles.
+
+Each ServiceAccount names a bundle of SG refs an agent can opt into on top
+of the namespace baseline egress policy. Agents with `service_account_id=NULL`
+get only the baseline; bound agents get baseline + the SA's sg_refs.
+"""
 
 from __future__ import annotations
 
@@ -20,7 +25,6 @@ class SAResponse(BaseModel):
     name: str
     description: str | None
     sg_refs: list[str]
-    is_system: bool
 
     @classmethod
     def from_entity(cls, sa: ServiceAccount) -> "SAResponse":
@@ -29,7 +33,6 @@ class SAResponse(BaseModel):
             name=sa.name,
             description=sa.description,
             sg_refs=list(sa.sg_refs or []),
-            is_system=sa.is_system,
         )
 
 
@@ -44,27 +47,20 @@ class SAUpdateRequest(BaseModel):
     sg_refs: list[str] | None = None
 
 
-DEFAULT_SG = "default-sg"
-
-
-def _ensure_default_sg(sg_refs: list[str]) -> list[str]:
-    """`default-sg` is always bound — matches AWS account-default-SG semantics."""
+def _normalize_refs(sg_refs: list[str]) -> list[str]:
     seen: set[str] = set()
-    ordered: list[str] = [DEFAULT_SG]
-    seen.add(DEFAULT_SG)
+    out: list[str] = []
     for ref in sg_refs:
         ref = ref.strip()
         if ref and ref not in seen:
-            ordered.append(ref)
+            out.append(ref)
             seen.add(ref)
-    return ordered
+    return out
 
 
 @router.get("")
 async def list_service_accounts(db: AsyncSession = Depends(get_db)):
-    result = await db.execute(
-        select(ServiceAccount).order_by(ServiceAccount.is_system.desc(), ServiceAccount.name)
-    )
+    result = await db.execute(select(ServiceAccount).order_by(ServiceAccount.name))
     return {"items": [SAResponse.from_entity(sa).model_dump() for sa in result.scalars().all()]}
 
 
@@ -73,8 +69,7 @@ async def create_service_account(body: SACreateRequest, db: AsyncSession = Depen
     sa = ServiceAccount(
         name=body.name.strip(),
         description=body.description,
-        sg_refs=_ensure_default_sg(body.sg_refs),
-        is_system=False,
+        sg_refs=_normalize_refs(body.sg_refs),
     )
     db.add(sa)
     try:
@@ -102,7 +97,7 @@ async def update_service_account(
     if body.description is not None:
         sa.description = body.description
     if body.sg_refs is not None:
-        sa.sg_refs = _ensure_default_sg(body.sg_refs)
+        sa.sg_refs = _normalize_refs(body.sg_refs)
     await db.flush()
     return SAResponse.from_entity(sa).model_dump()
 
@@ -112,15 +107,7 @@ async def delete_service_account(sa_id: uuid.UUID, db: AsyncSession = Depends(ge
     sa = await db.get(ServiceAccount, sa_id)
     if not sa:
         raise HTTPException(status_code=404, detail="ServiceAccount not found")
-    if sa.is_system:
-        raise HTTPException(status_code=400, detail="System ServiceAccounts cannot be deleted")
-    # FK is ON DELETE RESTRICT — DB will reject if any agent still references it.
-    try:
-        await db.delete(sa)
-        await db.flush()
-    except Exception as e:
-        raise HTTPException(
-            status_code=409,
-            detail="ServiceAccount is still bound to one or more agents",
-        ) from e
+    # FK is ON DELETE SET NULL — bound agents fall back to baseline egress.
+    await db.delete(sa)
+    await db.flush()
     return None

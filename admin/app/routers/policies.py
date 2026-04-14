@@ -47,7 +47,7 @@ async def get_policy(agent_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
         "policy": policy.policy_rules,
         "min_pods": policy.min_pods,
         "max_pods": policy.max_pods,
-        "service_account_id": str(agent.service_account_id),
+        "service_account_id": str(agent.service_account_id) if agent.service_account_id else None,
     }
 
 
@@ -72,7 +72,8 @@ async def update_policy(
         policy.min_pods = body.min_pods
     if body.max_pods is not None:
         policy.max_pods = body.max_pods
-    if body.service_account_id is not None:
+    # Only touch SA binding when caller explicitly includes the field (null = clear).
+    if "service_account_id" in body.model_fields_set:
         agent.service_account_id = body.service_account_id
         await db.flush()
         await db.refresh(agent, attribute_names=["service_account"])
@@ -92,7 +93,7 @@ async def update_policy(
         "policy": policy.policy_rules,
         "min_pods": policy.min_pods,
         "max_pods": policy.max_pods,
-        "service_account_id": str(agent.service_account_id),
+        "service_account_id": str(agent.service_account_id) if agent.service_account_id else None,
         "identity_synced": identity_synced,
         "sync_error": sync_error,
     }

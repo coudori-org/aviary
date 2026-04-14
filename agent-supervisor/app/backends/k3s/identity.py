@@ -81,9 +81,14 @@ class K3SIdentityBinder(IdentityBinder):
         )
 
     async def bind_identity(self, agent_id: str, sa_name: str, sg_refs: list[str]) -> None:
-        """Apply the merged profiles as a NetworkPolicy selecting the agent's pods."""
+        """Apply merged extra-SG profiles as a NetworkPolicy. Empty list → unbind.
+
+        The namespace baseline (default-egress.yaml) is always in effect — this
+        method only handles SGs *on top* of baseline.
+        """
         if not sg_refs:
-            raise HTTPException(status_code=400, detail="sg_refs must not be empty")
+            await self.unbind_identity(agent_id)
+            return
         egress_rules = await _load_merged_rules(sg_refs)
         name = agent_network_policy_name(agent_id)
         manifest = {

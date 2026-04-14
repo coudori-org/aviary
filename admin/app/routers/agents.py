@@ -38,7 +38,7 @@ class AgentResponse(BaseModel):
     policy: dict
     min_pods: int
     max_pods: int
-    service_account_id: str
+    service_account_id: str | None
     status: str
     created_at: str
     updated_at: str
@@ -63,7 +63,7 @@ class AgentResponse(BaseModel):
             policy=policy.policy_rules if policy else {},
             min_pods=policy.min_pods if policy else 0,
             max_pods=policy.max_pods if policy else 3,
-            service_account_id=str(agent.service_account_id),
+            service_account_id=str(agent.service_account_id) if agent.service_account_id else None,
             status=agent.status,
             created_at=agent.created_at.isoformat(),
             updated_at=agent.updated_at.isoformat(),

@@ -14,7 +14,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
-from aviary_shared.db.models import Agent, Base, ServiceAccount, User
+from aviary_shared.db.models import Agent, Base, User
 from app.db import get_db
 
 TEST_DB_URL = os.environ.get(
@@ -81,23 +81,11 @@ _TABLES = [
     "service_accounts",
 ]
 
-DEFAULT_SA_NAME = "agent-default-sa"
-
 
 @pytest.fixture(autouse=True)
 async def clean_tables():
     async with engine.begin() as conn:
         await conn.execute(text(f"TRUNCATE {', '.join(_TABLES)} CASCADE"))
-    # Re-seed default SA after truncate — prod/migration guarantees this row
-    # exists; tests must mirror that invariant for Agent FK to resolve.
-    async with test_session_factory() as db:
-        db.add(ServiceAccount(
-            name=DEFAULT_SA_NAME,
-            description="Default service account — bound to default-sg only",
-            sg_refs=["default-sg"],
-            is_system=True,
-        ))
-        await db.commit()
     yield
 
 
@@ -173,10 +161,6 @@ async def seed_agent() -> Agent:
         db.add(user)
         await db.flush()
 
-        default_sa = (await db.execute(
-            select(ServiceAccount).where(ServiceAccount.name == DEFAULT_SA_NAME)
-        )).scalar_one()
-
         agent = Agent(
             name="Test Agent",
             slug=f"test-agent-{uuid.uuid4().hex[:8]}",
@@ -187,7 +171,6 @@ async def seed_agent() -> Agent:
             tools=["read_file"],
             mcp_servers=[],
             visibility="public",
-            service_account_id=default_sa.id,
         )
         db.add(agent)
         await db.flush()
