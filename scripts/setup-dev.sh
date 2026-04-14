@@ -68,10 +68,10 @@ docker compose exec -T k8s kubectl apply -f - < ./k8s/platform/namespace.yaml
 # KEDA — required before TriggerAuthentication / ScaledObject CRDs can apply.
 # Supervisor creates ScaledObjects per agent; its auto-scaling is no-op
 # without KEDA. Pinned version — bump deliberately.
-KEDA_VERSION="v2.15.1"
-echo "  Installing KEDA ${KEDA_VERSION}..."
+KEDA_VERSION="2.15.1"
+echo "  Installing KEDA v${KEDA_VERSION}..."
 docker compose exec -T k8s kubectl apply --server-side -f \
-  "https://github.com/kedacore/keda/releases/download/${KEDA_VERSION}/keda-${KEDA_VERSION}.yaml" \
+  "https://github.com/kedacore/keda/releases/download/v${KEDA_VERSION}/keda-${KEDA_VERSION}.yaml" \
   > /dev/null
 echo -n "  Waiting for KEDA operator..."
 docker compose exec -T k8s kubectl wait --for=condition=Available \
