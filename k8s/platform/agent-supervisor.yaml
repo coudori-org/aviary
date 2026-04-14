@@ -76,6 +76,8 @@ spec:
               value: "10"
             - name: DATABASE_URL
               value: "postgresql+asyncpg://aviary:aviary@host.k8s.internal:5432/aviary"
+            - name: REDIS_URL
+              value: "redis://host.k8s.internal:6379/0"
             - name: INFERENCE_ROUTER_URL
               value: "http://litellm.platform.svc:4000"
             - name: MCP_GATEWAY_URL

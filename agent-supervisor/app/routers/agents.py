@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+from app import redis_client
 from app.backends import get_backend
 from app.backends._common.k8s_client import new_client
 from app.backends.protocol import AgentSpec, RuntimeBackend
@@ -121,6 +122,59 @@ async def proxy_session_message(
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+@router.post("/agents/{agent_id}/sessions/{session_id}/publish")
+async def publish_session_message(
+    agent_id: str, session_id: str, request: Request,
+    backend: RuntimeBackend = Depends(get_backend),
+):
+    """Consume runtime SSE and publish each event to Redis.
+
+    Returns a final status summary to the caller — the caller (API server)
+    uses this to drive DB persistence and emit the final `done` event.
+    The raw event stream stays off the API's path; WS clients receive events
+    by subscribing to the session's Redis channel.
+    """
+    base = await backend.resolve_endpoint(agent_id)
+    body = await request.json()
+
+    reached_runtime = False
+    error_message: str | None = None
+
+    try:
+        async with new_client() as client:
+            async with client.stream(
+                "POST", f"{base}/message", json=body, timeout=None,
+            ) as resp:
+                if resp.status_code != 200:
+                    err = (await resp.aread()).decode(errors="replace")[:500]
+                    logger.error("Runtime stream %d: %s", resp.status_code, err)
+                    error_message = f"Agent runtime error ({resp.status_code}): {err}"
+                else:
+                    async for line in resp.aiter_lines():
+                        if not line.startswith("data: "):
+                            continue
+                        event = json.loads(line[6:])
+                        etype = event.get("type")
+                        if etype == "query_started":
+                            reached_runtime = True
+                            continue
+                        if etype == "error":
+                            error_message = event.get("message", "Agent runtime error")
+                            break
+                        await redis_client.append_stream_chunk(session_id, event)
+                        await redis_client.publish_message(session_id, event)
+    except httpx.HTTPError as e:
+        logger.exception("SSE proxy error for agent %s", agent_id)
+        error_message = f"Agent runtime connection failed: {e}"
+
+    if error_message:
+        await redis_client.set_stream_status(session_id, "error")
+        return {"status": "error", "message": error_message, "reached_runtime": reached_runtime}
+
+    await redis_client.set_stream_status(session_id, "complete")
+    return {"status": "complete", "reached_runtime": reached_runtime}
 
 
 @router.post("/agents/{agent_id}/sessions/{session_id}/abort")

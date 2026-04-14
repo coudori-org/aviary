@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     # Database
     database_url: str
 
+    # Redis (for stream buffer + pub/sub shared with API server)
+    redis_url: str = "redis://redis:6379/0"
+
     # Pod environment
     inference_router_url: str
     mcp_gateway_url: str
