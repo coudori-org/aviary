@@ -20,8 +20,6 @@ from app.backends.k3s.workspace import (
 from app.backends.protocol import AgentSpec, WorkspaceRef
 from app.config import settings
 
-_NODE_OPTIONS = "--require /app/scripts/proxy-bootstrap.js"
-
 
 def build_deployment_manifest(spec: AgentSpec, workspace: WorkspaceRef) -> dict:
     runtime_env = [
@@ -31,7 +29,6 @@ def build_deployment_manifest(spec: AgentSpec, workspace: WorkspaceRef) -> dict:
         {"name": "MCP_GATEWAY_URL", "value": settings.mcp_gateway_url},
         {"name": "LITELLM_API_KEY", "value": settings.litellm_api_key},
         {"name": "HOME", "value": "/tmp"},
-        {"name": "NODE_OPTIONS", "value": _NODE_OPTIONS},
         {"name": "AVIARY_API_URL", "value": settings.aviary_api_url},
         {"name": "AVIARY_INTERNAL_API_KEY", "value": settings.internal_api_key},
     ] + [{"name": k, "value": v} for k, v in spec.env.items()]

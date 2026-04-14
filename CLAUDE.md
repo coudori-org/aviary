@@ -67,7 +67,7 @@ Three backend services with distinct roles:
 
 Runs background tasks: auto-scaling (30s interval, based on pod metrics vs `min_pods`/`max_pods`) and idle cleanup (5min interval, scales to zero when `last_activity_at` exceeds timeout).
 
-**Egress Proxy** (K8s platform namespace): All outbound HTTP/HTTPS from agent Pods is routed through a centralized forward proxy via `HTTP_PROXY`/`HTTPS_PROXY` env vars. Stays in K8s because it needs pod IP → namespace resolution for agent identification. Identifies source agent by resolving pod IP → K8s namespace → agent ID. Per-agent egress policies read directly from PostgreSQL (`agents.policy` column) on every request. Supports CIDR, exact domain, wildcard domain (`*.example.com`, `.example.com`), and catch-all (`*`). Deny-by-default. Health endpoint on port 8081 (`/health`). CIDR rules are also enforced at NetworkPolicy level for non-HTTP traffic.
+**Egress policy** is enforced at the K8s NetworkPolicy layer, keyed by the agent's ServiceAccount (K3S backend) or by Pod Security Group (planned EKS backends). Pre-registered "egress profiles" in the `egress-profiles` ConfigMap act as AWS SG equivalents in K3S — each profile is a list of NetworkPolicy egress rule fragments. Admin binds an agent to a profile via `PUT /v1/agents/{id}/identity {sg_ref}`.
 
 ## Critical Patterns & Gotchas
 
@@ -112,14 +112,11 @@ Both run as background tasks in the agent supervisor (`agent-supervisor/app/scal
 - **Auto-scaling** (30s interval): queries pod metrics directly from K8s, scales up/down based on sessions/pod vs `min_pods`/`max_pods` from DB.
 - **Idle cleanup** (5min interval): checks `last_activity_at` from DB against the configured timeout (default 7 days). Scales to zero if expired. The supervisor updates `last_activity_at` on every agent-centric API call, so any user interaction resets the idle timer.
 
-### Egress Proxy Policy Enforcement
-Two-layer enforcement: (1) K8s NetworkPolicy blocks all egress except DNS, platform NS (port 8080), and explicitly allowed CIDRs. (2) Egress proxy (HTTP-level) enforces domain-based rules. Agent pods have `HTTP_PROXY`/`HTTPS_PROXY` pointing to `egress-proxy.platform.svc:8080`, with `NO_PROXY` excluding internal platform services. Policy flow: Admin writes policy to DB → egress proxy reads `agents.policy` directly from PostgreSQL on every request. No caching, no invalidation needed. See `admin/app/routers/policies.py`, `egress-proxy/app/policy.py`.
-
-### Egress Rule Schema
-Egress rules are stored in the agent's `policy` JSONB field in DB (managed exclusively by the admin console). Domain patterns: `"example.com"` (exact), `"*.example.com"` (wildcard subdomain), `".example.com"` (same as `*`), `"*"` (all). Both CIDR and domain types can be mixed in the same `allowedEgress` list. Optional `ports` field restricts to specific ports; empty means all ports allowed.
+### Egress Enforcement
+K8s NetworkPolicy (K3S) or Pod Security Group (EKS) selects agent pods by `aviary/agent-id` label and applies the rule set referenced by the agent's policy. In K3S the rule set is one of the named profiles in the `egress-profiles` ConfigMap; in EKS it is an AWS SG ID. Admin binds/unbinds via `agent-supervisor`'s `/v1/agents/{id}/identity` endpoint. CIDR management is an infra concern — the app layer only stores `sg_ref`.
 
 ### Claude Code Managed Settings
-`runtime/config/managed-settings.json` is installed to `/etc/claude-code/managed-settings.json` (the hardcoded path Claude Code CLI reads on Linux). Currently sets `skipWebFetchPreflight: true` to prevent CLI from calling `api.anthropic.com/api/web/domain_info` before each WebFetch — this endpoint is unreachable in air-gapped/fintech environments where all external traffic must go through the egress proxy. All model tiers (`ANTHROPIC_MODEL`, `ANTHROPIC_SMALL_FAST_MODEL`, `ANTHROPIC_DEFAULT_HAIKU_MODEL`, etc.) are remapped to the agent's configured model in `src/agent.ts` so that CLI internal tasks (WebFetch summarization, subagents) route through LiteLLM.
+`runtime/config/managed-settings.json` is installed to `/etc/claude-code/managed-settings.json` (the hardcoded path Claude Code CLI reads on Linux). Currently sets `skipWebFetchPreflight: true` to prevent CLI from calling `api.anthropic.com/api/web/domain_info` before each WebFetch — this endpoint is unreachable in air-gapped/fintech environments. All model tiers (`ANTHROPIC_MODEL`, `ANTHROPIC_SMALL_FAST_MODEL`, `ANTHROPIC_DEFAULT_HAIKU_MODEL`, etc.) are remapped to the agent's configured model in `src/agent.ts` so that CLI internal tasks (WebFetch summarization, subagents) route through LiteLLM.
 
 ### LiteLLM Adapter Streaming Patch
 Non-Anthropic backends (Ollama, vLLM) use LiteLLM's Anthropic-to-OpenAI adapter (`/v1/messages` → `/v1/chat/completions`). The adapter has streaming issues that are fixed by a monkeypatch loaded at startup via `.pth` file. The patch file is `config/litellm/patches/fix_adapter_streaming.py`, mounted into the LiteLLM container. It fixes four issues:
@@ -150,7 +147,7 @@ Thinking content flows through the full pipeline: runtime → supervisor (transp
 - **Frontend**: `ThinkingChip` component (collapsible, default open during streaming) renders real-time thinking content. Saved messages restore thinking blocks via `SavedThinkingChip` (default closed). Thinking blocks are part of the `StreamBlock` union type alongside `TextBlock` and `ToolCallBlock`.
 
 ### K8s Image Loading
-All K8s custom images use `imagePullPolicy: Never`. Loaded via `docker save | docker compose exec -T k8s ctr images import -`. The `setup-dev.sh` handles this for runtime, egress-proxy, and agent-supervisor images. LiteLLM runs outside K8s as a docker compose service using the official image and doesn't need image loading.
+All K8s custom images use `imagePullPolicy: Never`. Loaded via `docker save | docker compose exec -T k8s ctr images import -`. The `setup-dev.sh` handles this for runtime and agent-supervisor images. LiteLLM runs outside K8s as a docker compose service using the official image and doesn't need image loading.
 
 ### K8s Fixed Node Name
 `--node-name=aviary-node` in docker-compose.yml prevents stale node accumulation on container restart. Without it, PVCs bind to old node names causing scheduling failures.
@@ -195,13 +192,12 @@ Admin: Tests use the same test database pattern. No auth mocking needed (admin h
 
 ## Rebuilding Images
 
-**K8s images** (runtime, egress-proxy, agent-supervisor) — after modifying `runtime/`, `egress-proxy/`, or `agent-supervisor/`:
+**K8s images** (runtime, agent-supervisor) — after modifying `runtime/` or `agent-supervisor/`:
 
 ```bash
 docker build -t aviary-runtime:latest ./runtime/
 docker build -t aviary-agent-supervisor:latest -f agent-supervisor/Dockerfile .
 docker save aviary-runtime:latest aviary-agent-supervisor:latest | docker compose exec -T k8s ctr images import -
-# Repeat pattern for egress-proxy if changed
 ```
 
 **Docker Compose services** (api, admin) — hot reload via bind-mount, or rebuild:
@@ -244,8 +240,6 @@ docker compose restart litellm
 | `MAX_CONCURRENT_SESSIONS` | Max sessions per pod (default: 10) |
 | `INFERENCE_ROUTER_URL` | LiteLLM gateway URL (`http://litellm.platform.svc:4000`) |
 | `LITELLM_API_KEY` | LiteLLM master key (`sk-aviary-dev`) |
-| `HTTP_PROXY` / `HTTPS_PROXY` | Egress proxy URL (`http://egress-proxy.platform.svc:8080`) |
-| `NO_PROXY` | Bypass proxy for internal services (platform SVCs, localhost) |
 
 ## Key Environment Variables (Agent Supervisor)
 
@@ -257,14 +251,6 @@ docker compose restart litellm
 | `MAX_CONCURRENT_SESSIONS_PER_POD` | Max sessions per pod (default: 10) |
 | `SCALING_CHECK_INTERVAL` | Auto-scaling check interval in seconds (default: 30) |
 | `AGENT_IDLE_TIMEOUT` | Agent idle timeout in seconds (default: 604800 = 7 days) |
-
-## Key Environment Variables (Egress Proxy)
-
-| Variable | Purpose |
-|----------|---------|
-| `PROXY_PORT` | Forward proxy listen port (default: 8080) |
-| `HEALTH_PORT` | Health endpoint listen port (default: 8081) |
-| `DATABASE_URL` | PostgreSQL connection for policy lookup |
 
 ## Key Environment Variables (LiteLLM Gateway)
 

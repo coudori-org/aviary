@@ -114,7 +114,6 @@ aviary/
 ├── shared/               # 공유 패키지 (OIDC, ACL, DB 모델)
 ├── mcp-gateway/          # MCP 도구 카탈로그, ACL, 프록시
 ├── agent-supervisor/     # K8s 라이프사이클 매니저 (K8s 내부)
-├── egress-proxy/         # HTTP/HTTPS 아웃바운드 프록시
 ├── mcp-servers/          # 플랫폼 제공 MCP 서버 스텁
 ├── k8s/                  # K8s 매니페스트
 ├── config/               # LiteLLM, Keycloak, K3s 설정

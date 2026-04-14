@@ -49,16 +49,14 @@ echo "  K8s is ready."
 K8S_GATEWAY_IP=$(docker compose exec -T k8s ip route | awk '/default/ {print $3}' | head -1)
 echo "  K8s gateway IP: $K8S_GATEWAY_IP"
 
-# 5. Build K8s images and load them (runtime, egress-proxy, agent-supervisor)
-echo "[5/7] Building K8s images (runtime, egress-proxy, agent-supervisor)..."
+# 5. Build K8s images and load them (runtime, agent-supervisor)
+echo "[5/7] Building K8s images (runtime, agent-supervisor)..."
 docker build "${BUILD_ARGS[@]}" -t aviary-runtime:latest          ./runtime/
-docker build "${BUILD_ARGS[@]}" -t aviary-egress-proxy:latest     ./egress-proxy/
 docker build "${BUILD_ARGS[@]}" -t aviary-agent-supervisor:latest -f agent-supervisor/Dockerfile .
 
 echo "  Loading images into K8s..."
 docker save \
   aviary-runtime:latest \
-  aviary-egress-proxy:latest \
   aviary-agent-supervisor:latest \
   | docker compose exec -T k8s ctr images import -
 echo "  All images loaded."
@@ -139,9 +137,8 @@ echo "  LiteLLM config: edit config/litellm/config.yaml and restart:"
 echo "    docker compose restart litellm"
 echo "  If you change dependencies:"
 echo "    docker compose up -d --build <service>"
-echo "  To rebuild K8s images (runtime, egress-proxy, agent-supervisor):"
+echo "  To rebuild K8s images (runtime, agent-supervisor):"
 echo "    docker build -t aviary-runtime:latest ./runtime/"
-echo "    docker build -t aviary-egress-proxy:latest ./egress-proxy/"
 echo "    docker build -t aviary-agent-supervisor:latest -f agent-supervisor/Dockerfile ."
-echo "    docker save aviary-runtime:latest aviary-egress-proxy:latest aviary-agent-supervisor:latest | docker compose exec -T k8s ctr images import -"
+echo "    docker save aviary-runtime:latest aviary-agent-supervisor:latest | docker compose exec -T k8s ctr images import -"
 echo "    docker compose exec -T k8s kubectl rollout restart deployment -n platform"

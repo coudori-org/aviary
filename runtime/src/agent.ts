@@ -56,7 +56,7 @@ const MODEL_TIER_KEYS = [
 
 // Pass-through env vars — must be explicit because SDK env dict replaces parent env.
 // PATH is required for the subprocess to find `node` and `claude` binaries.
-const PASSTHROUGH_KEYS = ["PATH", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "NODE_OPTIONS"] as const;
+const PASSTHROUGH_KEYS = ["PATH"] as const;
 
 
 

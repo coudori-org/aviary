@@ -41,15 +41,12 @@ echo "[2/5] Resetting deployment_active flags in database..."
 docker compose exec -T postgres psql -U aviary -d aviary -c \
     "UPDATE agents SET deployment_active = false WHERE deployment_active = true;" 2>/dev/null || true
 
-# 3. Rebuild and reload K8s images (runtime + egress-proxy only)
+# 3. Rebuild and reload K8s images
 echo "[3/5] Building K8s images..."
-docker build -t aviary-runtime:latest      ./runtime/
-docker build -t aviary-egress-proxy:latest ./egress-proxy/
+docker build -t aviary-runtime:latest ./runtime/
 
 echo "[4/5] Loading images into K8s..."
-docker save \
-  aviary-runtime:latest \
-  aviary-egress-proxy:latest \
+docker save aviary-runtime:latest \
   | docker compose exec -T k8s ctr images import -
 
 # 5. Restart platform deployments to pick up new images

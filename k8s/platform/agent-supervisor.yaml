@@ -82,8 +82,6 @@ spec:
               value: "http://mcp-gateway.platform.svc:8100"
             - name: LITELLM_API_KEY
               value: "sk-aviary-dev"
-            - name: EGRESS_PROXY_URL
-              value: "http://egress-proxy.platform.svc:8080"
             - name: AVIARY_API_URL
               value: "http://host.k8s.internal:8000/api"
             - name: INTERNAL_API_KEY
