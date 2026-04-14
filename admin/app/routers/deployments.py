@@ -66,8 +66,7 @@ async def get_deployment_status(agent_id: uuid.UUID, db: AsyncSession = Depends(
 
     policy = agent.policy
     return {
-        "pod_strategy": policy.pod_strategy if policy else "lazy",
-        "min_pods": policy.min_pods if policy else 1,
+        "min_pods": policy.min_pods if policy else 0,
         "max_pods": policy.max_pods if policy else 3,
         **status_info,
     }

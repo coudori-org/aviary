@@ -36,9 +36,9 @@ class AgentResponse(BaseModel):
     icon: str | None = None
     policy_id: str | None = None
     policy: dict
-    pod_strategy: str
     min_pods: int
     max_pods: int
+    service_account_id: str
     status: str
     created_at: str
     updated_at: str
@@ -61,9 +61,9 @@ class AgentResponse(BaseModel):
             icon=agent.icon,
             policy_id=str(agent.policy_id) if agent.policy_id else None,
             policy=policy.policy_rules if policy else {},
-            pod_strategy=policy.pod_strategy if policy else "lazy",
-            min_pods=policy.min_pods if policy else 1,
+            min_pods=policy.min_pods if policy else 0,
             max_pods=policy.max_pods if policy else 3,
+            service_account_id=str(agent.service_account_id),
             status=agent.status,
             created_at=agent.created_at.isoformat(),
             updated_at=agent.updated_at.isoformat(),

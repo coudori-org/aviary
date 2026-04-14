@@ -111,7 +111,7 @@ async def restart_agent(
 
 class IdentityRequest(BaseModel):
     sa_name: str = "agent-default-sa"
-    sg_ref: str
+    sg_refs: list[str]
 
 
 @router.put("/agents/{agent_id}/identity")
@@ -119,10 +119,10 @@ async def bind_identity(
     agent_id: str, body: IdentityRequest,
     backend: RuntimeBackend = Depends(get_backend),
 ):
-    """Apply egress identity (SA + SG/profile) to the agent."""
+    """Apply egress identity (SA + one or more SG/profile refs) to the agent."""
     try:
         await backend.identity.ensure_service_account(body.sa_name)
-        await backend.identity.bind_identity(agent_id, body.sa_name, body.sg_ref)
+        await backend.identity.bind_identity(agent_id, body.sa_name, body.sg_refs)
     except HTTPException:
         raise
     except httpx.HTTPError as e:

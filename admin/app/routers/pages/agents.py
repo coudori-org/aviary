@@ -10,7 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from aviary_shared.db.models import Agent
+from aviary_shared.db.models import Agent, ServiceAccount
 from app.db import get_db
 from app.services import agent_lifecycle, supervisor_client
 from app.routers.pages._templates import templates
@@ -68,10 +68,21 @@ async def agent_list(
 async def agent_detail(
     request: Request, agent_id: uuid.UUID, db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(select(Agent).where(Agent.id == agent_id).options(selectinload(Agent.policy)))
+    result = await db.execute(
+        select(Agent).where(Agent.id == agent_id).options(
+            selectinload(Agent.policy), selectinload(Agent.service_account),
+        )
+    )
     agent = result.scalar_one_or_none()
     if not agent:
         return HTMLResponse("<h1>Agent not found</h1>", status_code=404)
+
+    sa_result = await db.execute(
+        select(ServiceAccount).order_by(
+            ServiceAccount.is_system.desc(), ServiceAccount.name,
+        )
+    )
+    service_accounts = list(sa_result.scalars().all())
 
     deployment_status = {"state": "inactive", "active": False, "replicas": 0, "ready_replicas": 0}
     try:
@@ -94,7 +105,6 @@ async def agent_detail(
 
     policy_obj = agent.policy
     policy_rules = policy_obj.policy_rules if policy_obj else {}
-    egress_rules = policy_rules.get("allowedEgress", [])
     flash = request.query_params.get("flash")
     flash_data = None
     if flash:
@@ -108,7 +118,7 @@ async def agent_detail(
         "deployment": deployment_status,
         "policy": policy_rules,
         "policy_obj": policy_obj,
-        "egress_rules": egress_rules,
+        "service_accounts": service_accounts,
         "flash": flash_data,
     })
 
@@ -144,7 +154,9 @@ async def update_policy(
 ):
     from aviary_shared.db.models import Policy
     result = await db.execute(
-        select(Agent).where(Agent.id == agent_id).options(selectinload(Agent.policy))
+        select(Agent).where(Agent.id == agent_id).options(
+            selectinload(Agent.policy), selectinload(Agent.service_account),
+        )
     )
     agent = result.scalar_one_or_none()
     if not agent:
@@ -152,7 +164,6 @@ async def update_policy(
 
     form = await request.form()
 
-    # Ensure policy entity exists
     if not agent.policy:
         policy_obj = Policy()
         db.add(policy_obj)
@@ -162,49 +173,21 @@ async def update_policy(
 
     policy_obj = agent.policy
 
-    # Parse scaling fields
-    policy_obj.pod_strategy = form.get("pod_strategy") or policy_obj.pod_strategy
     policy_obj.min_pods = int(form.get("min_pods") or policy_obj.min_pods)
     policy_obj.max_pods = int(form.get("max_pods") or policy_obj.max_pods)
 
-    # Build policy rules dict
     policy_rules = dict(policy_obj.policy_rules) if policy_obj.policy_rules else {}
     policy_rules["maxMemoryPerSession"] = form.get("max_memory", "4Gi")
     policy_rules["maxCpuPerSession"] = form.get("max_cpu", "4")
-    policy_rules["maxConcurrentSessions"] = int(form.get("max_concurrent_sessions") or 20)
-    policy_rules["maxTokensPerTurn"] = int(form.get("max_tokens_per_turn") or 100000)
     policy_rules["containerImage"] = form.get("container_image") or "aviary-runtime:latest"
-    policy_rules["maxConcurrentSessionsPerPod"] = int(form.get("max_sessions_per_pod") or 10)
-    # Parse egress rules
-    names = form.getlist("egress_name[]")
-    types = form.getlist("egress_type[]")
-    targets = form.getlist("egress_target[]")
-    ports_list = form.getlist("egress_ports[]")
-
-    egress_rules = []
-    for i in range(len(names)):
-        name = names[i].strip()
-        target = targets[i].strip() if i < len(targets) else ""
-        if not name or not target:
-            continue
-        rule = {"name": name}
-        if i < len(types) and types[i] == "cidr":
-            rule["cidr"] = target
-        else:
-            rule["domain"] = target
-        ports_str = ports_list[i].strip() if i < len(ports_list) else ""
-        ports = []
-        if ports_str:
-            for p in ports_str.split(","):
-                p = p.strip()
-                if p.isdigit():
-                    ports.append({"port": int(p), "protocol": "TCP"})
-        rule["ports"] = ports
-        egress_rules.append(rule)
-
-    policy_rules["allowedEgress"] = egress_rules
-    policy_rules["sg_ref"] = form.get("sg_ref") or policy_rules.get("sg_ref")
     policy_obj.policy_rules = policy_rules
+
+    sa_id = form.get("service_account_id")
+    if sa_id:
+        agent.service_account_id = uuid.UUID(sa_id)
+        await db.flush()
+        await db.refresh(agent, attribute_names=["service_account"])
+
     await db.flush()
 
     try:

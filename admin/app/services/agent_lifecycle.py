@@ -5,10 +5,9 @@ from __future__ import annotations
 import logging
 
 import httpx
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
-from sqlalchemy import select
 
 from aviary_shared.db.models import Agent, Session as SessionModel
 
@@ -26,10 +25,12 @@ async def activate(agent: Agent) -> None:
     cpu_limit = policy_rules.get("maxCpuPerSession") if policy_rules else None
     memory_limit = policy_rules.get("maxMemoryPerSession") if policy_rules else None
 
+    sa = agent.service_account
     await supervisor_client.ensure_agent(
         agent_id=str(agent.id),
         owner_id=str(agent.owner_id),
         image=image,
+        sa_name=sa.name,
         min_pods=min_pods,
         max_pods=max_pods,
         cpu_limit=cpu_limit,
@@ -39,11 +40,14 @@ async def activate(agent: Agent) -> None:
 
 
 async def _sync_identity(agent: Agent) -> None:
-    """Bind or unbind egress identity based on policy.policy_rules.sg_ref."""
-    sg_ref = (agent.policy.policy_rules or {}).get("sg_ref") if agent.policy else None
+    """Bind egress identity based on the agent's ServiceAccount sg_refs."""
+    sa = agent.service_account
+    sg_refs = list(sa.sg_refs) if sa and sa.sg_refs else []
     try:
-        if sg_ref:
-            await supervisor_client.bind_identity(str(agent.id), sg_ref)
+        if sg_refs:
+            await supervisor_client.bind_identity(
+                str(agent.id), sg_refs, sa_name=sa.name,
+            )
         else:
             await supervisor_client.unbind_identity(str(agent.id))
     except httpx.HTTPStatusError as e:
@@ -76,7 +80,9 @@ async def delete_agent(db: AsyncSession, agent: Agent) -> None:
 
 async def find_agent_or_none(db: AsyncSession, agent_id) -> Agent | None:
     result = await db.execute(
-        select(Agent).where(Agent.id == agent_id).options(selectinload(Agent.policy))
+        select(Agent).where(Agent.id == agent_id).options(
+            selectinload(Agent.policy), selectinload(Agent.service_account),
+        )
     )
     return result.scalar_one_or_none()
 

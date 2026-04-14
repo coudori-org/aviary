@@ -120,17 +120,38 @@ async def test_get_status_reads_replica_counts(k8s_apply):
 
 
 @pytest.mark.asyncio
-async def test_bind_identity_loads_profile_and_applies_networkpolicy(k8s_apply):
+async def test_bind_identity_single_profile(k8s_apply):
     k8s_apply["identity"].return_value = {
         "data": {"github.json": '[{"to": [{"ipBlock": {"cidr": "1.2.3.0/24"}}]}]'},
     }
 
     binder = K3SIdentityBinder()
-    await binder.bind_identity("agent-test-1", "agent-default-sa", "github")
+    await binder.bind_identity("agent-test-1", "agent-default-sa", ["github"])
 
     k8s_apply["identity_replace"].assert_awaited_once()
-    path = k8s_apply["identity_replace"].await_args.args[0]
-    assert "networkpolicies" in path
+    manifest = k8s_apply["identity_replace"].await_args.args[2]
+    assert len(manifest["spec"]["egress"]) == 1
+    assert manifest["spec"]["egress"][0]["to"][0]["ipBlock"]["cidr"] == "1.2.3.0/24"
+
+
+@pytest.mark.asyncio
+async def test_bind_identity_merges_multiple_profiles(k8s_apply):
+    """AWS SG semantics: multiple sg_refs → union of all egress rules."""
+    k8s_apply["identity"].return_value = {
+        "data": {
+            "default.json": '[{"to": [{"ipBlock": {"cidr": "10.0.0.0/8"}}]}]',
+            "github.json": '[{"to": [{"ipBlock": {"cidr": "140.82.112.0/20"}}]}]',
+        },
+    }
+
+    binder = K3SIdentityBinder()
+    await binder.bind_identity("agent-test-1", "agent-default-sa", ["default", "github"])
+
+    manifest = k8s_apply["identity_replace"].await_args.args[2]
+    cidrs = [r["to"][0]["ipBlock"]["cidr"] for r in manifest["spec"]["egress"]]
+    assert "10.0.0.0/8" in cidrs
+    assert "140.82.112.0/20" in cidrs
+    assert len(cidrs) == 2
 
 
 @pytest.mark.asyncio
@@ -140,7 +161,16 @@ async def test_bind_identity_unknown_profile_raises_400(k8s_apply):
 
     binder = K3SIdentityBinder()
     with pytest.raises(HTTPException) as exc:
-        await binder.bind_identity("agent-test-1", "agent-default-sa", "nonexistent")
+        await binder.bind_identity("agent-test-1", "agent-default-sa", ["nonexistent"])
+    assert exc.value.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_bind_identity_empty_refs_raises_400(k8s_apply):
+    from fastapi import HTTPException
+    binder = K3SIdentityBinder()
+    with pytest.raises(HTTPException) as exc:
+        await binder.bind_identity("agent-test-1", "agent-default-sa", [])
     assert exc.value.status_code == 400
 
 

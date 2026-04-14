@@ -1,4 +1,4 @@
-"""Policy management — egress rules, resource limits, pod strategy."""
+"""Policy management — resource limits + scaling bounds + SA binding sync."""
 
 import uuid
 import logging
@@ -21,7 +21,9 @@ router = APIRouter()
 
 async def _get_policy_for_agent(db: AsyncSession, agent_id: uuid.UUID) -> tuple[Agent, Policy]:
     result = await db.execute(
-        select(Agent).where(Agent.id == agent_id).options(selectinload(Agent.policy))
+        select(Agent).where(Agent.id == agent_id).options(
+            selectinload(Agent.policy), selectinload(Agent.service_account),
+        )
     )
     agent = result.scalar_one_or_none()
     if not agent:
@@ -43,17 +45,17 @@ async def get_policy(agent_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
     return {
         "agent_id": str(agent.id),
         "policy": policy.policy_rules,
-        "pod_strategy": policy.pod_strategy,
         "min_pods": policy.min_pods,
         "max_pods": policy.max_pods,
+        "service_account_id": str(agent.service_account_id),
     }
 
 
 class PolicyUpdateRequest(BaseModel):
     policy: dict | None = None
-    pod_strategy: str | None = None
     min_pods: int | None = None
     max_pods: int | None = None
+    service_account_id: uuid.UUID | None = None
 
 
 @router.put("/{agent_id}/policy")
@@ -66,12 +68,14 @@ async def update_policy(
 
     if body.policy is not None:
         policy.policy_rules = body.policy
-    if body.pod_strategy is not None:
-        policy.pod_strategy = body.pod_strategy
     if body.min_pods is not None:
         policy.min_pods = body.min_pods
     if body.max_pods is not None:
         policy.max_pods = body.max_pods
+    if body.service_account_id is not None:
+        agent.service_account_id = body.service_account_id
+        await db.flush()
+        await db.refresh(agent, attribute_names=["service_account"])
 
     await db.flush()
 
@@ -86,9 +90,9 @@ async def update_policy(
     return {
         "agent_id": str(agent.id),
         "policy": policy.policy_rules,
-        "pod_strategy": policy.pod_strategy,
         "min_pods": policy.min_pods,
         "max_pods": policy.max_pods,
+        "service_account_id": str(agent.service_account_id),
         "identity_synced": identity_synced,
         "sync_error": sync_error,
     }

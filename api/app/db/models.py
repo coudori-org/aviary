@@ -17,4 +17,5 @@ from aviary_shared.db.models import (  # noqa: F401
     WorkflowRun,
     WorkflowVersion,
     Policy,
+    ServiceAccount,
 )

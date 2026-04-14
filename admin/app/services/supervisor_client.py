@@ -73,11 +73,13 @@ async def rolling_restart(agent_id: str) -> None:
     resp.raise_for_status()
 
 
-async def bind_identity(agent_id: str, sg_ref: str, sa_name: str = "agent-default-sa") -> None:
-    """Apply egress identity (SA + SG/profile). sg_ref: AWS SG ID or K3S profile name."""
+async def bind_identity(
+    agent_id: str, sg_refs: list[str], sa_name: str = "agent-default-sa",
+) -> None:
+    """Apply egress identity (SA + SG/profile refs). Multiple refs merge as in AWS SG."""
     resp = await _supervisor.client.put(
         f"/v1/agents/{agent_id}/identity",
-        json={"sa_name": sa_name, "sg_ref": sg_ref},
+        json={"sa_name": sa_name, "sg_refs": sg_refs},
     )
     resp.raise_for_status()
 

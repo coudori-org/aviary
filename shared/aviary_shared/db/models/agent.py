@@ -50,6 +50,13 @@ class Agent(Base):
         UUID(as_uuid=True), ForeignKey("policies.id", ondelete="SET NULL"), nullable=True
     )
 
+    # Egress identity — maps to a K8s ServiceAccount + one or more SG profiles.
+    service_account_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("service_accounts.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+
     # Status
     status: Mapped[str] = mapped_column(String(20), default="active", server_default="active")
     created_at: Mapped[datetime] = mapped_column(
@@ -61,6 +68,7 @@ class Agent(Base):
 
     owner: Mapped["User"] = relationship(back_populates="owned_agents")  # noqa: F821
     policy: Mapped["Policy | None"] = relationship()  # noqa: F821
+    service_account: Mapped["ServiceAccount"] = relationship()  # noqa: F821
     acl_entries: Mapped[list["AgentACL"]] = relationship(
         back_populates="agent", cascade="all, delete-orphan", passive_deletes=True,
     )

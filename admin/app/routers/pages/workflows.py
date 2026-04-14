@@ -86,14 +86,12 @@ async def workflow_detail(
 
     policy_obj = workflow.policy
     policy_rules = policy_obj.policy_rules if policy_obj else {}
-    egress_rules = policy_rules.get("allowedEgress", [])
 
     return templates.TemplateResponse(request, "workflow_detail.html", {
         "workflow": workflow,
         "deployment": deployment_status,
         "policy": policy_rules,
         "policy_obj": policy_obj,
-        "egress_rules": egress_rules,
     })
 
 
@@ -118,41 +116,12 @@ async def update_workflow_policy(
         workflow.policy = policy_obj
 
     policy_obj = workflow.policy
-    policy_obj.pod_strategy = form.get("pod_strategy") or policy_obj.pod_strategy
     policy_obj.min_pods = int(form.get("min_pods") or policy_obj.min_pods)
     policy_obj.max_pods = int(form.get("max_pods") or policy_obj.max_pods)
 
     policy_rules = dict(policy_obj.policy_rules) if policy_obj.policy_rules else {}
     policy_rules["maxMemoryPerSession"] = form.get("max_memory") or "4Gi"
     policy_rules["maxCpuPerSession"] = form.get("max_cpu") or "4"
-    policy_rules["maxConcurrentSessions"] = int(form.get("max_concurrent_sessions") or 20)
-
-    names = form.getlist("egress_name[]")
-    types = form.getlist("egress_type[]")
-    targets = form.getlist("egress_target[]")
-    ports_list = form.getlist("egress_ports[]")
-    egress_rules = []
-    for i in range(len(names)):
-        name = names[i].strip()
-        target = targets[i].strip() if i < len(targets) else ""
-        if not name or not target:
-            continue
-        rule = {"name": name}
-        if i < len(types) and types[i] == "cidr":
-            rule["cidr"] = target
-        else:
-            rule["domain"] = target
-        ports_str = ports_list[i].strip() if i < len(ports_list) else ""
-        ports = []
-        if ports_str:
-            for p in ports_str.split(","):
-                p = p.strip()
-                if p.isdigit():
-                    ports.append({"port": int(p), "protocol": "TCP"})
-        rule["ports"] = ports
-        egress_rules.append(rule)
-
-    policy_rules["allowedEgress"] = egress_rules
     policy_obj.policy_rules = policy_rules
     await db.flush()
 

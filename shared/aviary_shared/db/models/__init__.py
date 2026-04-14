@@ -10,6 +10,7 @@ from aviary_shared.db.models.session import Session, SessionParticipant, Message
 from aviary_shared.db.models.mcp import McpServer, McpTool, McpAgentToolBinding, McpToolAcl
 from aviary_shared.db.models.upload import FileUpload
 from aviary_shared.db.models.policy import Policy
+from aviary_shared.db.models.service_account import ServiceAccount
 from aviary_shared.db.models.workflow import Workflow, WorkflowACL, WorkflowRun, WorkflowNodeRun, WorkflowVersion
 
 __all__ = [
@@ -20,5 +21,6 @@ __all__ = [
     "McpServer", "McpTool", "McpAgentToolBinding", "McpToolAcl",
     "FileUpload",
     "Policy",
+    "ServiceAccount",
     "Workflow", "WorkflowACL", "WorkflowRun", "WorkflowNodeRun", "WorkflowVersion",
 ]

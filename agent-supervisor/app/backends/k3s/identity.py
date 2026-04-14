@@ -34,10 +34,9 @@ EGRESS_PROFILES_CONFIGMAP = "egress-profiles"
 DEFAULT_PROFILE = "default"
 
 
-async def _load_profile(sg_ref: str) -> list[dict]:
-    """Read egress profile from ConfigMap. Raises 503 if missing."""
+async def _load_configmap() -> dict:
     try:
-        cm = await k8s_apply(
+        return await k8s_apply(
             "GET",
             f"/api/v1/namespaces/{PLATFORM_NAMESPACE}/configmaps/{EGRESS_PROFILES_CONFIGMAP}",
         )
@@ -46,13 +45,26 @@ async def _load_profile(sg_ref: str) -> list[dict]:
             status_code=503,
             detail=f"{EGRESS_PROFILES_CONFIGMAP} ConfigMap not reachable",
         ) from e
-    raw = cm.get("data", {}).get(f"{sg_ref}.json")
-    if raw is None:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Unknown egress profile '{sg_ref}'",
-        )
-    return json.loads(raw)
+
+
+async def _load_merged_rules(sg_refs: list[str]) -> list[dict]:
+    """Merge egress rule fragments from all named profiles.
+
+    AWS SGs combine as a union of allow rules; we emulate that by concatenating
+    the rule lists. K8s evaluates NetworkPolicy egress as a disjunction, so
+    this yields the same "allowed if any rule permits" semantics.
+    """
+    cm = await _load_configmap()
+    data = cm.get("data", {})
+    merged: list[dict] = []
+    for ref in sg_refs:
+        raw = data.get(f"{ref}.json")
+        if raw is None:
+            raise HTTPException(
+                status_code=400, detail=f"Unknown egress profile '{ref}'",
+            )
+        merged.extend(json.loads(raw))
+    return merged
 
 
 class K3SIdentityBinder(IdentityBinder):
@@ -68,9 +80,11 @@ class K3SIdentityBinder(IdentityBinder):
             },
         )
 
-    async def bind_identity(self, agent_id: str, sa_name: str, sg_ref: str) -> None:
-        """Apply the named profile as a NetworkPolicy selecting the agent's pods."""
-        egress_rules = await _load_profile(sg_ref)
+    async def bind_identity(self, agent_id: str, sa_name: str, sg_refs: list[str]) -> None:
+        """Apply the merged profiles as a NetworkPolicy selecting the agent's pods."""
+        if not sg_refs:
+            raise HTTPException(status_code=400, detail="sg_refs must not be empty")
+        egress_rules = await _load_merged_rules(sg_refs)
         name = agent_network_policy_name(agent_id)
         manifest = {
             "apiVersion": "networking.k8s.io/v1",
@@ -92,7 +106,7 @@ class K3SIdentityBinder(IdentityBinder):
             name,
             manifest,
         )
-        logger.info("Bound identity for agent %s to profile %s", agent_id, sg_ref)
+        logger.info("Bound identity for agent %s to profiles %s", agent_id, sg_refs)
 
     async def unbind_identity(self, agent_id: str) -> None:
         name = agent_network_policy_name(agent_id)

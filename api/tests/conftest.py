@@ -98,13 +98,27 @@ _TABLES = [
     "messages", "session_participants", "sessions",
     "agent_credentials", "agent_acl", "agents",
     "team_members", "teams", "users",
+    "service_accounts",
 ]
+
+DEFAULT_SA_NAME = "agent-default-sa"
 
 
 @pytest.fixture(autouse=True)
 async def clean_tables():
+    from aviary_shared.db.models import ServiceAccount
     async with engine.begin() as conn:
         await conn.execute(text(f"TRUNCATE {', '.join(_TABLES)} CASCADE"))
+    # Re-seed the default ServiceAccount — prod migration guarantees this row;
+    # Agent.service_account_id FK (NOT NULL) requires it to resolve.
+    async with test_session_factory() as db:
+        db.add(ServiceAccount(
+            name=DEFAULT_SA_NAME,
+            description="Default service account — bound to default-sg only",
+            sg_refs=["default-sg"],
+            is_system=True,
+        ))
+        await db.commit()
     yield
 
 

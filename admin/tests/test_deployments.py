@@ -14,7 +14,6 @@ async def test_get_deployment_status_no_namespace(client: AsyncClient, seed_agen
     resp = await client.get(f"/api/agents/{seed_agent.id}/deployment")
     assert resp.status_code == 200
     data = resp.json()
-    assert data["pod_strategy"] == "lazy"
     assert data["replicas"] == 0
     assert data["ready_replicas"] == 0
 

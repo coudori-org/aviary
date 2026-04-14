@@ -58,18 +58,21 @@ class WorkspaceStore(ABC):
 
 
 class IdentityBinder(ABC):
-    """Creates ServiceAccounts and binds them to an egress identity.
+    """Creates ServiceAccounts and binds them to one or more egress identities.
 
-    `sg_ref` is a platform-specific opaque reference:
-      - EKS:  AWS Security Group ID (sg-xxx)
-      - K3S:  name of a pre-registered egress profile (see egress-profiles ConfigMap)
+    `sg_refs` is a list of platform-specific opaque references:
+      - EKS:  AWS Security Group IDs (sg-xxx) — attached together to the pod ENI
+              (AWS merges their egress rules natively).
+      - K3S:  names of pre-registered egress profiles (see egress-profiles
+              ConfigMap). Backend merges their egress rule fragments into a
+              single NetworkPolicy so semantics match AWS.
     """
 
     @abstractmethod
     async def ensure_service_account(self, sa_name: str) -> None: ...
 
     @abstractmethod
-    async def bind_identity(self, agent_id: str, sa_name: str, sg_ref: str) -> None: ...
+    async def bind_identity(self, agent_id: str, sa_name: str, sg_refs: list[str]) -> None: ...
 
     @abstractmethod
     async def unbind_identity(self, agent_id: str) -> None: ...
