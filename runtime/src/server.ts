@@ -72,7 +72,11 @@ app.post("/message", async (req, res) => {
   const aKey = abortKey(body.session_id, agentId);
   activeAbortControllers.set(aKey, abortController);
 
-  req.on("close", () => {
+  // `res.on("close")` — not `req.on("close")` — is the reliable signal for
+  // client disconnect on a streaming response in Node/Express. `req.on("close")`
+  // doesn't fire for in-flight streamed responses, which is why a previous
+  // version of this handler missed supervisor aborts entirely.
+  res.on("close", () => {
     if (!abortController.signal.aborted) {
       abortController.abort();
     }
