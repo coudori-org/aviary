@@ -20,6 +20,7 @@ from typing import AsyncIterator
 
 import redis.asyncio as redis
 
+from app import metrics
 from app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -78,13 +79,19 @@ def _a2a_key(session_id: str, parent_tool_use_id: str) -> str:
     return f"session:{session_id}:a2a:{parent_tool_use_id}"
 
 
+def _record_error(operation: str, *, warn: bool = False, extra: str = "") -> None:
+    metrics.redis_errors_total.labels(operation=operation).inc()
+    if warn:
+        logger.warning("%s failed%s", operation, extra, exc_info=True)
+
+
 async def publish_event(session_id: str, event: dict) -> None:
     if not _client:
         return
     try:
         await _client.publish(_session_channel(session_id), json.dumps(event))
     except redis.RedisError:
-        logger.warning("publish_event failed for session %s", session_id, exc_info=True)
+        _record_error("publish_event", warn=True, extra=f" for session {session_id}")
 
 
 async def append_stream_chunk(stream_id: str, event: dict) -> None:
@@ -94,7 +101,7 @@ async def append_stream_chunk(stream_id: str, event: dict) -> None:
         await _client.rpush(_stream_chunks(stream_id), json.dumps(event))
         await _client.expire(_stream_chunks(stream_id), _STREAM_BUFFER_TTL)
     except redis.RedisError:
-        logger.warning("append_stream_chunk failed for stream %s", stream_id, exc_info=True)
+        _record_error("append_stream_chunk", warn=True, extra=f" for stream {stream_id}")
 
 
 async def get_stream_chunks(stream_id: str) -> list[dict]:
@@ -104,6 +111,7 @@ async def get_stream_chunks(stream_id: str) -> list[dict]:
         raw = await _client.lrange(_stream_chunks(stream_id), 0, -1)
         return [json.loads(r) for r in raw]
     except redis.RedisError:
+        _record_error("get_stream_chunks")
         return []
 
 
@@ -113,7 +121,7 @@ async def set_stream_status(stream_id: str, value: str) -> None:
     try:
         await _client.set(_stream_status(stream_id), value, ex=_STREAM_BUFFER_TTL)
     except redis.RedisError:
-        pass
+        _record_error("set_stream_status")
 
 
 async def set_session_status(session_id: str, value: str) -> None:
@@ -122,7 +130,7 @@ async def set_session_status(session_id: str, value: str) -> None:
     try:
         await _client.set(_session_status(session_id), value, ex=_SESSION_TTL)
     except redis.RedisError:
-        pass
+        _record_error("set_session_status")
 
 
 async def set_session_latest_stream(session_id: str, stream_id: str) -> None:
@@ -131,7 +139,7 @@ async def set_session_latest_stream(session_id: str, stream_id: str) -> None:
     try:
         await _client.set(_session_latest_stream(session_id), stream_id, ex=_SESSION_TTL)
     except redis.RedisError:
-        pass
+        _record_error("set_session_latest_stream")
 
 
 async def append_a2a_event(
@@ -144,7 +152,7 @@ async def append_a2a_event(
         await _client.rpush(key, json.dumps(event))
         await _client.expire(key, _STREAM_BUFFER_TTL)
     except redis.RedisError:
-        logger.warning("append_a2a_event failed for session %s", session_id, exc_info=True)
+        _record_error("append_a2a_event", warn=True, extra=f" for session {session_id}")
 
 
 async def get_a2a_events(session_id: str, parent_tool_use_id: str) -> list[dict]:
@@ -154,6 +162,7 @@ async def get_a2a_events(session_id: str, parent_tool_use_id: str) -> list[dict]
         raw = await _client.lrange(_a2a_key(session_id, parent_tool_use_id), 0, -1)
         return [json.loads(r) for r in raw]
     except redis.RedisError:
+        _record_error("get_a2a_events")
         return []
 
 
@@ -163,7 +172,7 @@ async def clear_a2a_events(session_id: str, parent_tool_use_id: str) -> None:
     try:
         await _client.delete(_a2a_key(session_id, parent_tool_use_id))
     except redis.RedisError:
-        pass
+        _record_error("clear_a2a_events")
 
 
 # ── Cross-replica abort fan-out ─────────────────────────────────────────────
@@ -174,7 +183,7 @@ async def publish_abort(stream_id: str) -> None:
     try:
         await _client.publish(_ABORT_CHANNEL, json.dumps({"stream_id": stream_id}))
     except redis.RedisError:
-        logger.warning("publish_abort failed", exc_info=True)
+        _record_error("publish_abort", warn=True)
 
 
 async def iter_abort_requests() -> AsyncIterator[dict]:

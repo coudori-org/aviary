@@ -2,6 +2,7 @@
 
 from aviary_shared.vault import VaultClient
 
+from app import metrics
 from app.config import settings
 
 _client: VaultClient | None = None
@@ -21,7 +22,8 @@ async def fetch_user_credentials(user_external_id: str) -> dict[str, str]:
     users without a given credential still get a working sandbox.
     """
     creds: dict[str, str] = {}
-    github_token = await _vault().read_user_credential(user_external_id, "github-token")
+    with metrics.vault_fetch_duration_seconds.time():
+        github_token = await _vault().read_user_credential(user_external_id, "github-token")
     if github_token:
         creds["github_token"] = github_token
     return creds

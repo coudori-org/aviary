@@ -147,12 +147,16 @@ async def _drive_stream(
     await redis_client.set_session_status(session_id, "streaming")
     await redis_client.set_session_latest_stream(session_id, stream_id)
 
+    metrics.active_streams.inc()
     try:
         async with httpx.AsyncClient() as client:
             async with client.stream(
                 "POST", f"{base}/message", json=body, timeout=None,
             ) as resp:
                 if resp.status_code != 200:
+                    metrics.runtime_http_errors_total.labels(
+                        status_code=str(resp.status_code)
+                    ).inc()
                     err = (await resp.aread()).decode(errors="replace")[:500]
                     logger.error("Runtime stream %d: %s", resp.status_code, err)
                     error_message = f"Agent runtime error ({resp.status_code}): {err}"
@@ -166,6 +170,9 @@ async def _drive_stream(
                         metrics.sse_events_total.labels(event_type=etype or "unknown").inc()
                         if etype == "query_started":
                             reached_runtime = True
+                            metrics.time_to_query_started_seconds.observe(
+                                time.monotonic() - started
+                            )
                             continue
                         if etype == "error":
                             # API is the sole publisher of terminal error events
@@ -180,6 +187,8 @@ async def _drive_stream(
     except httpx.HTTPError as e:
         logger.exception("SSE proxy error for stream %s", stream_id)
         error_message = f"Agent runtime connection failed: {e}"
+    finally:
+        metrics.active_streams.dec()
 
     metrics.publish_duration_seconds.observe(time.monotonic() - started)
     await redis_client.set_session_status(session_id, "idle")
@@ -288,8 +297,10 @@ async def abort_stream(stream_id: str):
     cancels it. Cancelling closes the supervisor→runtime TCP connection,
     which fires `req.on('close')` on the runtime pod and aborts the SDK."""
     if _cancel_local(stream_id):
+        metrics.abort_requests_total.labels(via="local").inc()
         return {"ok": True, "via": "local"}
     await redis_client.publish_abort(stream_id)
+    metrics.abort_requests_total.labels(via="broadcast").inc()
     return {"ok": True, "via": "broadcast"}
 
 
@@ -331,12 +342,19 @@ async def a2a_stream(
     from fastapi.responses import StreamingResponse
 
     async def generate():
+        started = time.monotonic()
+        a2a_status = "complete"
+        metrics.active_a2a_streams.inc()
         try:
             async with httpx.AsyncClient() as client:
                 async with client.stream(
                     "POST", f"{base}/message", json=runtime_body, timeout=None,
                 ) as resp:
                     if resp.status_code != 200:
+                        metrics.runtime_http_errors_total.labels(
+                            status_code=str(resp.status_code)
+                        ).inc()
+                        a2a_status = "error"
                         err = (await resp.aread()).decode(errors="replace")[:500]
                         logger.error("A2A sub-agent stream %d: %s", resp.status_code, err)
                         yield (
@@ -356,10 +374,15 @@ async def a2a_stream(
                             )
                         yield f"data: {json.dumps(event)}\n\n".encode()
         except httpx.HTTPError:
+            a2a_status = "error"
             logger.exception("A2A SSE proxy error for session %s", body.parent_session_id)
             yield (
                 f"data: {json.dumps({'type': 'error', 'message': 'Sub-agent runtime unreachable'})}\n\n"
             ).encode()
+        finally:
+            metrics.a2a_duration_seconds.observe(time.monotonic() - started)
+            metrics.a2a_requests_total.labels(status=a2a_status).inc()
+            metrics.active_a2a_streams.dec()
 
     return StreamingResponse(
         generate(),
