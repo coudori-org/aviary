@@ -42,10 +42,13 @@ echo "  K8s is ready."
 K8S_GATEWAY_IP=$(docker compose exec -T k8s ip route | awk '/default/ {print $3}' | head -1)
 echo "  K8s gateway IP: $K8S_GATEWAY_IP"
 
-# Only the runtime image lives in K3s now. Supervisor runs as a compose service.
-echo "[5/6] Building and loading runtime image..."
+# Only runtime images live in K3s now. Supervisor runs as a compose service.
+echo "[5/6] Building and loading runtime images..."
 docker build "${BUILD_ARGS[@]}" -t aviary-runtime:latest ./runtime/
 docker save aviary-runtime:latest | docker compose exec -T k8s ctr images import -
+# Example customized variant (used by the `custom` environment) — extends the base.
+docker build "${BUILD_ARGS[@]}" -f ./runtime/Dockerfile.custom -t aviary-runtime-custom:latest ./runtime/
+docker save aviary-runtime-custom:latest | docker compose exec -T k8s ctr images import -
 
 echo "  Rendering and applying Helm charts..."
 HELM_IMAGE="alpine/helm:3.14.4"
@@ -61,11 +64,16 @@ render_chart aviary-platform    aviary-platform    values-dev.yaml \
   | docker compose exec -T k8s kubectl apply -f -
 render_chart aviary-env-default aviary-environment values-dev.yaml \
   | docker compose exec -T k8s kubectl apply -f -
+render_chart aviary-env-custom  aviary-environment values-custom.yaml \
+  | docker compose exec -T k8s kubectl apply -f -
 
-echo "  Platform + default environment applied."
+echo "  Platform + default + custom environments applied."
 
-echo -n "  Waiting for runtime rollout..."
+echo -n "  Waiting for default runtime rollout..."
 docker compose exec -T k8s kubectl -n agents rollout status deploy/aviary-env-default --timeout=180s
+echo " ready."
+echo -n "  Waiting for custom runtime rollout..."
+docker compose exec -T k8s kubectl -n agents rollout status deploy/aviary-env-custom --timeout=180s
 echo " ready."
 
 echo "[6/6] Waiting for application services..."
@@ -105,7 +113,9 @@ echo "  LiteLLM Gateway:    http://localhost:8090"
 echo "  MCP Gateway:        http://localhost:8100"
 echo ""
 echo "Runtime (K3s, Helm-managed):"
-echo "  Default environment: NodePort :30300"
+echo "  Default environment (egress locked down, base image):  NodePort :30300"
+echo "  Custom  environment (open egress, example layered img): NodePort :30301"
+echo "    Agent routing: set agent.runtime_endpoint = http://k8s:30301 via admin."
 echo ""
 echo "Infrastructure:"
 echo "  PostgreSQL:  localhost:5432  (aviary/aviary)"

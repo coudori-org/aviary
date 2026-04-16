@@ -49,6 +49,16 @@ Agent routing:
   agent.runtime_endpoint (nullable) in the DB.
   null → supervisor's SUPERVISOR_DEFAULT_RUNTIME_ENDPOINT (default env).
   non-null → any env Service DNS (admin sets per agent).
+
+Environments shipped out of the box (both `charts/aviary-environment` releases):
+  default — locked-down egress (DNS + platform only), base `aviary-runtime`
+            image (git, no gh). NodePort 30300 — the supervisor's default.
+  custom  — worked example of a per-env customization: open internet via
+            `extraEgress: 0.0.0.0/0` and `aviary-runtime-custom` image
+            (base + gh CLI, see runtime/Dockerfile.custom). NodePort 30301.
+            Point an agent at this env by setting
+            agent.runtime_endpoint = http://k8s:30301 in the admin console
+            (dev) or the env's in-cluster Service DNS (prod).
 ```
 
 ### Service Responsibilities

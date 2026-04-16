@@ -1,0 +1,25 @@
+# Customizable runtime environment — example companion to values-dev.yaml.
+# Ships with a thin layered image (see runtime/Dockerfile.custom) and
+# unrestricted egress so agents can reach any external service. Copy this
+# file + the Dockerfile.custom and adjust to provision additional envs.
+
+name: custom
+
+replicas: 1
+
+image:
+  repository: aviary-runtime-custom
+  tag: latest
+  pullPolicy: Never
+
+# Different nodePort so it doesn't clash with the default environment (30300).
+service:
+  nodePort: 30301
+
+# Allow all outbound traffic. K8s evaluates egress as a disjunction across
+# NetworkPolicies, so this unions with the platform baseline — effectively
+# "everything, including the baseline-allowed platform services."
+extraEgress:
+  - to:
+      - ipBlock:
+          cidr: 0.0.0.0/0

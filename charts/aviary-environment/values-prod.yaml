@@ -12,10 +12,7 @@ image:
 service:
   type: ClusterIP
 
-pvc:
-  storageClassName: efs-sc
-  accessMode: ReadWriteMany
-  size: 100Gi
+# Shared PVC lives at the platform level — sized/provisioned there.
 
 resources:
   requests:

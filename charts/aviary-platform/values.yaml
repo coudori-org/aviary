@@ -37,3 +37,19 @@ externalServices:
 imageWarmer:
   enabled: false
   image: aviary-runtime:latest
+
+# Single RWX PVC shared across every runtime environment. Envs are capability
+# boundaries (image, egress); workspace state lives in one place so a session
+# can migrate between envs with its Claude CLI history / shared files / venv
+# intact.
+sharedWorkspace:
+  enabled: true
+  name: aviary-shared-workspace
+  size: 50Gi
+  # RWX StorageClass. Dev: "manual" — bound to the static hostPath PV below.
+  # Prod: EFS (or similar RWX CSI driver).
+  storageClassName: manual
+  # Dev only: if set, a hostPath PersistentVolume is created on the node with
+  # this path, and the PVC binds to it (RWX is fine on single-node K3s).
+  # Leave empty in prod — the CSI driver provisions the PV dynamically.
+  hostPath: ""

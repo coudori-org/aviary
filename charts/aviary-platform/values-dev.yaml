@@ -6,3 +6,6 @@ externalServices:
 
 imageWarmer:
   enabled: true
+
+sharedWorkspace:
+  hostPath: /var/lib/aviary-workspace

@@ -55,9 +55,13 @@ load_k8s_image() {
 }
 
 rebuild_runtime() {
-  echo -e "${BOLD}Rebuilding runtime...${NC}"
+  echo -e "${BOLD}Rebuilding runtime (+ custom variant)...${NC}"
   docker build "${BUILD_ARGS[@]}" -t aviary-runtime:latest ./runtime/
   load_k8s_image "aviary-runtime:latest"
+  # The custom variant layers on top of the base, so rebuild it too — any
+  # change to the base should propagate to the `custom` environment.
+  docker build "${BUILD_ARGS[@]}" -f ./runtime/Dockerfile.custom -t aviary-runtime-custom:latest ./runtime/
+  load_k8s_image "aviary-runtime-custom:latest"
   echo -e "${CYAN}Rolling restart runtime pods...${NC}"
   docker compose exec -T k8s kubectl rollout restart deployment -n agents \
     -l aviary/role=agent-runtime 2>/dev/null || true

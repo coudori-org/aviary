@@ -50,9 +50,10 @@ resources:
 pvc:
   # Mount point of the shared workspace PVC inside each runtime pod.
   mountPath: /workspace-root
-  storageClassName: local-path
-  accessMode: ReadWriteOnce
-  size: 20Gi
+  # PVC is provisioned by aviary-platform (see sharedWorkspace.*).
+  # Every env mounts the same claim so workspace state — Claude CLI history,
+  # shared files, per-(agent,session) venv — is preserved across env switches.
+  claimName: aviary-shared-workspace
 
 # Extra NetworkPolicy egress rules for this environment's pods. Empty list
 # = baseline only. Rules are raw networking.k8s.io/v1 egress fragments.

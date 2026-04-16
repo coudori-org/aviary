@@ -5,3 +5,8 @@ externalServices:
 
 imageWarmer:
   enabled: true
+
+sharedWorkspace:
+  storageClassName: efs-sc
+  # hostPath deliberately empty — EFS StorageClass provisions the PV
+  # dynamically, no static PV needed.

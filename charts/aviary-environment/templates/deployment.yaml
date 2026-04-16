@@ -70,4 +70,4 @@ spec:
       volumes:
         - name: workspace
           persistentVolumeClaim:
-            claimName: {{ include "aviary-environment.fullname" . }}-workspace
+            claimName: {{ .Values.pvc.claimName }}
