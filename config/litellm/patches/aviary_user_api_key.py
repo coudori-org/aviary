@@ -3,8 +3,8 @@
 For Anthropic backend requests, extracts the user's OIDC JWT from the
 ``X-Aviary-User-Token`` header, validates it against Keycloak JWKS, looks up
 the user's personal Anthropic API key in Vault, and overrides the key used for
-the upstream call.  Non-Anthropic backends (Ollama, vLLM, Bedrock) are
-unaffected.
+the upstream call.  Non-Anthropic backends (Bedrock, Ollama, vLLM) are
+unaffected — they're matched by model prefix and skipped.
 
 Loaded at Python startup via the ``.pth`` file alongside the streaming patch.
 """
@@ -244,15 +244,8 @@ def _register():
             call_type: str,
         ) -> dict[str, Any]:
             # Only intercept direct Anthropic backend requests.
-            # Bedrock models routed through Portkey use anthropic/ prefix
-            # but authenticate via AWS credentials, not Anthropic API keys.
             model = data.get("model", "")
             if not model.startswith("anthropic/"):
-                return data
-
-            # Skip Bedrock models — they use AWS credentials via Portkey
-            extra_headers = data.get("extra_headers") or {}
-            if extra_headers.get("x-portkey-provider") == "aws-bedrock":
                 return data
 
             # Extract user JWT from request headers.

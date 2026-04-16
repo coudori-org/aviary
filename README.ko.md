@@ -33,11 +33,6 @@ Aviary는 웹 UI로 AI 에이전트를 생성·설정·사용하는 엔터프라
     │   │  │ (모델 라우팅,    │    (유저별 API 키)    │ │
     │   │  │  API 키 주입)    │                       │ │
     │   │  └────────┬────────┘                       │ │
-    │   │  ┌────────▼────────┐                       │ │
-    │   │  │ Portkey Gateway │                       │ │
-    │   │  │ (가드레일,       │                       │ │
-    │   │  │  트레이싱, 캐싱) │                       │ │
-    │   │  └────────┬────────┘                       │ │
     │   │     ┌─────┴───────────────────┐            │ │
     │   │     ▼            ▼            ▼            │ │
     │   │  Claude API   Ollama/vLLM   Bedrock        │ │
@@ -90,7 +85,7 @@ Aviary는 웹 UI로 AI 에이전트를 생성·설정·사용하는 엔터프라
 - **bubblewrap 세션 격리** — 각 요청이 커널 수준 마운트 네임스페이스에서 실행. 같은 세션의 에이전트들은 `/workspace`를 공유(A2A), `.claude/`와 `.venv/`는 (agent, session)별.
 - **에이전트 간 호출 (A2A)** — instruction이나 채팅에서 `@멘션`으로 서브 에이전트 호출; 서브 에이전트의 도구 호출이 부모 도구 카드 안에 실시간 인라인 렌더링.
 - **MCP Gateway** — [MCP](https://modelcontextprotocol.io/) 기반 중앙 집중식 도구 관리. MCP 서버 등록 → 자동 디스커버리 → 유저별 ACL이 적용된 카탈로그에서 에이전트에 바인딩.
-- **LiteLLM + Portkey Gateway** — 2계층 LLM 게이트웨이: [LiteLLM](https://github.com/BerriAI/litellm)이 모델 라우팅 및 유저별 API 키 주입, [Portkey](https://github.com/portkey-ai/gateway)가 가드레일, 트레이싱, 캐싱.
+- **LiteLLM Gateway** — [LiteLLM](https://github.com/BerriAI/litellm)이 모델 이름 접두사로 라우팅하고 Vault에서 유저별 Anthropic API 키를 주입.
 - **멀티 백엔드 추론** — Claude API, Ollama, vLLM, AWS Bedrock; 설정으로 새 백엔드 추가.
 - **계층화된 이그레스** — `charts/aviary-platform`의 baseline NetworkPolicy는 항상 적용; 환경별 Helm values의 `extraEgress`로 추가 규칙 union (K8s NP는 disjunction).
 - **Redis 분리형 스트리밍** — supervisor가 런타임 SSE를 Redis로 publish; API 서버는 조립된 메시지 저장, WebSocket 클라이언트는 같은 Redis 스트림에서 독립적으로 replay.
@@ -107,7 +102,7 @@ Aviary는 웹 UI로 AI 에이전트를 생성·설정·사용하는 엔터프라
 | API 서버 | Python, FastAPI, SQLAlchemy 2.0 (async), Pydantic v2 |
 | 에이전트 런타임 | Node.js, Python, claude-agent-sdk, Claude Code CLI |
 | Agent Supervisor | Python, FastAPI, Redis, prometheus-client |
-| LLM 게이트웨이 | [LiteLLM](https://github.com/BerriAI/litellm) + [Portkey](https://github.com/portkey-ai/gateway) |
+| LLM 게이트웨이 | [LiteLLM](https://github.com/BerriAI/litellm) |
 | MCP Gateway | Python, FastAPI, [MCP SDK](https://github.com/modelcontextprotocol/python-sdk) |
 | 배포 | Helm 차트 (`charts/aviary-platform`, `charts/aviary-environment`) |
 | 인프라 | PostgreSQL, Redis, Keycloak, Vault, Kubernetes (로컬: K3s, 운영: EKS) |
@@ -193,8 +188,8 @@ kube-proxy는 연결 시점에 로드밸런싱하므로 supervisor → runtime T
 ### Helm으로 선언하는 환경
 런타임 인프라는 전부 `charts/aviary-environment`에 있습니다. 새 환경을 띄우는 건 `helm template | kubectl apply`. 로컬과 운영의 차이는 values 파일 하나뿐(hostPath ↔ EFS, NodePort ↔ LoadBalancer). 애플리케이션 코드는 K8s를 직접 조작하지 않습니다.
 
-### LiteLLM + Portkey Gateway
-에이전트 Pod가 LLM 백엔드를 직접 호출하지 않습니다. [LiteLLM](https://github.com/BerriAI/litellm)이 모델 이름 접두사로 라우팅하고 [Portkey](https://github.com/portkey-ai/gateway)가 가드레일·트레이싱·로깅·캐싱을 얹습니다. LiteLLM이 Anthropic Messages API를 네이티브로 지원하므로 claude-agent-sdk가 투명하게 동작합니다.
+### LiteLLM Gateway
+에이전트 Pod가 LLM 백엔드를 직접 호출하지 않습니다. [LiteLLM](https://github.com/BerriAI/litellm)이 모델 이름 접두사로 백엔드(Claude API, Ollama, vLLM, Bedrock)를 선택하고 Vault에서 유저별 Anthropic API 키를 주입합니다. LiteLLM이 Anthropic Messages API를 네이티브로 지원하므로 claude-agent-sdk가 투명하게 동작합니다.
 
 ### MCP Gateway
 에이전트 도구 호출은 중앙 집중식 [MCP](https://modelcontextprotocol.io/) Gateway를 통해 라우팅됩니다. 운영자가 Admin 콘솔로 백엔드 MCP 서버를 등록하면 도구가 자동 디스커버리되고, 사용자는 ACL이 적용된 카탈로그에서 에이전트에 바인딩합니다. 사용자의 OIDC 토큰이 엔드투엔드로 전파되고 외부 서비스로 전달되지 않습니다.

@@ -34,7 +34,7 @@ Admin Console (:8001) → DB (no infra calls)
 
 Platform (docker compose — same deploy unit as api/admin):
   Postgres, Redis, Keycloak, Vault, LiteLLM (:8090), MCP Gateway (:8100),
-  Portkey (internal), **Agent Supervisor (:9000)**, API, Admin, Web
+  **Agent Supervisor (:9000)**, API, Admin, Web
 
 K8s cluster (Helm-managed; the only thing in K3s/EKS):
   charts/aviary-platform — namespaces, baseline egress NP,
@@ -72,8 +72,6 @@ Three backend services with distinct roles:
 **Pod Strategy (env-per-pool, (agent, session)-per-workdir):** One Helm release per environment. Replicas fixed (min 1), no scale-to-zero. Every pod serves every agent. Isolation comes from per-(agent, session) on-disk paths plus bubblewrap — the pod itself is agent-agnostic.
 
 **LiteLLM Gateway** (docker compose, `:8090`): All LLM calls go through LiteLLM OSS proxy. Backend is determined by the model name prefix (e.g., `anthropic/claude-sonnet-4-6` → Claude API, `ollama/gemma4:26b` → Ollama, `vllm/...` → vLLM, `bedrock/...` → Bedrock). Natively compatible with Anthropic SDK (`/v1/messages`), so claude-agent-sdk works transparently. Configuration in `config/litellm/config.yaml`. API server queries it for model listing (`/model/info`). Supports virtual keys, rate limiting, and per-user API key injection. Two startup patches loaded via `.pth` file: `fix_adapter_streaming.py` fixes Anthropic-to-OpenAI adapter streaming for non-Anthropic backends; `aviary_user_api_key.py` injects per-user Anthropic API keys from Vault.
-
-**Portkey AI Gateway** (docker compose, internal `:8787`): Sits between LiteLLM and LLM backends as an AI gateway. LiteLLM routes all requests to Portkey via `api_base`, and Portkey forwards to the actual provider based on `x-portkey-provider` header. Provides guardrails, OpenTelemetry-based observability and tracing, request/response logging, and caching. Not exposed externally — only accessed by LiteLLM within the docker network.
 
 **Agent Supervisor routes** (all session-centric, caller injects `runtime_endpoint`):
 - `POST /v1/sessions/{sid}/message` — transparent SSE passthrough (used by the workflow engine).

@@ -33,11 +33,6 @@ Aviary is an enterprise platform where users create, configure, and chat with pu
     │   │  │ (model routing, │    (per-user keys)    │ │
     │   │  │  API key inject)│                       │ │
     │   │  └────────┬────────┘                       │ │
-    │   │  ┌────────▼────────┐                       │ │
-    │   │  │ Portkey Gateway │                       │ │
-    │   │  │ (guardrails,    │                       │ │
-    │   │  │  tracing, cache)│                       │ │
-    │   │  └────────┬────────┘                       │ │
     │   │     ┌─────┴───────────────────┐            │ │
     │   │     ▼            ▼            ▼            │ │
     │   │  Claude API   Ollama/vLLM   Bedrock        │ │
@@ -90,7 +85,7 @@ Aviary is an enterprise platform where users create, configure, and chat with pu
 - **Bubblewrap Session Isolation** — Each request runs inside a kernel-level mount namespace; agents in the same session share `/workspace` for file exchange (A2A), while `.claude/` and `.venv/` are per-(agent, session).
 - **Agent-to-Agent (A2A)** — Agents invoke other agents via `@mention` in instructions or chat messages; sub-agent tool calls render inline under the parent tool card in real-time.
 - **MCP Gateway** — Centralized tool management via [Model Context Protocol](https://modelcontextprotocol.io/); admins register MCP servers, tools are auto-discovered, users bind tools to agents with per-user ACL (default-deny).
-- **LiteLLM + Portkey Gateway** — Two-layer LLM gateway: [LiteLLM](https://github.com/BerriAI/litellm) for model routing and per-user API-key injection, [Portkey](https://github.com/portkey-ai/gateway) for guardrails, tracing, and caching.
+- **LiteLLM Gateway** — [LiteLLM](https://github.com/BerriAI/litellm) handles model routing (by model-name prefix) and per-user Anthropic API-key injection from Vault.
 - **Multi-Backend Inference** — Claude API, Ollama, vLLM, AWS Bedrock; add new backends via config.
 - **Layered Egress** — Baseline NetworkPolicy from `charts/aviary-platform` is always in effect; per-environment `extraEgress` in Helm values adds additional rules (K8s NP evaluates as a disjunction).
 - **Redis-Decoupled Streaming** — Supervisor consumes runtime SSE and publishes to Redis; API server saves the assembled message and WebSocket clients replay from the same Redis stream independently.
@@ -107,7 +102,7 @@ Aviary is an enterprise platform where users create, configure, and chat with pu
 | API Server | Python, FastAPI, SQLAlchemy 2.0 (async), Pydantic v2 |
 | Agent Runtime | Node.js, Python, claude-agent-sdk, Claude Code CLI |
 | Agent Supervisor | Python, FastAPI, Redis, prometheus-client |
-| LLM Gateway | [LiteLLM](https://github.com/BerriAI/litellm) + [Portkey](https://github.com/portkey-ai/gateway) |
+| LLM Gateway | [LiteLLM](https://github.com/BerriAI/litellm) |
 | MCP Gateway | Python, FastAPI, [MCP SDK](https://github.com/modelcontextprotocol/python-sdk) |
 | Deployment | Helm charts (`charts/aviary-platform`, `charts/aviary-environment`) |
 | Infrastructure | PostgreSQL, Redis, Keycloak, Vault, Kubernetes (K3s for dev, EKS for prod) |
@@ -193,8 +188,8 @@ kube-proxy load-balances at connect time, so the supervisor → runtime TCP conn
 ### Helm-Declared Environments
 Runtime infrastructure lives entirely in `charts/aviary-environment`. Spinning up a new environment = `helm template | kubectl apply`. Local dev differs from production only in a values file (hostPath vs. EFS, NodePort vs. LoadBalancer). There are no dynamic K8s operations in application code.
 
-### LiteLLM + Portkey Gateway
-Agent Pods never call LLM backends directly. [LiteLLM](https://github.com/BerriAI/litellm) routes by model name prefix, [Portkey](https://github.com/portkey-ai/gateway) layers guardrails, tracing, logging, and caching on top. LiteLLM natively supports the Anthropic Messages API, so claude-agent-sdk works transparently.
+### LiteLLM Gateway
+Agent Pods never call LLM backends directly. [LiteLLM](https://github.com/BerriAI/litellm) routes by model name prefix (Claude API, Ollama, vLLM, Bedrock) and injects each user's Anthropic API key from Vault. LiteLLM natively supports the Anthropic Messages API, so claude-agent-sdk works transparently.
 
 ### MCP Gateway
 Agent tool calls are routed through a centralized [MCP](https://modelcontextprotocol.io/) Gateway. Admins register backend MCP servers via the Admin Console, tools auto-discover, and users bind ACL-filtered tools to agents. The user's OIDC token is propagated end-to-end and never forwarded to external services.
