@@ -1,0 +1,12 @@
+# EKS overrides. No docker-compose proxies; all dependencies are managed
+# services (RDS, ElastiCache, API running in-cluster).
+
+externalServices:
+  enabled: false
+
+imageWarmer:
+  enabled: true
+
+supervisor:
+  imagePullPolicy: IfNotPresent
+  image: ""  # Override to ECR URI via --set supervisor.image=...

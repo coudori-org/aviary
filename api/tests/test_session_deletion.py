@@ -201,8 +201,7 @@ async def test_deleted_agent_hard_deleted_after_all_sessions_removed(user1_clien
     assert resp.status_code == 200
     assert resp.json()["status"] == "deleted"
 
-    with patch("app.services.agent_supervisor.cleanup_session", new_callable=AsyncMock), \
-         patch("app.services.agent_supervisor.unregister_agent", new_callable=AsyncMock):
+    with patch("app.services.agent_supervisor.cleanup_session", new_callable=AsyncMock):
         resp = await user1_client.delete(f"/api/sessions/{session_id}")
     assert resp.status_code == 204
 

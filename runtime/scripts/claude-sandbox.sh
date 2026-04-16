@@ -4,19 +4,24 @@
 # This script IS the `claude` command. The real binary lives at `claude-real`.
 # SDK invokes `claude` → hits this wrapper → bwrap namespace → `claude-real`.
 #
-# Creates a mount namespace where:
-#   - / is the host filesystem (read-only)
-#   - $SESSION_WORKSPACE (hostPath) is bind-mounted to /workspace (shared across agents)
-#   - $SESSION_CLAUDE_DIR (PVC) is bind-mounted to /workspace/.claude (per-agent overlay)
-#   - $SESSION_VENV_DIR  (PVC) is bind-mounted to /workspace/.venv  (per-agent overlay)
-#   - $SESSION_TMP is bind-mounted to /tmp (per-agent, NOT shared)
-#   - PID namespace isolated
+# All per-agent / per-session directories live inside the single environment
+# PVC (mounted at /workspace-root in the pod). The caller sets:
+#   SESSION_WORKSPACE  = <PVC>/sessions/<sid>/shared               (session-wide, cross-agent)
+#   SESSION_CLAUDE_DIR = <PVC>/sessions/<sid>/agents/<aid>/.claude (per-(agent,session))
+#   SESSION_VENV_DIR   = <PVC>/sessions/<sid>/agents/<aid>/.venv   (per-(agent,session))
+#   SESSION_TMP        = /tmp/<aid>_<sid>                          (pod-local, per-(agent,session))
+#
+# Bwrap then maps these onto the sandbox:
+#   /workspace          ← SESSION_WORKSPACE   (shared across agents in the session)
+#   /workspace/.claude  ← SESSION_CLAUDE_DIR  (per-agent CLI context)
+#   /workspace/.venv    ← SESSION_VENV_DIR    (per-agent venv)
+#   /tmp                ← SESSION_TMP         (per-agent temp)
+#   PID namespace is isolated.
 #
 # Also bootstraps a per-(agent, session) Python venv at /workspace/.venv on
-# the first turn so the agent can `pip install foo` and have packages
-# persist across turns. The venv is stored on the per-agent PVC (not the
-# shared workspace) so concurrent pip installs from different agents in
-# the same session don't race on a single venv.
+# the first turn so the agent can `pip install foo` and have packages persist
+# across turns. Per-(agent, session) so concurrent pip installs from different
+# agents on the same session can't corrupt a single venv.
 #
 # If SESSION_WORKSPACE is not set (e.g. direct CLI usage), runs without sandbox.
 

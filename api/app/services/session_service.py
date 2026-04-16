@@ -217,22 +217,14 @@ async def delete_session(db: AsyncSession, session: Session) -> None:
     agent = result.scalar_one_or_none()
     if agent:
         # 4. Session workspace cleanup (best-effort)
-        await agent_supervisor.cleanup_session(str(agent_id), session_id_str)
+        await agent_supervisor.cleanup_session(
+            session_id_str,
+            agent_id=str(agent_id),
+            runtime_endpoint=agent.runtime_endpoint,
+        )
 
         # 5. If owning agent is soft-deleted and this was the last session, clean up
         if agent.status == "deleted":
             remaining = await count_active_sessions(db, agent_id)
             if remaining == 0:
                 await agent_service.cleanup_agent_resources(db, agent)
-
-
-async def ensure_agent_ready(db: AsyncSession, agent: Agent) -> None:
-    """Ensure agent is running via agent supervisor.
-
-    Fully delegated — the supervisor handles all resource provisioning
-    with secure defaults if the agent hasn't been set up yet.
-    """
-    await agent_supervisor.ensure_agent_running(
-        agent_id=str(agent.id),
-        owner_id=str(agent.owner_id),
-    )

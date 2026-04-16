@@ -1,0 +1,11 @@
+name: default
+
+replicas: 1
+
+image:
+  pullPolicy: Never
+
+pvc:
+  storageClassName: local-path
+  accessMode: ReadWriteOnce
+  size: 20Gi

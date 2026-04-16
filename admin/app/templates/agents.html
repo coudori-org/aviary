@@ -15,28 +15,19 @@
         <th>Slug</th>
         <th>Visibility</th>
         <th>Status</th>
-        <th>Deployment</th>
+        <th>Runtime</th>
         <th>Last Activity</th>
         <th></th>
       </tr>
     </thead>
     <tbody>
       {% for agent in agents %}
-      {% set dep = deployments.get(agent.id | string, {}) %}
       <tr>
         <td><a href="/agents/{{ agent.id }}">{{ agent.name }}</a></td>
         <td class="mono">{{ agent.slug }}</td>
         <td><span class="badge badge-{{ agent.visibility }}">{{ agent.visibility }}</span></td>
         <td><span class="badge badge-{{ agent.status }}">{{ agent.status }}</span></td>
-        <td>
-          {% if dep.state == 'active' %}
-            <span class="badge badge-ready">running</span>
-          {% elif dep.state == 'unknown' %}
-            <span class="badge badge-warning">unknown</span>
-          {% else %}
-            <span class="badge badge-offline">offline</span>
-          {% endif %}
-        </td>
+        <td class="text-sm mono">{{ agent.runtime_endpoint or 'default' }}</td>
         <td class="text-sm text-muted">{{ last_activity[agent.id|string].strftime('%m/%d %H:%M') if last_activity.get(agent.id|string) else '—' }}</td>
         <td><a href="/agents/{{ agent.id }}" class="btn btn-sm">Manage</a></td>
       </tr>

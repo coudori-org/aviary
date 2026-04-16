@@ -5,11 +5,9 @@ import logging
 import uuid
 from datetime import datetime
 
-import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect, status
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from app.auth.dependencies import get_current_user
 from app.auth.oidc import validate_token
@@ -376,24 +374,9 @@ async def websocket_chat(websocket: WebSocket, session_id: uuid.UUID):
                 return
 
             agent_id_str = str(agent.id)
-
-            # Ensure agent is running (supervisor handles all provisioning)
-            await websocket.send_json({"type": "status", "status": "spawning"})
-            try:
-                await session_service.ensure_agent_ready(db, agent)
-            except (httpx.HTTPError, RuntimeError) as e:
-                await websocket.send_json({"type": "status", "status": "offline", "message": f"Failed to start agent: {e}"})
-                return
-
             await db.commit()
 
-        # Wait for agent readiness via supervisor
-        await websocket.send_json({"type": "status", "status": "waiting"})
-        ready = await agent_supervisor.wait_for_agent_ready(agent_id_str, timeout=90)
-        if not ready:
-            await websocket.send_json({"type": "status", "status": "offline", "message": "Agent did not become ready in time"})
-            return
-
+        # Runtime environments are always on — no activation / readiness probe.
         await websocket.send_json({"type": "status", "status": "ready"})
 
         # Track presence and clear unread
@@ -477,12 +460,9 @@ async def websocket_chat(websocket: WebSocket, session_id: uuid.UUID):
 
                 async with async_session_factory() as db:
                     result = await db.execute(
-                        select(Agent)
-                        .where(Agent.id == session.agent_id)
-                        .options(selectinload(Agent.policy))
+                        select(Agent).where(Agent.id == session.agent_id)
                     )
                     agent = result.scalar_one()
-                    agent_policy = agent.policy.policy_rules if agent.policy else {}
 
                     # Parse @mentions from instruction + current message
                     mentioned_slugs = list(dict.fromkeys(
@@ -513,7 +493,7 @@ async def websocket_chat(websocket: WebSocket, session_id: uuid.UUID):
                     agent_instruction=agent.instruction,
                     agent_tools=agent.tools,
                     agent_mcp_servers=agent.mcp_servers,
-                    agent_policy=agent_policy,
+                    agent_runtime_endpoint=agent.runtime_endpoint,
                     content=content,
                     user_message_id=user_message_id,
                     user_token=fresh.access_token,

@@ -1,0 +1,6 @@
+apiVersion: v2
+name: aviary-environment
+description: A single agent runtime environment (Deployment + Service + PVC + NetworkPolicy)
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

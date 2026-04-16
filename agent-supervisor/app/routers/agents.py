@@ -1,121 +1,56 @@
-"""Agent-centric API used by the API server — activator + SSE proxy."""
+"""Session-centric API used by the API server and future orchestrators.
+
+The supervisor is stateless: the caller supplies `runtime_endpoint` in the
+request body (null → configured default). The supervisor proxies SSE,
+publishes each event to Redis, and returns an assembled final message.
+"""
 
 from __future__ import annotations
 
 import json
 import logging
+import time
 
 import httpx
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from app import redis_client
-from app.backends import get_backend
-from app.backends._common.k8s_client import new_client
-from app.backends.protocol import AgentSpec, RuntimeBackend
-from app.config import settings
+from app import assembly, metrics, redis_client
+from app.routing import resolve_runtime_base
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
 
-class _OwnerBody(BaseModel):
-    owner_id: str
-
-
-def _default_spec(agent_id: str, owner_id: str) -> AgentSpec:
-    return AgentSpec(
-        agent_id=agent_id,
-        owner_id=owner_id,
-        image=settings.agent_runtime_image,
-        sa_name="agent-default-sa",
-        min_pods=settings.default_min_pods,
-        max_pods=settings.default_max_pods,
-        cpu_limit=settings.default_cpu_limit,
-        memory_limit=settings.default_memory_limit,
-    )
-
-
-@router.post("/agents/{agent_id}/register")
-async def register_agent(
-    agent_id: str, body: _OwnerBody,
-    backend: RuntimeBackend = Depends(get_backend),
-):
-    await backend.register_agent(_default_spec(agent_id, body.owner_id))
-    return {"ok": True}
-
-
-@router.delete("/agents/{agent_id}")
-async def unregister_agent(
-    agent_id: str,
-    backend: RuntimeBackend = Depends(get_backend),
-):
-    await backend.unregister_agent(agent_id)
-    return {"ok": True}
-
-
-@router.post("/agents/{agent_id}/run")
-async def run_agent(
-    agent_id: str, body: _OwnerBody,
-    backend: RuntimeBackend = Depends(get_backend),
-):
-    """Ensure the agent is running. Lazily registers and activates (0→1)."""
-    status = await backend.get_status(agent_id)
-    if not status.exists:
-        await backend.register_agent(_default_spec(agent_id, body.owner_id))
-    await backend.ensure_active(agent_id)
-    return {"ok": True}
-
-
-@router.get("/agents/{agent_id}/ready")
-async def check_agent_ready(
-    agent_id: str,
-    backend: RuntimeBackend = Depends(get_backend),
-):
-    status = await backend.get_status(agent_id)
-    return {
-        "ready": status.ready_replicas >= 1,
-        "replicas": status.replicas,
-        "ready_replicas": status.ready_replicas,
-        "updated_replicas": status.updated_replicas,
-    }
-
-
-@router.get("/agents/{agent_id}/wait")
-async def wait_agent_ready(
-    agent_id: str, timeout: int = 90,
-    backend: RuntimeBackend = Depends(get_backend),
-):
-    return {"ready": await backend.wait_ready(agent_id, timeout)}
-
-
-@router.post("/agents/{agent_id}/sessions/{session_id}/message")
-async def proxy_session_message(
-    agent_id: str, session_id: str, request: Request,
-    backend: RuntimeBackend = Depends(get_backend),
-):
-    """Transparent SSE proxy to the agent runtime."""
-    base = await backend.resolve_endpoint(agent_id)
+@router.post("/sessions/{session_id}/message")
+async def proxy_session_message(session_id: str, request: Request):
+    """Transparent SSE passthrough. Used by workflow / A2A sub-agent paths
+    that do in-process event transformation rather than going through Redis."""
     body = await request.json()
+    base = resolve_runtime_base(body.get("runtime_endpoint"))
 
     async def generate():
         try:
-            async with new_client() as client:
+            async with httpx.AsyncClient() as client:
                 async with client.stream(
                     "POST", f"{base}/message", json=body, timeout=None,
                 ) as resp:
                     if resp.status_code != 200:
                         err = await resp.aread()
-                        logger.error("Agent stream %d: %s", resp.status_code, err)
-                        yield f"data: {json.dumps({'type': 'error', 'message': f'Agent runtime error ({resp.status_code})'})}\n\n".encode()
+                        logger.error("Runtime stream %d: %s", resp.status_code, err)
+                        yield (
+                            f"data: {json.dumps({'type': 'error', 'message': f'Agent runtime error ({resp.status_code})'})}\n\n"
+                        ).encode()
                         return
                     async for chunk in resp.aiter_bytes():
                         yield chunk
         except httpx.HTTPError:
-            logger.exception("SSE proxy error for agent %s", agent_id)
-            yield f"data: {json.dumps({'type': 'error', 'message': 'Agent runtime connection failed'})}\n\n".encode()
+            logger.exception("SSE proxy error for session %s", session_id)
+            yield (
+                f"data: {json.dumps({'type': 'error', 'message': 'Agent runtime connection failed'})}\n\n"
+            ).encode()
 
     return StreamingResponse(
         generate(),
@@ -124,26 +59,19 @@ async def proxy_session_message(
     )
 
 
-@router.post("/agents/{agent_id}/sessions/{session_id}/publish")
-async def publish_session_message(
-    agent_id: str, session_id: str, request: Request,
-    backend: RuntimeBackend = Depends(get_backend),
-):
-    """Consume runtime SSE and publish each event to Redis.
-
-    Returns a final status summary to the caller — the caller (API server)
-    uses this to drive DB persistence and emit the final `done` event.
-    The raw event stream stays off the API's path; WS clients receive events
-    by subscribing to the session's Redis channel.
-    """
-    base = await backend.resolve_endpoint(agent_id)
+@router.post("/sessions/{session_id}/publish")
+async def publish_session_message(session_id: str, request: Request):
+    """Consume runtime SSE → Redis (for WS broadcast + replay buffer) →
+    return the assembled final message to the caller."""
     body = await request.json()
+    base = resolve_runtime_base(body.get("runtime_endpoint"))
 
     reached_runtime = False
     error_message: str | None = None
+    started = time.monotonic()
 
     try:
-        async with new_client() as client:
+        async with httpx.AsyncClient() as client:
             async with client.stream(
                 "POST", f"{base}/message", json=body, timeout=None,
             ) as resp:
@@ -157,6 +85,7 @@ async def publish_session_message(
                             continue
                         event = json.loads(line[6:])
                         etype = event.get("type")
+                        metrics.sse_events_total.labels(event_type=etype or "unknown").inc()
                         if etype == "query_started":
                             reached_runtime = True
                             continue
@@ -166,36 +95,68 @@ async def publish_session_message(
                         await redis_client.append_stream_chunk(session_id, event)
                         await redis_client.publish_message(session_id, event)
     except httpx.HTTPError as e:
-        logger.exception("SSE proxy error for agent %s", agent_id)
+        logger.exception("SSE proxy error for session %s", session_id)
         error_message = f"Agent runtime connection failed: {e}"
 
+    publish_duration = time.monotonic() - started
+    metrics.publish_duration_seconds.observe(publish_duration)
+
     if error_message:
+        metrics.publish_requests_total.labels(status="error").inc()
         await redis_client.set_stream_status(session_id, "error")
         return {"status": "error", "message": error_message, "reached_runtime": reached_runtime}
 
+    chunks = await redis_client.get_stream_chunks(session_id)
+    assembled_text, assembled_blocks = assembly.rebuild_blocks_from_chunks(chunks)
+    await assembly.merge_a2a_events(session_id, assembled_blocks)
+
     await redis_client.set_stream_status(session_id, "complete")
-    return {"status": "complete", "reached_runtime": reached_runtime}
+    metrics.publish_requests_total.labels(status="complete").inc()
+    return {
+        "status": "complete",
+        "reached_runtime": reached_runtime,
+        "assembled_text": assembled_text,
+        "assembled_blocks": assembled_blocks,
+    }
 
 
-@router.post("/agents/{agent_id}/sessions/{session_id}/abort")
-async def abort_session(
-    agent_id: str, session_id: str,
-    backend: RuntimeBackend = Depends(get_backend),
-):
-    base = await backend.resolve_endpoint(agent_id)
+class _AbortBody(BaseModel):
+    runtime_endpoint: str | None = None
+    agent_id: str | None = None
+
+
+@router.post("/sessions/{session_id}/abort")
+async def abort_session(session_id: str, body: _AbortBody):
+    base = resolve_runtime_base(body.runtime_endpoint)
     try:
-        async with new_client() as client:
-            resp = await client.post(f"{base}/abort/{session_id}", timeout=5)
+        async with httpx.AsyncClient() as client:
+            payload = {"agent_id": body.agent_id} if body.agent_id else {}
+            resp = await client.post(
+                f"{base}/abort/{session_id}", json=payload, timeout=5,
+            )
             return {"ok": True, "status": resp.status_code}
     except httpx.HTTPError:
-        logger.warning("Abort failed for %s/%s", agent_id, session_id, exc_info=True)
-        return {"ok": False, "reason": "agent_not_reachable"}
+        logger.warning("Abort failed for session %s", session_id, exc_info=True)
+        return {"ok": False, "reason": "runtime_not_reachable"}
 
 
-@router.delete("/agents/{agent_id}/sessions/{session_id}")
-async def cleanup_session(
-    agent_id: str, session_id: str,
-    backend: RuntimeBackend = Depends(get_backend),
-):
-    await backend.workspace.cleanup_session_workspace(agent_id, session_id)
-    return {"ok": True}
+class _CleanupBody(BaseModel):
+    runtime_endpoint: str | None = None
+    agent_id: str
+
+
+@router.delete("/sessions/{session_id}")
+async def cleanup_session(session_id: str, body: _CleanupBody):
+    """Tell the runtime to drop its workspace entry for this (agent, session)."""
+    base = resolve_runtime_base(body.runtime_endpoint)
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.delete(
+                f"{base}/sessions/{session_id}",
+                params={"agent_id": body.agent_id},
+                timeout=5,
+            )
+            return {"ok": resp.status_code in (200, 404)}
+    except httpx.HTTPError:
+        logger.warning("Cleanup failed for session %s", session_id, exc_info=True)
+        return {"ok": False}

@@ -1,12 +1,12 @@
 """Agent business logic: CRUD with ACL checks.
 
-Infrastructure provisioning is fully delegated to the agent supervisor.
+Runtime infrastructure lives in pre-provisioned environments (Helm-managed);
+this module only touches the DB.
 """
 
 import uuid
 import logging
 
-import httpx
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -14,7 +14,7 @@ from sqlalchemy import or_, exists
 
 from app.db.models import Agent, Session, User
 from app.schemas.agent import AgentCreate, AgentUpdate
-from app.services import acl_service, agent_supervisor
+from app.services import acl_service
 
 logger = logging.getLogger(__name__)
 
@@ -41,19 +41,6 @@ async def create_agent(db: AsyncSession, user: User, data: AgentCreate) -> Agent
     )
     db.add(agent)
     await db.flush()
-
-    # Register with agent supervisor (secure defaults, best-effort)
-    try:
-        await agent_supervisor.register_agent(
-            agent_id=str(agent.id),
-            owner_id=str(user.id),
-        )
-    except httpx.HTTPError:  # Best-effort: will retry on first message
-        logger.warning(
-            "Agent supervisor registration failed for agent %s — will retry on first message",
-            agent.id, exc_info=True,
-        )
-
     return agent
 
 
@@ -70,10 +57,8 @@ async def get_agent(
 
 async def get_agent_by_slug(db: AsyncSession, slug: str) -> Agent | None:
     """Get an agent by slug."""
-    from sqlalchemy.orm import selectinload
     result = await db.execute(
         select(Agent).where(Agent.slug == slug, Agent.status != "deleted")
-        .options(selectinload(Agent.policy))
     )
     return result.scalar_one_or_none()
 
@@ -172,20 +157,11 @@ async def update_agent(
 
 
 async def cleanup_agent_resources(db: AsyncSession, agent: Agent) -> None:
-    """Destroy all agent resources and hard-delete from DB.
+    """Hard-delete an agent row once it has no remaining sessions.
 
-    Called when a deleted agent has zero remaining sessions, or when an agent
-    with no sessions is deleted. Idempotent — safe to call multiple times.
+    Runtime resources are environment-scoped (Helm-managed) now, so there is
+    nothing to tear down outside the DB.
     """
-    agent_id_str = str(agent.id)
-
-    # Ask supervisor to remove all agent resources
-    try:
-        await agent_supervisor.unregister_agent(agent_id_str)
-    except httpx.HTTPError:  # Best-effort: cleanup failure is non-critical
-        logger.warning("Agent supervisor cleanup failed for agent %s", agent.id, exc_info=True)
-
-    # Hard-delete the agent row since all sessions are gone
     await db.delete(agent)
     await db.flush()
 

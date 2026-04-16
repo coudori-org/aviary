@@ -1,32 +1,21 @@
-"""Block reconstruction and tool result attachment — pure data transformation."""
+"""Minimal local block reassembly used only for the cancel path.
 
-# Tool result content larger than this is truncated before persisting / display.
-# Avoids storing megabytes of grep/find output in Postgres JSONB.
+The happy-path assembly is owned by the supervisor — it returns the final
+`assembled_text`/`assembled_blocks` in its publish response. When the user
+disconnects mid-stream we still want to persist whatever was already buffered
+in Redis, which is handled here.
+"""
+
 MAX_TOOL_RESULT_BYTES = 10240
 
 
-def truncate_tool_result(content: object) -> object:
-    """Truncate string tool results above the persistence cap; pass-through otherwise."""
+def _truncate(content: object) -> object:
     if isinstance(content, str) and len(content) > MAX_TOOL_RESULT_BYTES:
         return content[:MAX_TOOL_RESULT_BYTES] + "\n... (truncated)"
     return content
 
 
-def attach_tool_results(
-    blocks: list[dict], results: dict[str, dict]
-) -> None:
-    """Attach tool_result content to matching tool_call blocks (in-place)."""
-    for block in blocks:
-        tid = block.get("tool_use_id")
-        if block.get("type") == "tool_call" and tid and tid in results:
-            tr = results[tid]
-            block["result"] = tr["content"]
-            if tr.get("is_error"):
-                block["is_error"] = True
-
-
 def rebuild_blocks_from_chunks(chunks: list[dict]) -> tuple[str, list[dict]]:
-    """Reconstruct full_response text and blocks_meta from buffered Redis chunks."""
     full_text = ""
     blocks: list[dict] = []
     current_thinking = ""
@@ -60,7 +49,7 @@ def rebuild_blocks_from_chunks(chunks: list[dict]) -> tuple[str, list[dict]]:
             tid = chunk.get("tool_use_id")
             if tid:
                 tool_results[tid] = {
-                    "content": truncate_tool_result(chunk.get("content", "")),
+                    "content": _truncate(chunk.get("content", "")),
                     "is_error": chunk.get("is_error", False),
                 }
 
@@ -69,5 +58,12 @@ def rebuild_blocks_from_chunks(chunks: list[dict]) -> tuple[str, list[dict]]:
     if current_text:
         blocks.append({"type": "text", "content": current_text})
 
-    attach_tool_results(blocks, tool_results)
+    for block in blocks:
+        tid = block.get("tool_use_id")
+        if block.get("type") == "tool_call" and tid and tid in tool_results:
+            tr = tool_results[tid]
+            block["result"] = tr["content"]
+            if tr.get("is_error"):
+                block["is_error"] = True
+
     return full_text, blocks

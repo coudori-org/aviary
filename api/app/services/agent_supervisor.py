@@ -1,4 +1,6 @@
-"""Agent Supervisor client — agent_id/session_id only, no K8s concepts."""
+"""Agent Supervisor client — session-centric, stateless. All routing info
+(runtime_endpoint) comes from the agent row on the API side and rides in
+the request body."""
 
 import logging
 
@@ -21,91 +23,59 @@ async def close_client() -> None:
     await _supervisor.close()
 
 
-async def register_agent(agent_id: str, owner_id: str) -> None:
-    """Register a new agent. Supervisor provisions resources with secure defaults."""
-    resp = await _supervisor.client.post(
-        f"/v1/agents/{agent_id}/register", json={"owner_id": owner_id},
-    )
-    resp.raise_for_status()
+async def publish_stream(session_id: str, body: dict) -> dict:
+    """Ask the supervisor to consume runtime SSE, publish to Redis, assemble
+    the final response, and return it.
 
-
-async def unregister_agent(agent_id: str) -> None:
-    """Remove all agent resources."""
-    resp = await _supervisor.client.delete(f"/v1/agents/{agent_id}")
-    resp.raise_for_status()
-
-
-async def ensure_agent_running(agent_id: str, owner_id: str) -> None:
-    """Ensure agent is running. Lazily creates resources if needed."""
-    resp = await _supervisor.client.post(
-        f"/v1/agents/{agent_id}/run", json={"owner_id": owner_id},
-    )
-    resp.raise_for_status()
-
-
-async def check_agent_ready(agent_id: str) -> bool:
-    try:
-        resp = await _supervisor.client.get(f"/v1/agents/{agent_id}/ready")
-        resp.raise_for_status()
-        return resp.json().get("ready", False)
-    except httpx.HTTPError:
-        logger.debug("Readiness probe failed for agent %s", agent_id, exc_info=True)
-        return False
-
-
-async def wait_for_agent_ready(agent_id: str, timeout: int = 90) -> bool:
-    """Block until agent is ready or timeout."""
-    resp = await _supervisor.client.get(
-        f"/v1/agents/{agent_id}/wait",
-        params={"timeout": timeout},
-        timeout=timeout + 10,
-    )
-    resp.raise_for_status()
-    return resp.json()["ready"]
-
-
-def get_stream_url(agent_id: str, session_id: str) -> str:
-    """SSE stream URL for sub-agent / workflow callers that still need raw SSE."""
-    return f"{settings.agent_supervisor_url}/v1/agents/{agent_id}/sessions/{session_id}/message"
-
-
-async def publish_stream(agent_id: str, session_id: str, body: dict) -> dict:
-    """Ask the supervisor to consume runtime SSE and publish events to Redis.
-
-    Returns `{status: 'complete'|'error', reached_runtime: bool, message?: str}`.
-    Events are available to the caller via the shared Redis stream buffer and
-    pub/sub channel — the HTTP response here is only a completion summary.
+    Returns `{status, reached_runtime, assembled_text?, assembled_blocks?, message?}`.
     """
     resp = await _supervisor.client.post(
-        f"/v1/agents/{agent_id}/sessions/{session_id}/publish",
+        f"/v1/sessions/{session_id}/publish",
         json=body, timeout=None,
     )
     resp.raise_for_status()
     return resp.json()
 
 
-async def abort_session(agent_id: str, session_id: str) -> None:
-    """Best-effort abort. Racy with normal completion, so failures are only logged."""
+async def abort_session(
+    session_id: str,
+    agent_id: str | None = None,
+    runtime_endpoint: str | None = None,
+) -> None:
+    """Best-effort abort. Racy with normal completion."""
     try:
         resp = await _supervisor.client.post(
-            f"/v1/agents/{agent_id}/sessions/{session_id}/abort",
+            f"/v1/sessions/{session_id}/abort",
+            json={"agent_id": agent_id, "runtime_endpoint": runtime_endpoint},
             timeout=5,
         )
         resp.raise_for_status()
     except httpx.HTTPError:
-        logger.warning("Failed to abort session %s (agent %s)", session_id, agent_id, exc_info=True)
+        logger.warning("Failed to abort session %s", session_id, exc_info=True)
 
 
-async def cleanup_session(agent_id: str, session_id: str) -> None:
-    """Best-effort workspace cleanup; leftover files are reaped by idle cleanup."""
+async def cleanup_session(
+    session_id: str,
+    agent_id: str,
+    runtime_endpoint: str | None = None,
+) -> None:
+    """Best-effort workspace cleanup."""
     try:
-        resp = await _supervisor.client.delete(
-            f"/v1/agents/{agent_id}/sessions/{session_id}",
+        resp = await _supervisor.client.request(
+            "DELETE",
+            f"/v1/sessions/{session_id}",
+            json={"agent_id": agent_id, "runtime_endpoint": runtime_endpoint},
             timeout=10,
         )
         resp.raise_for_status()
     except httpx.HTTPError:
-        logger.warning("Session cleanup failed for %s (agent %s)", session_id, agent_id, exc_info=True)
+        logger.warning("Session cleanup failed for %s", session_id, exc_info=True)
+
+
+def get_stream_url(session_id: str) -> str:
+    """Direct SSE passthrough endpoint — for workflow / A2A sub-agent callers
+    that do in-process event transformation rather than Redis assembly."""
+    return f"{settings.agent_supervisor_url}/v1/sessions/{session_id}/message"
 
 
 async def health_check() -> bool:

@@ -1,0 +1,13 @@
+# Local K3S overrides. hostGatewayIP is passed on the command line by
+# setup-dev.sh because docker-compose resolves it at runtime.
+
+externalServices:
+  enabled: true
+
+imageWarmer:
+  enabled: true
+
+supervisor:
+  imagePullPolicy: Never
+  # Reachable from API/Admin running on the docker-compose host.
+  nodePort: 30900

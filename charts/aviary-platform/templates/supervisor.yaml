@@ -1,0 +1,72 @@
+{{- if .Values.supervisor.enabled }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: agent-supervisor
+  namespace: {{ include "aviary-platform.platformNamespace" . }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent-supervisor
+  namespace: {{ include "aviary-platform.platformNamespace" . }}
+  labels:
+    aviary/service: agent-supervisor
+spec:
+  replicas: {{ .Values.supervisor.replicas }}
+  selector:
+    matchLabels:
+      aviary/service: agent-supervisor
+  template:
+    metadata:
+      labels:
+        aviary/service: agent-supervisor
+    spec:
+      serviceAccountName: agent-supervisor
+      {{- if .Values.hostGatewayIP }}
+      hostAliases:
+        - ip: {{ .Values.hostGatewayIP | quote }}
+          hostnames: ["host.k8s.internal"]
+      {{- end }}
+      containers:
+        - name: agent-supervisor
+          image: {{ .Values.supervisor.image }}
+          imagePullPolicy: {{ .Values.supervisor.imagePullPolicy }}
+          ports:
+            - containerPort: 9000
+              name: http
+          env:
+            - name: REDIS_URL
+              value: {{ .Values.supervisor.redisURL | quote }}
+            - name: SUPERVISOR_DEFAULT_RUNTIME_ENDPOINT
+              value: {{ .Values.supervisor.defaultRuntimeEndpoint | quote }}
+            - name: METRICS_ENABLED
+              value: {{ .Values.supervisor.metricsEnabled | quote }}
+          livenessProbe:
+            httpGet: { path: /v1/health, port: 9000 }
+            initialDelaySeconds: 5
+            periodSeconds: 30
+          readinessProbe:
+            httpGet: { path: /v1/health, port: 9000 }
+            initialDelaySeconds: 3
+          resources:
+            {{- toYaml .Values.supervisor.resources | nindent 12 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: agent-supervisor
+  namespace: {{ include "aviary-platform.platformNamespace" . }}
+  labels:
+    aviary/service: agent-supervisor
+spec:
+  type: NodePort
+  selector:
+    aviary/service: agent-supervisor
+  ports:
+    - name: http
+      port: 9000
+      targetPort: 9000
+      nodePort: {{ .Values.supervisor.nodePort }}
+      protocol: TCP
+{{- end }}

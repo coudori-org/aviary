@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "aviary-environment.fullname" . }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "aviary-environment.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "aviary-environment.selectorLabels" . | nindent 4 }}
+  ports:
+    - port: {{ .Values.runtime.port }}
+      targetPort: {{ .Values.runtime.port }}
+      protocol: TCP

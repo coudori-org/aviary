@@ -1,8 +1,8 @@
 """Redis publisher + stream buffer for session events.
 
 Shared namespace with the API server (`session:{id}:stream:*`, `session:{id}:messages`).
-Supervisor publishes raw runtime events; API consumes the buffer on completion
-and emits the final `done`/`cancelled` events (after DB persistence).
+Supervisor publishes raw runtime events and assembles the final response from
+the buffered chunks before returning to the caller.
 """
 
 from __future__ import annotations
@@ -48,6 +48,14 @@ def _channel(session_id: str) -> str:
     return f"session:{session_id}:messages"
 
 
+def _chunks_key(session_id: str) -> str:
+    return f"session:{session_id}:stream:chunks"
+
+
+def _a2a_key(session_id: str, parent_tool_use_id: str) -> str:
+    return f"session:{session_id}:a2a:{parent_tool_use_id}"
+
+
 async def publish_message(session_id: str, message: dict) -> None:
     if not _client:
         return
@@ -60,12 +68,22 @@ async def publish_message(session_id: str, message: dict) -> None:
 async def append_stream_chunk(session_id: str, event: dict) -> None:
     if not _client:
         return
-    key = f"session:{session_id}:stream:chunks"
     try:
-        await _client.rpush(key, json.dumps(event))
-        await _client.expire(key, _STREAM_BUFFER_TTL)
+        await _client.rpush(_chunks_key(session_id), json.dumps(event))
+        await _client.expire(_chunks_key(session_id), _STREAM_BUFFER_TTL)
     except redis.RedisError:
         logger.warning("append_stream_chunk failed for session %s", session_id, exc_info=True)
+
+
+async def get_stream_chunks(session_id: str) -> list[dict]:
+    if not _client:
+        return []
+    try:
+        raw = await _client.lrange(_chunks_key(session_id), 0, -1)
+        return [json.loads(r) for r in raw]
+    except redis.RedisError:
+        logger.warning("get_stream_chunks failed for session %s", session_id, exc_info=True)
+        return []
 
 
 async def set_stream_status(session_id: str, status: str) -> None:
@@ -77,3 +95,23 @@ async def set_stream_status(session_id: str, status: str) -> None:
         )
     except redis.RedisError:
         logger.warning("set_stream_status failed for session %s", session_id, exc_info=True)
+
+
+async def get_a2a_events(session_id: str, parent_tool_use_id: str) -> list[dict]:
+    if not _client:
+        return []
+    try:
+        raw = await _client.lrange(_a2a_key(session_id, parent_tool_use_id), 0, -1)
+        return [json.loads(r) for r in raw]
+    except redis.RedisError:
+        logger.warning("get_a2a_events failed for session %s", session_id, exc_info=True)
+        return []
+
+
+async def clear_a2a_events(session_id: str, parent_tool_use_id: str) -> None:
+    if not _client:
+        return
+    try:
+        await _client.delete(_a2a_key(session_id, parent_tool_use_id))
+    except redis.RedisError:
+        logger.warning("clear_a2a_events failed for session %s", session_id, exc_info=True)

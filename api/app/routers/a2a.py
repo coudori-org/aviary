@@ -77,30 +77,11 @@ async def a2a_message(
     agent_id = str(agent.id)
     session_id = body.session_id
     parent_tool_use_id = body.parent_tool_use_id
-    agent_policy_rules = agent.policy.policy_rules if agent.policy else {}
 
-    # 3. Ensure sub-agent is running
-    try:
-        await agent_supervisor.ensure_agent_running(
-            agent_id=agent_id, owner_id=str(agent.owner_id),
-        )
-        ready = await agent_supervisor.wait_for_agent_ready(agent_id, timeout=90)
-        if not ready:
-            raise HTTPException(status_code=503, detail="Sub-agent did not become ready in time")
-    except HTTPException:
-        raise
-    except httpx.HTTPError as e:
-        logger.warning("Failed to ensure sub-agent running: %s", e, exc_info=True)
-        raise HTTPException(status_code=503, detail="Failed to start sub-agent") from e
-
-    # 4. Fetch credentials and build config
+    # Fetch credentials and build config
     credentials = await fetch_user_credentials(user.external_id)
-    stream_url = agent_supervisor.get_stream_url(agent_id, session_id)
+    stream_url = agent_supervisor.get_stream_url(session_id)
 
-    if not stream_url:
-        raise HTTPException(status_code=503, detail="Sub-agent stream URL not available")
-
-    # 5. Stream sub-agent response — dual output
     async def generate():
         try:
             async with httpx.AsyncClient() as client:
@@ -108,14 +89,15 @@ async def a2a_message(
                     "POST",
                     stream_url,
                     json={
+                        "runtime_endpoint": agent.runtime_endpoint,
                         "content_parts": [{"text": body.content}],
                         "session_id": session_id,
                         "model_config_data": agent.model_config_json,
                         "agent_config": {
+                            "agent_id": agent_id,
                             "instruction": agent.instruction,
                             "tools": agent.tools,
                             "mcp_servers": build_mcp_config(agent.mcp_servers or []),
-                            "policy": agent_policy_rules,
                             **({"credentials": credentials} if credentials else {}),
                             "is_sub_agent": True,
                         },

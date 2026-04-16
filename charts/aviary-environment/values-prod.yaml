@@ -1,0 +1,22 @@
+name: default
+
+replicas: 2
+
+image:
+  pullPolicy: IfNotPresent
+  # Set via --set on install.
+  repository: ""
+  tag: ""
+
+pvc:
+  storageClassName: efs-sc
+  accessMode: ReadWriteMany
+  size: 100Gi
+
+resources:
+  requests:
+    cpu: "1"
+    memory: "2Gi"
+  limits:
+    cpu: "4"
+    memory: "8Gi"

@@ -37,9 +37,6 @@ class Workflow(Base):
     model_config_json: Mapped[dict] = mapped_column(
         "model_config", JSONB, nullable=False, server_default="{}"
     )
-    policy_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("policies.id", ondelete="SET NULL"), nullable=True
-    )
 
     definition: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default='{"nodes":[],"edges":[],"viewport":{"x":0,"y":0,"zoom":1}}')
     status: Mapped[str] = mapped_column(String(20), default="draft", server_default="draft")
@@ -52,7 +49,6 @@ class Workflow(Base):
     )
 
     owner: Mapped["User"] = relationship()  # noqa: F821
-    policy: Mapped["Policy | None"] = relationship()  # noqa: F821
     acl_entries: Mapped[list["WorkflowACL"]] = relationship(
         back_populates="workflow", cascade="all, delete-orphan", passive_deletes=True,
     )

@@ -61,40 +61,30 @@ docker save \
   | docker compose exec -T k8s ctr images import -
 echo "  All images loaded."
 
-# 6. Apply K8s platform manifests (namespace first, then KEDA, then the rest)
-echo "[6/7] Applying K8s platform resources..."
-docker compose exec -T k8s kubectl apply -f - < ./k8s/platform/namespace.yaml
+# 6. Render + apply Helm charts. We render with alpine/helm locally and pipe
+#    manifests into k3s via kubectl, avoiding a helm install inside the k3s
+#    container.
+echo "[6/7] Rendering and applying Helm charts..."
+HELM_IMAGE="alpine/helm:3.14.4"
 
-# KEDA — required before TriggerAuthentication / ScaledObject CRDs can apply.
-# Supervisor creates ScaledObjects per agent; its auto-scaling is no-op
-# without KEDA. Pinned version — bump deliberately.
-KEDA_VERSION="2.15.1"
-echo "  Installing KEDA v${KEDA_VERSION} (vendored)..."
-docker compose exec -T k8s kubectl apply --server-side -f - \
-  < "./k8s/platform/keda/keda-${KEDA_VERSION}.yaml" > /dev/null
-echo -n "  Waiting for KEDA operator..."
-docker compose exec -T k8s kubectl wait --for=condition=Available \
-  deployment/keda-operator deployment/keda-metrics-apiserver deployment/keda-admission \
-  -n keda --timeout=180s > /dev/null
+render_chart() {
+  local release=$1 chart=$2 values=$3
+  docker run --rm -v "$PROJECT_DIR/charts:/charts:ro" "$HELM_IMAGE" template \
+    "$release" "/charts/$chart" -f "/charts/$chart/$values" \
+    --set hostGatewayIP="$K8S_GATEWAY_IP"
+}
+
+render_chart aviary-platform    aviary-platform    values-dev.yaml \
+  | docker compose exec -T k8s kubectl apply -f -
+render_chart aviary-env-default aviary-environment values-dev.yaml \
+  | docker compose exec -T k8s kubectl apply -f -
+
+echo "  Platform + default environment applied."
+
+echo -n "  Waiting for rollouts..."
+docker compose exec -T k8s kubectl -n platform rollout status deploy/agent-supervisor --timeout=180s
+docker compose exec -T k8s kubectl -n agents   rollout status deploy/aviary-env-default --timeout=180s
 echo " ready."
-
-for f in ./k8s/platform/*.yaml; do
-  [ "$(basename "$f")" = "namespace.yaml" ] && continue
-  HOST_GATEWAY_IP="$K8S_GATEWAY_IP" envsubst '${HOST_GATEWAY_IP}' < "$f" \
-    | docker compose exec -T k8s kubectl apply -f -
-done
-# Create shared workspace directory on K8s node (hostPath for A2A file sharing).
-# Owned by UID 1000 (node user) so agent Pods can write without root.
-docker compose exec -T k8s sh -c 'mkdir -p /workspace-shared && chown 1000:1000 /workspace-shared'
-
-# Restart platform pods to pick up freshly loaded images.
-# Agent runtime pods in `agents` NS pick up the new image on their next
-# rolling restart — see `quick-rebuild.sh runtime` or
-# `POST /v1/agents/{id}/restart` via admin.
-docker compose exec -T k8s kubectl rollout restart deployment -n platform 2>/dev/null || true
-docker compose exec -T k8s kubectl rollout restart deployment -n agents \
-  -l aviary/role=agent-runtime 2>/dev/null || true
-echo "  Platform + agents namespaces ready."
 
 # 7. Wait for application services
 echo "[7/7] Waiting for application services..."
@@ -129,6 +119,7 @@ echo "  API Health:        http://localhost:8000/api/health"
 echo ""
 echo "Platform Services:"
 echo "  Agent Supervisor:  http://localhost:9000"
+echo "  Supervisor metrics: http://localhost:9000/metrics"
 echo "  LiteLLM Gateway:  http://localhost:8090"
 echo "  MCP Gateway:      http://localhost:8100"
 echo ""
@@ -145,14 +136,6 @@ echo "  user1@test.com / password  (regular_user,   team: engineering, product)"
 echo "  user2@test.com / password  (regular_user,   team: data-science)"
 echo ""
 echo "Hot reload:"
-echo "  Edit files in api/, web/, or admin/"
-echo "  — changes apply automatically via bind-mount."
-echo "  LiteLLM config: edit config/litellm/config.yaml and restart:"
-echo "    docker compose restart litellm"
-echo "  If you change dependencies:"
-echo "    docker compose up -d --build <service>"
-echo "  To rebuild K8s images (runtime, agent-supervisor):"
-echo "    docker build -t aviary-runtime:latest ./runtime/"
-echo "    docker build -t aviary-agent-supervisor:latest -f agent-supervisor/Dockerfile ."
-echo "    docker save aviary-runtime:latest aviary-agent-supervisor:latest | docker compose exec -T k8s ctr images import -"
-echo "    docker compose exec -T k8s kubectl rollout restart deployment -n platform"
+echo "  Edit files in api/, web/, or admin/ — changes apply via bind-mount."
+echo "  Chart changes:       helm upgrade aviary-platform charts/aviary-platform -f ..."
+echo "  Rebuild K8s images:  ./scripts/quick-rebuild.sh runtime|agent-supervisor|k8s"

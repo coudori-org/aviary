@@ -3,16 +3,13 @@
 import uuid
 import logging
 
-import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from aviary_shared.db.models import Agent
 from app.db import get_db
-from app.services import agent_lifecycle
 
 logger = logging.getLogger(__name__)
 
@@ -34,18 +31,13 @@ class AgentResponse(BaseModel):
     visibility: str
     category: str | None = None
     icon: str | None = None
-    policy_id: str | None = None
-    policy: dict
-    min_pods: int
-    max_pods: int
-    service_account_id: str | None
+    runtime_endpoint: str | None = None
     status: str
     created_at: str
     updated_at: str
 
     @classmethod
     def from_agent(cls, agent: Agent) -> "AgentResponse":
-        policy = agent.policy
         return cls(
             id=str(agent.id),
             name=agent.name,
@@ -59,11 +51,7 @@ class AgentResponse(BaseModel):
             visibility=agent.visibility,
             category=agent.category,
             icon=agent.icon,
-            policy_id=str(agent.policy_id) if agent.policy_id else None,
-            policy=policy.policy_rules if policy else {},
-            min_pods=policy.min_pods if policy else 0,
-            max_pods=policy.max_pods if policy else 3,
-            service_account_id=str(agent.service_account_id) if agent.service_account_id else None,
+            runtime_endpoint=agent.runtime_endpoint,
             status=agent.status,
             created_at=agent.created_at.isoformat(),
             updated_at=agent.updated_at.isoformat(),
@@ -87,6 +75,9 @@ class AgentUpdateRequest(BaseModel):
     visibility: str | None = None
     category: str | None = None
     icon: str | None = None
+    # Per-agent override. Empty string / null → fall back to the supervisor's
+    # default environment endpoint.
+    runtime_endpoint: str | None = None
 
 
 @router.get("", response_model=AgentListResponse)
@@ -99,8 +90,7 @@ async def list_agents(
     total = count_result.scalar() or 0
 
     result = await db.execute(
-        select(Agent).options(selectinload(Agent.policy))
-        .order_by(Agent.created_at.desc()).offset(offset).limit(limit)
+        select(Agent).order_by(Agent.created_at.desc()).offset(offset).limit(limit)
     )
     agents = result.scalars().all()
 
@@ -112,9 +102,7 @@ async def list_agents(
 
 @router.get("/{agent_id}", response_model=AgentResponse)
 async def get_agent(agent_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(
-        select(Agent).where(Agent.id == agent_id).options(selectinload(Agent.policy))
-    )
+    result = await db.execute(select(Agent).where(Agent.id == agent_id))
     agent = result.scalar_one_or_none()
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
@@ -127,16 +115,16 @@ async def update_agent(
     body: AgentUpdateRequest,
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(
-        select(Agent).where(Agent.id == agent_id).options(selectinload(Agent.policy))
-    )
+    result = await db.execute(select(Agent).where(Agent.id == agent_id))
     agent = result.scalar_one_or_none()
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
 
-    # Apply only fields the caller explicitly set; map model_config_data → model_config_json.
     field_map = {"model_config_data": "model_config_json"}
     for field, value in body.model_dump(exclude_unset=True).items():
+        # Treat empty string runtime_endpoint as "clear override".
+        if field == "runtime_endpoint" and value == "":
+            value = None
         setattr(agent, field_map.get(field, field), value)
 
     await db.flush()
@@ -146,12 +134,12 @@ async def update_agent(
 
 @router.delete("/{agent_id}", status_code=204)
 async def delete_agent(agent_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
-    """Hard-delete an agent and all its K8s resources."""
-    agent = await agent_lifecycle.find_agent_or_none(db, agent_id)
+    """Hard-delete an agent row. Environments are pre-provisioned; there's no
+    per-agent infrastructure to tear down."""
+    result = await db.execute(select(Agent).where(Agent.id == agent_id))
+    agent = result.scalar_one_or_none()
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
-    try:
-        await agent_lifecycle.delete_agent(db, agent)
-    except httpx.HTTPError as e:
-        raise HTTPException(status_code=502, detail=f"Delete failed: {e}") from e
+    await db.delete(agent)
+    await db.flush()
     return None

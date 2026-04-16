@@ -15,7 +15,6 @@
         <th>Slug</th>
         <th>Visibility</th>
         <th>Status</th>
-        <th>Deployment</th>
         <th>Nodes</th>
         <th>Last Updated</th>
         <th></th>
@@ -23,21 +22,11 @@
     </thead>
     <tbody>
       {% for wf in workflows %}
-      {% set dep = deployments.get(wf.id | string, {}) %}
       <tr>
         <td><a href="/workflows/{{ wf.id }}">{{ wf.name }}</a></td>
         <td class="mono">{{ wf.slug }}</td>
         <td><span class="badge badge-{{ wf.visibility }}">{{ wf.visibility }}</span></td>
         <td><span class="badge badge-{{ wf.status }}">{{ wf.status }}</span></td>
-        <td>
-          {% if dep.state == 'active' %}
-            <span class="badge badge-ready">running</span>
-          {% elif dep.state == 'unknown' %}
-            <span class="badge badge-warning">unknown</span>
-          {% else %}
-            <span class="badge badge-offline">offline</span>
-          {% endif %}
-        </td>
         <td>{{ wf.definition.nodes | length if wf.definition and wf.definition.nodes else 0 }}</td>
         <td class="text-sm text-muted">{{ wf.updated_at.strftime('%m/%d %H:%M') if wf.updated_at else '—' }}</td>
         <td><a href="/workflows/{{ wf.id }}" class="btn btn-sm">Manage</a></td>

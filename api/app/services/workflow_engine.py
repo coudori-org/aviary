@@ -100,21 +100,7 @@ async def _exec_agent_step(
     # Create ephemeral session
     session_id = str(uuid.uuid4())
 
-    try:
-        await agent_supervisor.ensure_agent_running(agent_id=worker_agent_id, owner_id="")
-        ready = await agent_supervisor.wait_for_agent_ready(worker_agent_id, timeout=90)
-        if not ready:
-            raise RuntimeError(
-                "Worker agent Pod did not become ready within 90s. "
-                "Check that the K8s cluster is running and the runtime image is loaded."
-            )
-    except httpx.HTTPError as e:
-        raise RuntimeError(
-            f"Agent Supervisor connection failed: {e}. "
-            "Ensure the agent-supervisor is running (port 9000) and reachable."
-        ) from e
-
-    stream_url = agent_supervisor.get_stream_url(worker_agent_id, session_id)
+    stream_url = agent_supervisor.get_stream_url(session_id)
     if not model_config.get("backend") or not model_config.get("model"):
         raise RuntimeError(
             "Agent Step has no model configured. "
@@ -125,14 +111,15 @@ async def _exec_agent_step(
     structured_output = None
 
     request_body: dict = {
+        "runtime_endpoint": None,
         "content_parts": [{"text": prompt}],
         "session_id": session_id,
         "model_config_data": model_config,
         "agent_config": {
+            "agent_id": worker_agent_id,
             "instruction": instruction,
             "tools": [],
             "mcp_servers": {},
-            "policy": {},
         },
     }
     if output_schema:
@@ -193,9 +180,8 @@ async def _exec_agent_step(
                     raise RuntimeError(chunk.get("message", "Agent runtime error"))
 
     if structured_output is not None:
-        # Best-effort session cleanup
         try:
-            await agent_supervisor.cleanup_session(worker_agent_id, session_id)
+            await agent_supervisor.cleanup_session(session_id, agent_id=worker_agent_id)
         except Exception:
             pass
         return {"output": structured_output}
@@ -203,9 +189,8 @@ async def _exec_agent_step(
     if not full_response.strip():
         raise RuntimeError("Agent Step produced no output — the LLM may be unreachable or the request failed silently")
 
-    # Best-effort session cleanup
     try:
-        await agent_supervisor.cleanup_session(worker_agent_id, session_id)
+        await agent_supervisor.cleanup_session(session_id, agent_id=worker_agent_id)
     except Exception:
         pass
 

@@ -1,6 +1,5 @@
 import uuid
 
-import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -46,46 +45,14 @@ async def create_agent(
 async def get_agents_status(
     ids: str = Query(..., description="Comma-separated agent IDs"),
     user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
 ):
-    """Batch check agent readiness for sidebar display."""
-    import asyncio
-    from app.services import agent_supervisor, redis_service
+    """Agent readiness endpoint retained for the web UI sidebar.
 
+    Runtime environments are always on via Helm, so per-agent readiness is
+    effectively the platform's readiness. Return "ready" for every known id.
+    """
     agent_ids = [s.strip() for s in ids.split(",") if s.strip()]
-    if not agent_ids:
-        return {"statuses": {}}
-
-    rc = redis_service.get_client()
-    cache_ttl = 10
-
-    async def check_one(aid: str) -> tuple[str, str]:
-        cache_key = f"agent_readiness:{aid}"
-
-        if rc:
-            try:
-                cached = await rc.get(cache_key)
-                if cached is not None:
-                    return aid, cached
-            except Exception:  # Best-effort: cache read failure is non-critical
-                pass
-
-        try:
-            ready = await agent_supervisor.check_agent_ready(aid)
-            result = "ready" if ready else "offline"
-        except httpx.HTTPError:
-            result = "offline"
-
-        if rc:
-            try:
-                await rc.set(cache_key, result, ex=cache_ttl)
-            except Exception:  # Best-effort: cache write failure is non-critical
-                pass
-
-        return aid, result
-
-    results = await asyncio.gather(*[check_one(aid) for aid in agent_ids])
-    return {"statuses": dict(results)}
+    return {"statuses": {aid: "ready" for aid in agent_ids}}
 
 
 @router.get("/{agent_id}", response_model=AgentResponse)

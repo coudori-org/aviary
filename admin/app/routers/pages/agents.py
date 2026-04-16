@@ -1,18 +1,15 @@
-"""Agent list, detail, config, policy, deployment, and delete pages."""
+"""Agent list, detail, and delete pages."""
 
 import uuid
 import logging
 
-import httpx
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
-from aviary_shared.db.models import Agent, ServiceAccount, Session as SessionModel
+from aviary_shared.db.models import Agent, Session as SessionModel
 from app.db import get_db
-from app.services import agent_lifecycle, supervisor_client
 from app.routers.pages._templates import templates
 
 logger = logging.getLogger(__name__)
@@ -34,14 +31,12 @@ async def agent_list(
     total_pages = max(1, (total + per_page - 1) // per_page)
 
     result = await db.execute(
-        select(Agent).order_by(Agent.created_at.desc()).offset(offset).limit(per_page).options(selectinload(Agent.policy))
+        select(Agent).order_by(Agent.created_at.desc()).offset(offset).limit(per_page)
     )
     agents = list(result.scalars().all())
 
-    # Last activity = most recent session message per agent. One grouped query
-    # bounded to the current page's agent IDs.
     agent_ids = [a.id for a in agents]
-    activity_map: dict[str, "datetime | None"] = {}
+    activity_map: dict[str, object] = {}
     if agent_ids:
         activity_rows = await db.execute(
             select(SessionModel.agent_id, func.max(SessionModel.last_message_at))
@@ -50,25 +45,8 @@ async def agent_list(
         )
         activity_map = {str(aid): ts for aid, ts in activity_rows.all()}
 
-    deployment_map: dict[str, dict] = {}
-    for agent in agents:
-        try:
-            status_info = await supervisor_client.get_deployment_status(str(agent.id))
-            ready = status_info.get("ready_replicas") or 0
-            deployment_map[str(agent.id)] = {"state": "active" if ready > 0 else "inactive", "ready": ready}
-        except httpx.HTTPStatusError as e:
-            if e.response.status_code == 404:
-                deployment_map[str(agent.id)] = {"state": "inactive", "ready": 0}
-            else:
-                logger.warning("Status fetch failed for agent %s", agent.id, exc_info=True)
-                deployment_map[str(agent.id)] = {"state": "unknown", "ready": 0}
-        except httpx.HTTPError:
-            logger.warning("Status fetch failed for agent %s", agent.id, exc_info=True)
-            deployment_map[str(agent.id)] = {"state": "unknown", "ready": 0}
-
     return templates.TemplateResponse(request, "agents.html", {
         "agents": agents,
-        "deployments": deployment_map,
         "last_activity": activity_map,
         "page": page,
         "total_pages": total_pages,
@@ -80,44 +58,16 @@ async def agent_list(
 async def agent_detail(
     request: Request, agent_id: uuid.UUID, db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(
-        select(Agent).where(Agent.id == agent_id).options(
-            selectinload(Agent.policy), selectinload(Agent.service_account),
-        )
-    )
+    result = await db.execute(select(Agent).where(Agent.id == agent_id))
     agent = result.scalar_one_or_none()
     if not agent:
         return HTMLResponse("<h1>Agent not found</h1>", status_code=404)
-
-    sa_result = await db.execute(select(ServiceAccount).order_by(ServiceAccount.name))
-    service_accounts = list(sa_result.scalars().all())
 
     last_activity = (await db.execute(
         select(func.max(SessionModel.last_message_at))
         .where(SessionModel.agent_id == agent.id)
     )).scalar_one_or_none()
 
-    deployment_status = {"state": "inactive", "active": False, "replicas": 0, "ready_replicas": 0}
-    try:
-        status_info = await supervisor_client.get_deployment_status(str(agent.id))
-        replicas = status_info.get("replicas", 0)
-        ready = status_info.get("ready_replicas", 0)
-        deployment_status = {
-            "state": "active" if ready > 0 else "inactive",
-            "active": ready > 0,
-            "replicas": replicas,
-            "ready_replicas": ready,
-        }
-    except httpx.HTTPStatusError as e:
-        if e.response.status_code != 404:
-            logger.warning("Status fetch failed for agent %s", agent.id, exc_info=True)
-            deployment_status = {"state": "unknown", "active": False, "replicas": 0, "ready_replicas": 0}
-    except httpx.HTTPError:
-        logger.warning("Status fetch failed for agent %s", agent.id, exc_info=True)
-        deployment_status = {"state": "unknown", "active": False, "replicas": 0, "ready_replicas": 0}
-
-    policy_obj = agent.policy
-    policy_rules = policy_obj.policy_rules if policy_obj else {}
     flash = request.query_params.get("flash")
     flash_data = None
     if flash:
@@ -128,10 +78,6 @@ async def agent_detail(
 
     return templates.TemplateResponse(request, "agent_detail.html", {
         "agent": agent,
-        "deployment": deployment_status,
-        "policy": policy_rules,
-        "policy_obj": policy_obj,
-        "service_accounts": service_accounts,
         "last_activity": last_activity,
         "flash": flash_data,
     })
@@ -145,8 +91,9 @@ async def update_agent_config(
     description: str = Form(""),
     instruction: str = Form(...),
     visibility: str = Form("private"),
+    runtime_endpoint: str = Form(""),
 ):
-    result = await db.execute(select(Agent).where(Agent.id == agent_id).options(selectinload(Agent.policy)))
+    result = await db.execute(select(Agent).where(Agent.id == agent_id))
     agent = result.scalar_one_or_none()
     if not agent:
         return RedirectResponse(f"/agents/{agent_id}?error=Agent+not+found", status_code=303)
@@ -155,108 +102,18 @@ async def update_agent_config(
     agent.description = description or None
     agent.instruction = instruction
     agent.visibility = visibility
+    agent.runtime_endpoint = runtime_endpoint.strip() or None
     await db.flush()
 
     return RedirectResponse(f"/agents/{agent_id}?flash=Configuration+saved", status_code=303)
 
 
-@router.post("/agents/{agent_id}/policy")
-async def update_policy(
-    agent_id: uuid.UUID,
-    request: Request,
-    db: AsyncSession = Depends(get_db),
-):
-    from aviary_shared.db.models import Policy
-    result = await db.execute(
-        select(Agent).where(Agent.id == agent_id).options(
-            selectinload(Agent.policy), selectinload(Agent.service_account),
-        )
-    )
-    agent = result.scalar_one_or_none()
-    if not agent:
-        return RedirectResponse(f"/agents/{agent_id}?error=Agent+not+found", status_code=303)
-
-    form = await request.form()
-
-    if not agent.policy:
-        policy_obj = Policy()
-        db.add(policy_obj)
-        await db.flush()
-        agent.policy_id = policy_obj.id
-        agent.policy = policy_obj
-
-    policy_obj = agent.policy
-
-    policy_obj.min_pods = int(form.get("min_pods") or policy_obj.min_pods)
-    policy_obj.max_pods = int(form.get("max_pods") or policy_obj.max_pods)
-
-    policy_rules = dict(policy_obj.policy_rules) if policy_obj.policy_rules else {}
-    policy_rules["maxMemoryPerSession"] = form.get("max_memory", "4Gi")
-    policy_rules["maxCpuPerSession"] = form.get("max_cpu", "4")
-    policy_rules["containerImage"] = form.get("container_image") or "aviary-runtime:latest"
-    policy_obj.policy_rules = policy_rules
-
-    sa_id_raw = form.get("service_account_id")
-    agent.service_account_id = uuid.UUID(sa_id_raw) if sa_id_raw else None
-    await db.flush()
-    await db.refresh(agent, attribute_names=["service_account"])
-
-    try:
-        await agent_lifecycle.sync_identity(agent)
-    except httpx.HTTPError as e:
-        logger.warning("Identity sync failed for agent %s", agent.id, exc_info=True)
-        return RedirectResponse(f"/agents/{agent_id}?error=Policy+saved+but+sync+failed:+{e}", status_code=303)
-
-    return RedirectResponse(f"/agents/{agent_id}?flash=Policy+saved", status_code=303)
-
-
-def _flash_error(agent_id, message: str) -> RedirectResponse:
-    return RedirectResponse(f"/agents/{agent_id}?error={message}", status_code=303)
-
-
-@router.post("/agents/{agent_id}/activate")
-async def activate_agent(agent_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
-    agent = await agent_lifecycle.find_agent_or_none(db, agent_id)
-    if not agent:
-        return _flash_error(agent_id, "Agent+not+found")
-    try:
-        await agent_lifecycle.activate(agent)
-    except httpx.HTTPError as e:
-        return _flash_error(agent_id, f"Activation+failed:+{e}")
-    return RedirectResponse(f"/agents/{agent_id}?flash=Agent+activated", status_code=303)
-
-
-@router.post("/agents/{agent_id}/deactivate")
-async def deactivate_agent(agent_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
-    agent = await agent_lifecycle.find_agent_or_none(db, agent_id)
-    if not agent:
-        return _flash_error(agent_id, "Agent+not+found")
-    try:
-        await agent_lifecycle.deactivate(agent)
-    except httpx.HTTPError as e:
-        return _flash_error(agent_id, f"Deactivation+failed:+{e}")
-    return RedirectResponse(f"/agents/{agent_id}?flash=Agent+deactivated", status_code=303)
-
-
-@router.post("/agents/{agent_id}/deploy")
-async def deploy_agent(agent_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
-    agent = await agent_lifecycle.find_agent_or_none(db, agent_id)
-    if not agent:
-        return _flash_error(agent_id, "Agent+not+found")
-    try:
-        await agent_lifecycle.rolling_restart(agent)
-    except httpx.HTTPError as e:
-        return _flash_error(agent_id, f"Rolling+restart+failed:+{e}")
-    return RedirectResponse(f"/agents/{agent_id}?flash=Rolling+restart+triggered", status_code=303)
-
-
 @router.post("/agents/{agent_id}/delete")
 async def delete_agent(agent_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
-    agent = await agent_lifecycle.find_agent_or_none(db, agent_id)
+    result = await db.execute(select(Agent).where(Agent.id == agent_id))
+    agent = result.scalar_one_or_none()
     if not agent:
         return RedirectResponse("/?error=Agent+not+found", status_code=303)
-    try:
-        await agent_lifecycle.delete_agent(db, agent)
-    except httpx.HTTPError as e:
-        return _flash_error(agent_id, f"Delete+failed:+{e}")
+    await db.delete(agent)
+    await db.flush()
     return RedirectResponse("/?flash=Agent+deleted", status_code=303)

@@ -20,7 +20,6 @@ from aviary_shared.vault import credential_path
 from app.db.models import SessionParticipant
 from app.db.session import async_session_factory
 from app.services import agent_supervisor, redis_service, session_service, vault_service
-from app.services.stream.a2a import merge_a2a_events
 from app.services.stream.blocks import rebuild_blocks_from_chunks
 
 logger = logging.getLogger(__name__)
@@ -52,7 +51,7 @@ async def start_stream(
     agent_instruction: str,
     agent_tools: list,
     agent_mcp_servers: list,
-    agent_policy: dict,
+    agent_runtime_endpoint: str | None,
     content: str,
     user_message_id: uuid.UUID,
     user_token: str = "",
@@ -72,7 +71,7 @@ async def start_stream(
         _run_stream(
             session_id, agent_id,
             agent_model_config, agent_instruction,
-            agent_tools, agent_mcp_servers, agent_policy,
+            agent_tools, agent_mcp_servers, agent_runtime_endpoint,
             content, user_message_id, user_token, user_external_id,
             accessible_agents=accessible_agents,
             attachments=attachments,
@@ -98,7 +97,7 @@ async def cancel_stream(session_id: str, agent_id: str | None = None) -> bool:
         return False
 
     if agent_id:
-        await agent_supervisor.abort_session(agent_id, session_id)
+        await agent_supervisor.abort_session(session_id, agent_id=agent_id)
 
     task.cancel()
 
@@ -107,7 +106,6 @@ async def cancel_stream(session_id: str, agent_id: str | None = None) -> bool:
         partial = await redis_service.get_stream_chunks(session_id)
         if partial:
             partial_text, blocks_meta = rebuild_blocks_from_chunks(partial)
-            await merge_a2a_events(session_id, blocks_meta)
 
             meta: dict = {"cancelled": True}
             if blocks_meta:
@@ -141,7 +139,7 @@ async def _run_stream(
     agent_instruction: str,
     agent_tools: list,
     agent_mcp_servers: list,
-    agent_policy: dict,
+    agent_runtime_endpoint: str | None,
     content: str,
     user_message_id: uuid.UUID,
     user_token: str = "",
@@ -168,18 +166,6 @@ async def _run_stream(
         )
         await redis_service.set_stream_status(session_id, "error")
         await redis_service.set_session_status(session_id, "idle")
-
-    try:
-        await agent_supervisor.ensure_agent_running(agent_id=agent_id, owner_id="")
-        ready = await agent_supervisor.wait_for_agent_ready(agent_id, timeout=90)
-    except httpx.HTTPError as e:
-        logger.warning("Failed to ensure agent running for session %s", session_id, exc_info=True)
-        await _drop_user_message_and_fail(f"Failed to start agent: {e}")
-        return
-
-    if not ready:
-        await _drop_user_message_and_fail("Agent did not become ready in time")
-        return
 
     credentials: dict[str, str] = {}
     if user_external_id:
@@ -216,17 +202,17 @@ async def _run_stream(
 
     try:
         result = await agent_supervisor.publish_stream(
-            agent_id=agent_id,
             session_id=session_id,
             body={
+                "runtime_endpoint": agent_runtime_endpoint,
                 "content_parts": content_parts,
                 "session_id": session_id,
                 "model_config_data": agent_model_config,
                 "agent_config": {
+                    "agent_id": agent_id,
                     "instruction": agent_instruction,
                     "tools": agent_tools,
                     "mcp_servers": build_mcp_config(agent_mcp_servers),
-                    "policy": agent_policy,
                     "user_token": user_token,
                     "user_external_id": user_external_id,
                     **({"credentials": credentials} if credentials else {}),
@@ -238,9 +224,8 @@ async def _run_stream(
         if result.get("status") != "complete":
             raise RuntimeError(result.get("message", "Agent runtime error"))
 
-        chunks = await redis_service.get_stream_chunks(session_id)
-        full_response, blocks_meta = rebuild_blocks_from_chunks(chunks)
-        await merge_a2a_events(session_id, blocks_meta)
+        full_response = result.get("assembled_text", "")
+        blocks_meta = result.get("assembled_blocks", [])
 
         meta = {"blocks": blocks_meta} if blocks_meta else None
         async with async_session_factory() as db:

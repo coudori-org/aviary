@@ -1,4 +1,4 @@
-"""/agents/{id}/sessions/{sid}/publish — consumes runtime SSE, publishes to Redis."""
+"""/v1/sessions/{sid}/publish — consumes runtime SSE, publishes to Redis, returns assembled message."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 
 
 @pytest.fixture
-def client(monkeypatch):
+def client():
     from app.main import app
     return TestClient(app)
 
@@ -54,10 +54,7 @@ class _FakeClient:
 
 def _patch_runtime_stream(lines: list[str], status: int = 200):
     resp = _FakeSSEResponse(lines, status)
-    return patch(
-        "app.routers.agents.new_client",
-        return_value=_FakeClient(resp),
-    )
+    return patch("httpx.AsyncClient", return_value=_FakeClient(resp))
 
 
 @pytest.mark.asyncio
@@ -71,16 +68,20 @@ async def test_publish_streams_events_to_redis(client):
          patch("app.routers.agents.redis_client.append_stream_chunk", new_callable=AsyncMock) as append, \
          patch("app.routers.agents.redis_client.publish_message", new_callable=AsyncMock) as publish, \
          patch("app.routers.agents.redis_client.set_stream_status", new_callable=AsyncMock) as set_status, \
-         patch("app.backends.k3s.backend.K3SBackend.resolve_endpoint", new_callable=AsyncMock, return_value="/proxy"):
+         patch("app.routers.agents.redis_client.get_stream_chunks", new_callable=AsyncMock, return_value=[
+             {"type": "chunk", "content": "hello"},
+             {"type": "chunk", "content": " world"},
+         ]):
         resp = client.post(
-            "/v1/agents/a1/sessions/s1/publish",
-            json={"content_parts": [{"text": "hi"}]},
+            "/v1/sessions/s1/publish",
+            json={"runtime_endpoint": None, "content_parts": [{"text": "hi"}]},
         )
 
     assert resp.status_code == 200
     data = resp.json()
     assert data["status"] == "complete"
     assert data["reached_runtime"] is True
+    assert data["assembled_text"] == "hello world"
 
     # query_started is control-only, not published
     assert append.await_count == 2
@@ -97,11 +98,8 @@ async def test_publish_reports_runtime_error_event(client):
     with _patch_runtime_stream(lines), \
          patch("app.routers.agents.redis_client.append_stream_chunk", new_callable=AsyncMock), \
          patch("app.routers.agents.redis_client.publish_message", new_callable=AsyncMock), \
-         patch("app.routers.agents.redis_client.set_stream_status", new_callable=AsyncMock) as set_status, \
-         patch("app.backends.k3s.backend.K3SBackend.resolve_endpoint", new_callable=AsyncMock, return_value="/proxy"):
-        resp = client.post(
-            "/v1/agents/a1/sessions/s1/publish", json={},
-        )
+         patch("app.routers.agents.redis_client.set_stream_status", new_callable=AsyncMock) as set_status:
+        resp = client.post("/v1/sessions/s1/publish", json={})
 
     data = resp.json()
     assert data["status"] == "error"
@@ -113,12 +111,9 @@ async def test_publish_reports_runtime_error_event(client):
 @pytest.mark.asyncio
 async def test_publish_reports_http_error_before_runtime(client):
     resp_obj = _FakeSSEResponse(["error body"], status_code=500)
-    with patch("app.routers.agents.new_client", return_value=_FakeClient(resp_obj)), \
-         patch("app.routers.agents.redis_client.set_stream_status", new_callable=AsyncMock) as set_status, \
-         patch("app.backends.k3s.backend.K3SBackend.resolve_endpoint", new_callable=AsyncMock, return_value="/proxy"):
-        resp = client.post(
-            "/v1/agents/a1/sessions/s1/publish", json={},
-        )
+    with patch("httpx.AsyncClient", return_value=_FakeClient(resp_obj)), \
+         patch("app.routers.agents.redis_client.set_stream_status", new_callable=AsyncMock) as set_status:
+        resp = client.post("/v1/sessions/s1/publish", json={})
 
     data = resp.json()
     assert data["status"] == "error"

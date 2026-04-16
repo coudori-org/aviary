@@ -30,10 +30,7 @@ async def test_get_agent(client: AsyncClient, seed_agent: Agent):
     assert resp.status_code == 200
     data = resp.json()
     assert data["name"] == "Test Agent"
-    assert data["policy"] == {}
-    assert data["min_pods"] == 0
-    assert data["max_pods"] == 3
-    assert data["service_account_id"] is None
+    assert data["runtime_endpoint"] is None
 
 
 @pytest.mark.asyncio
@@ -52,6 +49,20 @@ async def test_update_agent(client: AsyncClient, seed_agent: Agent):
     data = resp.json()
     assert data["name"] == "Updated Agent"
     assert data["instruction"] == "Be very helpful."
+
+
+@pytest.mark.asyncio
+async def test_update_agent_runtime_endpoint(client: AsyncClient, seed_agent: Agent):
+    resp = await client.put(f"/api/agents/{seed_agent.id}", json={
+        "runtime_endpoint": "http://aviary-env-custom.agents.svc:3000",
+    })
+    assert resp.status_code == 200
+    assert resp.json()["runtime_endpoint"] == "http://aviary-env-custom.agents.svc:3000"
+
+    # Clearing by empty string reverts to default.
+    resp = await client.put(f"/api/agents/{seed_agent.id}", json={"runtime_endpoint": ""})
+    assert resp.status_code == 200
+    assert resp.json()["runtime_endpoint"] is None
 
 
 @pytest.mark.asyncio

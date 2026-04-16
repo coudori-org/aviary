@@ -1,0 +1,29 @@
+{{- if .Values.externalServices.enabled }}
+{{- range .Values.externalServices.services }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .name }}
+  namespace: {{ include "aviary-platform.platformNamespace" $ }}
+  labels:
+    aviary/service: {{ .name }}
+spec:
+  ports:
+    - port: {{ .clusterPort }}
+      targetPort: {{ .hostPort }}
+      protocol: TCP
+---
+apiVersion: v1
+kind: Endpoints
+metadata:
+  name: {{ .name }}
+  namespace: {{ include "aviary-platform.platformNamespace" $ }}
+subsets:
+  - addresses:
+      - ip: {{ $.Values.hostGatewayIP | quote }}
+    ports:
+      - port: {{ .hostPort }}
+        protocol: TCP
+{{- end }}
+{{- end }}
