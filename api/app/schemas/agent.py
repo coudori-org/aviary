@@ -93,8 +93,16 @@ class AgentListResponse(BaseModel):
 
 
 class AccessibleAgent(BaseModel):
-    """Minimal agent info passed to runtime for A2A tool construction."""
+    """Minimal agent info passed to runtime for A2A tool construction.
 
+    `agent_id` and `runtime_endpoint` are pre-resolved by the API at
+    chat-start (after ACL filtering); the runtime-side A2A tool POSTs
+    them straight to the supervisor without re-querying the DB or
+    re-running the auth path.
+    """
+
+    agent_id: str
     slug: str
     name: str
     description: str | None = None
+    runtime_endpoint: str | None = None

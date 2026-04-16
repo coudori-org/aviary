@@ -104,6 +104,20 @@ async def set_stream_status(session_id: str, status: str) -> None:
         logger.warning("set_stream_status failed for session %s", session_id, exc_info=True)
 
 
+async def append_a2a_event(
+    session_id: str, parent_tool_use_id: str, event: dict,
+) -> None:
+    """Buffer a sub-agent tool event for later splicing into the parent's blocks."""
+    if not _client:
+        return
+    key = _a2a_key(session_id, parent_tool_use_id)
+    try:
+        await _client.rpush(key, json.dumps(event))
+        await _client.expire(key, _STREAM_BUFFER_TTL)
+    except redis.RedisError:
+        logger.warning("append_a2a_event failed for session %s", session_id, exc_info=True)
+
+
 async def get_a2a_events(session_id: str, parent_tool_use_id: str) -> list[dict]:
     if not _client:
         return []

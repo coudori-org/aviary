@@ -266,10 +266,13 @@ export async function* processMessage(
   let a2aServer: A2AServer | null = null;
   const a2aToolNames: string[] = [];
 
-  if (accessibleAgents.length > 0 && !isSubAgent && agentConfig.user_external_id) {
+  if (accessibleAgents.length > 0 && !isSubAgent) {
     a2aServer = await startA2AServer(accessibleAgents, {
       sessionId,
+      modelConfig: mc as Record<string, unknown>,
+      userToken: agentConfig.user_token,
       userExternalId: agentConfig.user_external_id,
+      credentials: agentConfig.credentials,
     });
     mcpServers["a2a"] = { type: "http", url: a2aServer.url };
     a2aToolNames.push(...a2aServer.toolNames);

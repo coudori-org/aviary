@@ -76,7 +76,8 @@ Three backend services with distinct roles:
 **Portkey AI Gateway** (docker compose, internal `:8787`): Sits between LiteLLM and LLM backends as an AI gateway. LiteLLM routes all requests to Portkey via `api_base`, and Portkey forwards to the actual provider based on `x-portkey-provider` header. Provides guardrails, OpenTelemetry-based observability and tracing, request/response logging, and caching. Not exposed externally — only accessed by LiteLLM within the docker network.
 
 **Agent Supervisor routes** (all session-centric, caller injects `runtime_endpoint`):
-- `POST /v1/sessions/{sid}/message` — transparent SSE passthrough (used by workflow engine / A2A sub-agent streaming).
+- `POST /v1/sessions/{sid}/message` — transparent SSE passthrough (used by the workflow engine).
+- `POST /v1/sessions/{sid}/a2a` — sub-agent stream invoked directly by a parent runtime's local A2A MCP server. Body carries `target_agent_id` + `target_runtime_endpoint` (already ACL-filtered by the API at chat-start). Forwards SSE to the caller and tags `tool_use`/`tool_result` events into the parent session's Redis A2A buffer for assembly.
 - `POST /v1/sessions/{sid}/publish` — SSE + Redis + assembly. Returns `{status, reached_runtime, assembled_text, assembled_blocks}`.
 - `POST /v1/sessions/{sid}/abort` — best-effort abort on the runtime.
 - `DELETE /v1/sessions/{sid}` — cleanup workspace directories for a given agent/session.
@@ -86,7 +87,7 @@ Three backend services with distinct roles:
 No background loops. No per-agent state. No 0↔1 activation — environments are always on.
 
 **Egress policy** is set per environment via Helm:
-- **Baseline** (`charts/aviary-platform/templates/default-egress.yaml`): namespace-wide `NetworkPolicy` on `aviary/role=agent-runtime`; allows DNS + platform NS + gateway ports (LiteLLM 8090, MCP 8100, API 8000). Always in effect.
+- **Baseline** (`charts/aviary-platform/templates/default-egress.yaml`): namespace-wide `NetworkPolicy` on `aviary/role=agent-runtime`; allows DNS + platform NS + gateway ports (LiteLLM 8090, MCP 8100, API 8000, Supervisor 9000 — for A2A). Always in effect.
 - **Per-environment extras**: optional `extraEgress` list in `charts/aviary-environment/values.yaml` gets merged into a second NetworkPolicy scoped by `aviary/environment=<name>`. K8s NP evaluates as a disjunction — this unions with baseline.
 
 ## Critical Patterns & Gotchas

@@ -16,9 +16,10 @@ baselineEgress:
     - 8000   # API
     - 8090   # LiteLLM
     - 8100   # MCP Gateway
+    - 9000   # Agent Supervisor (A2A sub-agent invocations from runtime)
 
-# Dev-only: proxy docker-compose services (mcp-gateway, litellm) into the
-# cluster via Service + Endpoints with the host gateway IP.
+# Dev-only: proxy docker-compose services (mcp-gateway, litellm, supervisor)
+# into the cluster via Service + Endpoints with the host gateway IP.
 externalServices:
   enabled: false
   services:
@@ -28,6 +29,9 @@ externalServices:
     - name: litellm
       clusterPort: 4000
       hostPort: 8090
+    - name: supervisor
+      clusterPort: 9000
+      hostPort: 9000
 
 # Warm the runtime image on every node so pod starts don't pay the pull cost.
 imageWarmer:

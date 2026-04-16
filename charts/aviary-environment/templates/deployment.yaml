@@ -54,6 +54,8 @@ spec:
               value: {{ .Values.runtime.aviaryAPIURL | quote }}
             - name: AVIARY_INTERNAL_API_KEY
               value: {{ .Values.runtime.internalAPIKey | quote }}
+            - name: AVIARY_SUPERVISOR_URL
+              value: {{ .Values.runtime.supervisorURL | quote }}
             - name: HOME
               value: "/tmp"
           volumeMounts:

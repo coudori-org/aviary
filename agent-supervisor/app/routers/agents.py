@@ -262,6 +262,90 @@ async def abort_session(session_id: str, body: _AbortBody):
     return {"ok": True, "via": "broadcast"}
 
 
+class _A2ABody(BaseModel):
+    """Body for an A2A sub-agent invocation, sent by a parent runtime's
+    local A2A MCP server. ACL/auth was already enforced by the API at
+    chat-start when it built the parent's accessible_agents list, so the
+    supervisor does not re-validate."""
+
+    parent_session_id: str
+    parent_tool_use_id: str
+    target_agent_id: str
+    target_runtime_endpoint: str | None = None
+    model_config_data: dict
+    agent_config: dict
+    content_parts: list[dict]
+
+
+@router.post("/sessions/{session_id}/a2a")
+async def a2a_stream(session_id: str, body: _A2ABody, request: Request):
+    """Stream a sub-agent's response.
+
+    SSE is forwarded verbatim to the caller (parent runtime's A2A server).
+    `tool_use` / `tool_result` events are also tagged with `parent_tool_use_id`
+    and pushed to the parent session's Redis (a2a buffer + pubsub) so the
+    parent's assembly + frontend can splice them under the parent tool card.
+    """
+    base = resolve_runtime_base(body.target_runtime_endpoint)
+    parent_tool_use_id = body.parent_tool_use_id
+
+    # Sub-agent runtime body. Always strips accessible_agents (no recursive A2A)
+    # and marks is_sub_agent so the runtime applies sub-agent prompt framing.
+    sub_agent_config = {
+        **body.agent_config,
+        "agent_id": body.target_agent_id,
+        "is_sub_agent": True,
+    }
+    sub_agent_config.pop("accessible_agents", None)
+
+    runtime_body = {
+        "session_id": body.parent_session_id,
+        "model_config_data": body.model_config_data,
+        "agent_config": sub_agent_config,
+        "content_parts": body.content_parts,
+    }
+
+    async def generate():
+        try:
+            async with httpx.AsyncClient() as client:
+                async with client.stream(
+                    "POST", f"{base}/message", json=runtime_body, timeout=None,
+                ) as resp:
+                    if resp.status_code != 200:
+                        err = (await resp.aread()).decode(errors="replace")[:500]
+                        logger.error("A2A sub-agent stream %d: %s", resp.status_code, err)
+                        yield (
+                            f"data: {json.dumps({'type': 'error', 'message': f'Sub-agent error ({resp.status_code})'})}\n\n"
+                        ).encode()
+                        return
+                    async for line in resp.aiter_lines():
+                        if not line.startswith("data: "):
+                            continue
+                        event = json.loads(line[6:])
+                        etype = event.get("type")
+                        # Tool events get pushed into parent's session for
+                        # inline rendering and final assembly merge.
+                        if etype in ("tool_use", "tool_result"):
+                            tagged = {**event, "parent_tool_use_id": parent_tool_use_id}
+                            await redis_client.publish_message(body.parent_session_id, tagged)
+                            await redis_client.append_a2a_event(
+                                body.parent_session_id, parent_tool_use_id, tagged,
+                            )
+                        # Always forward the raw event to the caller (parent A2A server).
+                        yield f"data: {json.dumps(event)}\n\n".encode()
+        except httpx.HTTPError:
+            logger.exception("A2A SSE proxy error for session %s", body.parent_session_id)
+            yield (
+                f"data: {json.dumps({'type': 'error', 'message': 'Sub-agent runtime unreachable'})}\n\n"
+            ).encode()
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 class _CleanupBody(BaseModel):
     runtime_endpoint: str | None = None
     agent_id: str

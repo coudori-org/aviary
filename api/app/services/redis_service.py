@@ -231,37 +231,6 @@ async def get_stream_result(session_id: str) -> dict | None:
     return json.loads(raw) if raw else None
 
 
-async def append_a2a_event(
-    session_id: str, parent_tool_use_id: str, event: dict
-) -> None:
-    """Append a sub-agent tool_use event for persistence in saved message metadata."""
-    client = get_client()
-    if not client:
-        return
-    key = f"session:{session_id}:a2a:{parent_tool_use_id}"
-    await client.rpush(key, json.dumps(event))
-    await client.expire(key, _STREAM_BUFFER_TTL)
-
-
-async def get_a2a_events(session_id: str, parent_tool_use_id: str) -> list[dict]:
-    """Get accumulated sub-agent tool_use events for a tool call."""
-    client = get_client()
-    if not client:
-        return []
-    key = f"session:{session_id}:a2a:{parent_tool_use_id}"
-    raw = await client.lrange(key, 0, -1)
-    return [json.loads(r) for r in raw]
-
-
-async def clear_a2a_events(session_id: str, parent_tool_use_id: str) -> None:
-    """Remove sub-agent event buffer after saving."""
-    client = get_client()
-    if not client:
-        return
-    key = f"session:{session_id}:a2a:{parent_tool_use_id}"
-    await client.delete(key)
-
-
 async def clear_stream_buffer(session_id: str) -> None:
     """Remove all stream buffer keys for a session."""
     client = get_client()

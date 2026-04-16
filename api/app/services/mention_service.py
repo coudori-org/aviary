@@ -49,9 +49,11 @@ async def resolve_mentioned_agents(
             continue
 
         result.append(AccessibleAgent(
+            agent_id=str(agent.id),
             slug=agent.slug,
             name=agent.name,
             description=agent.description,
+            runtime_endpoint=agent.runtime_endpoint,
         ))
 
     return result

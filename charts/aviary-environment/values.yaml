@@ -24,6 +24,8 @@ runtime:
   litellmAPIKey: "sk-aviary-dev"
   aviaryAPIURL: "http://host.k8s.internal:8000/api"
   internalAPIKey: "sk-aviary-internal"
+  # Supervisor URL — used by the runtime's A2A tool server to invoke sub-agents.
+  supervisorURL: "http://supervisor.platform.svc:9000"
 
 # How the supervisor (running outside k3s in dev) reaches this env's runtime
 # pods. Dev: NodePort on the k3s container — supervisor hits `http://k8s:<port>`.
