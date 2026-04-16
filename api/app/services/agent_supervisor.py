@@ -23,15 +23,21 @@ async def close_client() -> None:
     await _supervisor.close()
 
 
-async def publish_stream(session_id: str, body: dict) -> dict:
+async def publish_stream(session_id: str, body: dict, user_token: str) -> dict:
     """Ask the supervisor to consume runtime SSE, publish to Redis, assemble
     the final response, and return it.
+
+    The supervisor authenticates `user_token` (OIDC Bearer), extracts the
+    user's `sub`, and pulls per-user credentials (GitHub token, etc.) from
+    Vault — the API no longer touches Vault for runtime credentials.
 
     Returns `{status, reached_runtime, assembled_text?, assembled_blocks?, message?}`.
     """
     resp = await _supervisor.client.post(
         f"/v1/sessions/{session_id}/publish",
-        json=body, timeout=None,
+        json=body,
+        headers={"Authorization": f"Bearer {user_token}"},
+        timeout=None,
     )
     resp.raise_for_status()
     return resp.json()

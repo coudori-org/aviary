@@ -9,6 +9,12 @@ right stream. Abort propagation uses HTTP connection closure:
 
 No direct pod-to-pod routing needed; the Service load-balanced TCP
 connection is pod-pinned for its lifetime.
+
+Auth: `/publish` and `/a2a` require an `Authorization: Bearer <user JWT>`
+header. The supervisor validates the token via OIDC, extracts the `sub`
+claim, and uses it to look up per-user credentials (GitHub token) in
+Vault. Those credentials + the validated identity are injected into the
+runtime request body — callers MUST NOT pass them in the body.
 """
 
 from __future__ import annotations
@@ -20,12 +26,15 @@ import logging
 import time
 
 import httpx
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from app import assembly, metrics, redis_client
+from app.auth.dependencies import extract_bearer_token, get_current_user
+from app.auth.oidc import TokenClaims
 from app.routing import resolve_runtime_base
+from app.services.vault_client import fetch_user_credentials
 
 logger = logging.getLogger(__name__)
 
@@ -94,10 +103,32 @@ async def _watch_disconnect(request: Request) -> None:
         await asyncio.sleep(_DISCONNECT_POLL_SECONDS)
 
 
+async def _enrich_agent_config(body: dict, claims: TokenClaims, user_token: str) -> None:
+    """Inject validated user identity + Vault-sourced credentials into the
+    body's `agent_config` before we forward to the runtime.
+
+    Overwrites any values the caller sent — user_token / user_external_id /
+    credentials are supervisor-authoritative.
+    """
+    agent_config = body.setdefault("agent_config", {})
+    agent_config["user_token"] = user_token
+    agent_config["user_external_id"] = claims.sub
+
+    credentials = await fetch_user_credentials(claims.sub)
+    if credentials:
+        agent_config["credentials"] = credentials
+    else:
+        agent_config.pop("credentials", None)
+
+
 @router.post("/sessions/{session_id}/message")
 async def proxy_session_message(session_id: str, request: Request):
     """Transparent SSE passthrough. Used by workflow / A2A sub-agent paths
-    that do in-process event transformation rather than going through Redis."""
+    that do in-process event transformation rather than going through Redis.
+
+    This endpoint is unauthenticated — it's an internal entry point for the
+    workflow engine, which runs without a user identity. Per-user
+    credentials are NOT injected here."""
     body = await request.json()
     base = resolve_runtime_base(body.get("runtime_endpoint"))
 
@@ -188,7 +219,11 @@ async def _do_publish(
 
 
 @router.post("/sessions/{session_id}/publish")
-async def publish_session_message(session_id: str, request: Request):
+async def publish_session_message(
+    session_id: str,
+    request: Request,
+    claims: TokenClaims = Depends(get_current_user),
+):
     """Consume runtime SSE → Redis (for WS broadcast + replay buffer) → return
     the assembled final message to the caller.
 
@@ -201,6 +236,9 @@ async def publish_session_message(session_id: str, request: Request):
          aborts the SDK.
     """
     body = await request.json()
+    user_token = extract_bearer_token(request)
+    await _enrich_agent_config(body, claims, user_token)
+
     agent_id = (body.get("agent_config") or {}).get("agent_id")
     key = _registry_key(session_id, agent_id)
 
@@ -264,21 +302,28 @@ async def abort_session(session_id: str, body: _AbortBody):
 
 class _A2ABody(BaseModel):
     """Body for an A2A sub-agent invocation, sent by a parent runtime's
-    local A2A MCP server. ACL/auth was already enforced by the API at
-    chat-start when it built the parent's accessible_agents list, so the
-    supervisor does not re-validate."""
+    local A2A MCP server. ACL/auth of the target_agent_id was already
+    enforced by the API at chat-start when it built the parent's
+    accessible_agents list. The supervisor still authenticates the caller
+    via Bearer token so that per-user credentials are injected from Vault
+    for the sub-agent runtime too."""
 
     parent_session_id: str
     parent_tool_use_id: str
     target_agent_id: str
     target_runtime_endpoint: str | None = None
     model_config_data: dict
-    agent_config: dict
+    agent_config: dict = {}
     content_parts: list[dict]
 
 
 @router.post("/sessions/{session_id}/a2a")
-async def a2a_stream(session_id: str, body: _A2ABody, request: Request):
+async def a2a_stream(
+    session_id: str,
+    body: _A2ABody,
+    request: Request,
+    claims: TokenClaims = Depends(get_current_user),
+):
     """Stream a sub-agent's response.
 
     SSE is forwarded verbatim to the caller (parent runtime's A2A server).
@@ -289,6 +334,8 @@ async def a2a_stream(session_id: str, body: _A2ABody, request: Request):
     base = resolve_runtime_base(body.target_runtime_endpoint)
     parent_tool_use_id = body.parent_tool_use_id
 
+    user_token = extract_bearer_token(request)
+
     # Sub-agent runtime body. Always strips accessible_agents (no recursive A2A)
     # and marks is_sub_agent so the runtime applies sub-agent prompt framing.
     sub_agent_config = {
@@ -298,12 +345,13 @@ async def a2a_stream(session_id: str, body: _A2ABody, request: Request):
     }
     sub_agent_config.pop("accessible_agents", None)
 
-    runtime_body = {
+    runtime_body: dict = {
         "session_id": body.parent_session_id,
         "model_config_data": body.model_config_data,
         "agent_config": sub_agent_config,
         "content_parts": body.content_parts,
     }
+    await _enrich_agent_config(runtime_body, claims, user_token)
 
     async def generate():
         try:

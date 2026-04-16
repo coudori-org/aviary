@@ -39,11 +39,10 @@ export interface A2AContext {
   sessionId: string;
   /** Parent agent's model_config — sub-agents inherit unless we add a per-agent override later. */
   modelConfig: Record<string, unknown>;
-  /** Forward to supervisor → sub-agent runtime so its MCP Gateway calls
-   *  carry the same user identity. */
+  /** User JWT — forwarded to the supervisor as `Authorization: Bearer`.
+   *  The supervisor validates it and re-injects identity + per-user
+   *  credentials (GitHub token, etc.) into the sub-agent runtime body. */
   userToken: string | undefined;
-  userExternalId: string | undefined;
-  credentials: Record<string, string> | undefined;
 }
 
 async function callSubAgent(
@@ -60,13 +59,13 @@ async function callSubAgent(
     target_agent_id: agent.agent_id,
     target_runtime_endpoint: agent.runtime_endpoint,
     model_config_data: ctx.modelConfig,
-    agent_config: {
-      ...(ctx.userToken ? { user_token: ctx.userToken } : {}),
-      ...(ctx.userExternalId ? { user_external_id: ctx.userExternalId } : {}),
-      ...(ctx.credentials ? { credentials: ctx.credentials } : {}),
-    },
+    agent_config: {},
     content_parts: [{ text: message }],
   };
+
+  if (!ctx.userToken) {
+    return `Error calling agent @${agent.slug}: missing user token (required for supervisor auth)`;
+  }
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), A2A_TIMEOUT);
@@ -74,7 +73,10 @@ async function callSubAgent(
   try {
     const resp = await fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${ctx.userToken}`,
+      },
       body: JSON.stringify(body),
       signal: controller.signal,
     });

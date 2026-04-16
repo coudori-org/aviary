@@ -12,14 +12,11 @@ import uuid
 
 import base64
 
-import httpx
 from sqlalchemy import select
-
-from aviary_shared.vault import credential_path
 
 from app.db.models import SessionParticipant
 from app.db.session import async_session_factory
-from app.services import agent_supervisor, redis_service, session_service, vault_service
+from app.services import agent_supervisor, redis_service, session_service
 from app.services.stream.blocks import rebuild_blocks_from_chunks
 
 logger = logging.getLogger(__name__)
@@ -35,15 +32,6 @@ def build_mcp_config(legacy_mcp_servers: list) -> dict:
     return config
 
 
-async def fetch_user_credentials(user_external_id: str) -> dict[str, str]:
-    """Fetch GitHub token for sandbox injection. Empty dict if not stored."""
-    secret = await vault_service.read_secret(credential_path(user_external_id, "github-token"))
-    if secret is None:
-        return {}
-    token = secret.get("value")
-    return {"github_token": token} if token else {}
-
-
 async def start_stream(
     session_id: str,
     agent_id: str,
@@ -54,8 +42,7 @@ async def start_stream(
     agent_runtime_endpoint: str | None,
     content: str,
     user_message_id: uuid.UUID,
-    user_token: str = "",
-    user_external_id: str = "",
+    user_token: str,
     accessible_agents: list[dict] | None = None,
     attachments: list[dict] | None = None,
 ) -> None:
@@ -72,7 +59,7 @@ async def start_stream(
             session_id, agent_id,
             agent_model_config, agent_instruction,
             agent_tools, agent_mcp_servers, agent_runtime_endpoint,
-            content, user_message_id, user_token, user_external_id,
+            content, user_message_id, user_token,
             accessible_agents=accessible_agents,
             attachments=attachments,
         )
@@ -142,8 +129,7 @@ async def _run_stream(
     agent_runtime_endpoint: str | None,
     content: str,
     user_message_id: uuid.UUID,
-    user_token: str = "",
-    user_external_id: str = "",
+    user_token: str,
     accessible_agents: list[dict] | None = None,
     attachments: list[dict] | None = None,
 ) -> None:
@@ -166,10 +152,6 @@ async def _run_stream(
         )
         await redis_service.set_stream_status(session_id, "error")
         await redis_service.set_session_status(session_id, "idle")
-
-    credentials: dict[str, str] = {}
-    if user_external_id:
-        credentials = await fetch_user_credentials(user_external_id)
 
     # Build content_parts for runtime: resolve file attachments to base64
     content_part: dict = {}
@@ -203,6 +185,7 @@ async def _run_stream(
     try:
         result = await agent_supervisor.publish_stream(
             session_id=session_id,
+            user_token=user_token,
             body={
                 "runtime_endpoint": agent_runtime_endpoint,
                 "content_parts": content_parts,
@@ -213,9 +196,6 @@ async def _run_stream(
                     "instruction": agent_instruction,
                     "tools": agent_tools,
                     "mcp_servers": build_mcp_config(agent_mcp_servers),
-                    "user_token": user_token,
-                    "user_external_id": user_external_id,
-                    **({"credentials": credentials} if credentials else {}),
                     **({"accessible_agents": accessible_agents} if accessible_agents else {}),
                 },
             },

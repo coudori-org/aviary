@@ -497,7 +497,6 @@ async def websocket_chat(websocket: WebSocket, session_id: uuid.UUID):
                     content=content,
                     user_message_id=user_message_id,
                     user_token=fresh.access_token,
-                    user_external_id=claims.sub,
                     accessible_agents=accessible_agents_list or None,
                     attachments=attachments,
                 )

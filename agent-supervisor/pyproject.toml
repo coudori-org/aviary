@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Aviary Agent Supervisor — K8s gateway service"
 requires-python = ">=3.12"
 dependencies = [
+    "aviary-shared",
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.34.0",
     "httpx>=0.28.0",
@@ -11,6 +12,7 @@ dependencies = [
     "pydantic-settings>=2.7.0",
     "redis>=5.2.0",
     "prometheus-client>=0.20.0",
+    "python-jose[cryptography]>=3.3.0",
 ]
 
 [build-system]

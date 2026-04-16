@@ -13,6 +13,7 @@ from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from starlette.responses import Response
 
 from app import redis_client
+from app.auth.oidc import init_oidc
 from app.config import settings
 from app.routers import agents
 
@@ -22,6 +23,7 @@ logging.basicConfig(level=logging.INFO)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await redis_client.init_redis()
+    await init_oidc()
     agents.start_abort_listener()
     try:
         yield

@@ -12,6 +12,17 @@ class Settings(BaseSettings):
     # Expose /metrics (Prometheus text format).
     metrics_enabled: bool = True
 
+    # OIDC — the supervisor validates the caller's user JWT (Bearer) and
+    # uses the resulting `sub` to look up per-user credentials in Vault.
+    oidc_issuer: str
+    oidc_internal_issuer: str | None = None
+    oidc_audience: str | None = None
+
+    # Vault — per-user credentials (GitHub token, etc.) live at
+    # secret/aviary/credentials/{sub}/{key_name}.
+    vault_addr: str
+    vault_token: str
+
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
 

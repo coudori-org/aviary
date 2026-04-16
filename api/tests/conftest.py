@@ -40,7 +40,7 @@ async def _noop_lifespan(app: FastAPI):
 def _create_test_app() -> FastAPI:
     """Create a FastAPI instance with the same routes but no lifespan."""
     from app.config import settings
-    from app.routers import acl, agents, auth, catalog, credentials, inference, sessions
+    from app.routers import acl, agents, auth, catalog, inference, sessions
     from fastapi.middleware.cors import CORSMiddleware
 
     test_app = FastAPI(title="Aviary API Test", lifespan=_noop_lifespan)
@@ -55,7 +55,6 @@ def _create_test_app() -> FastAPI:
     test_app.include_router(agents.router, prefix="/api/agents", tags=["agents"])
     test_app.include_router(acl.router, prefix="/api/agents", tags=["acl"])
     test_app.include_router(catalog.router, prefix="/api/catalog", tags=["catalog"])
-    test_app.include_router(credentials.router, prefix="/api/agents", tags=["credentials"])
     test_app.include_router(inference.router, prefix="/api/inference", tags=["inference"])
     test_app.include_router(sessions.router, prefix="/api", tags=["sessions"])
 

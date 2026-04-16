@@ -42,14 +42,4 @@ vault token create -id="$DEV_TOKEN" -policy=root -no-default-policy -ttl=0 \
 
 vault secrets enable -version=2 -path=secret kv >/dev/null 2>&1 || true
 
-export VAULT_TOKEN="$DEV_TOKEN"
-seed_secret() {
-  if ! vault kv get "$1" >/dev/null 2>&1; then
-    vault kv put "$1" "$2=$3" >/dev/null
-  fi
-}
-
-seed_secret secret/aviary/agents/test-agent/credentials/GITHUB_TOKEN value ghp_test_12345
-seed_secret secret/aviary/agents/test-agent/credentials/SLACK_TOKEN  value xoxb-test-12345
-
 echo "Vault ready (dev token: $DEV_TOKEN)"

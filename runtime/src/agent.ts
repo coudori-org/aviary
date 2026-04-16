@@ -271,8 +271,6 @@ export async function* processMessage(
       sessionId,
       modelConfig: mc as Record<string, unknown>,
       userToken: agentConfig.user_token,
-      userExternalId: agentConfig.user_external_id,
-      credentials: agentConfig.credentials,
     });
     mcpServers["a2a"] = { type: "http", url: a2aServer.url };
     a2aToolNames.push(...a2aServer.toolNames);

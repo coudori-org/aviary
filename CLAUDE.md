@@ -55,18 +55,18 @@ Agent routing:
 
 Three backend services with distinct roles:
 
-**API Server (`:8000`)** — User-facing. Agent CRUD (config only), OIDC auth, ACL, sessions, chat. Looks up `agent.runtime_endpoint` and forwards it as part of each publish request body. No K8s concepts anywhere in `api/`.
+**API Server (`:8000`)** — User-facing. Agent CRUD (config only), OIDC auth, ACL, sessions, chat. Looks up `agent.runtime_endpoint` and forwards it as part of each publish request body. Passes the user's JWT to the supervisor as an `Authorization: Bearer` header. The API has no Vault client — credential CRUD is admin-only, and runtime credential injection is supervisor-only. No K8s concepts anywhere in `api/`.
 
 **Admin Console (`:8001`)** — Operator-facing. No authentication (local-only). Manages agent config, including the optional `runtime_endpoint` override, plus MCP registration, ACL, users, and Vault credentials. Never talks to K8s or the supervisor — runtime infrastructure is Helm-managed.
 
-**Agent Supervisor (`:9000`, docker compose service)** — Reverse SSE Proxy. Runs outside K8s, same deploy unit as API/Admin. No DB, no K8s API. Holds an **in-memory registry** of active publish tasks keyed by `(session_id, agent_id)`. Receives a publish request (body includes optional `runtime_endpoint` + agent_config), streams SSE from the runtime's Service endpoint, publishes every event to Redis (chunks + pub/sub), assembles the final text + blocks_meta, returns it to the caller. Emits Prometheus metrics at `/metrics`. **Abort** = lookup in the registry and `task.cancel()` — no HTTP forward to runtime needed; closing the outbound httpx stream propagates close through the Service-pinned TCP connection, which fires `req.on("close")` in the runtime pod and aborts the SDK.
+**Agent Supervisor (`:9000`, docker compose service)** — Reverse SSE Proxy. Runs outside K8s, same deploy unit as API/Admin. No DB, no K8s API. Holds an **in-memory registry** of active publish tasks keyed by `(session_id, agent_id)`. `/publish` and `/a2a` require `Authorization: Bearer <user JWT>` — the supervisor validates the token via OIDC and is the **sole owner** of per-user runtime credential lookup: it fetches `github-token` from Vault using the JWT's `sub` and injects `agent_config.credentials` / `user_token` / `user_external_id` into the request body before forwarding to the runtime. Streams SSE from the runtime's Service endpoint, publishes every event to Redis (chunks + pub/sub), assembles the final text + blocks_meta, returns it to the caller. Emits Prometheus metrics at `/metrics`. **Abort** = lookup in the registry and `task.cancel()` — no HTTP forward to runtime needed; closing the outbound httpx stream propagates close through the Service-pinned TCP connection, which fires `req.on("close")` in the runtime pod and aborts the SDK.
 
 **Shared DB package** (`shared/aviary_shared/`) — SQLAlchemy models, migrations, and session factory used by API + Admin. Migrations live at `shared/aviary_shared/db/migrations/` with alembic config at `shared/alembic.ini`.
 
 **Key flows:**
 - Agent creation → API saves config to DB. No infrastructure side effects.
 - Agent routing edit → Admin updates `agent.runtime_endpoint` in DB. Effective on the next chat message.
-- Chat message → WebSocket → API looks up `agent.runtime_endpoint` → `POST supervisor /v1/sessions/{sid}/publish` with body including `runtime_endpoint` and `agent_config` → supervisor streams SSE from `{endpoint}/message`, publishes each event to Redis, assembles final message and returns it → API saves the returned message to DB and publishes the `done` event. WS clients receive live events via independent Redis subscription.
+- Chat message → WebSocket → API looks up `agent.runtime_endpoint` → `POST supervisor /v1/sessions/{sid}/publish` with body including `runtime_endpoint` and `agent_config`, plus `Authorization: Bearer <user JWT>` → supervisor validates the JWT, fetches `github-token` from Vault, injects `credentials`/`user_token`/`user_external_id` into `agent_config`, streams SSE from `{endpoint}/message`, publishes each event to Redis, assembles final message and returns it → API saves the returned message to DB and publishes the `done` event. WS clients receive live events via independent Redis subscription.
 - Agent config edit (instruction, tools, MCP servers) → API updates DB only. Passed to runtime on every message request body.
 
 **Pod Strategy (env-per-pool, (agent, session)-per-workdir):** One Helm release per environment. Replicas fixed (min 1), no scale-to-zero. Every pod serves every agent. Isolation comes from per-(agent, session) on-disk paths plus bubblewrap — the pod itself is agent-agnostic.
@@ -142,7 +142,7 @@ When the SDK invokes `claude`, the wrapper reads `SESSION_WORKSPACE` / `SESSION_
 Other agents' / sessions' files are invisible inside the bwrap view.
 
 ### GitHub Token Injection
-The API server fetches the user's GitHub token from Vault (`secret/aviary/credentials/{sub}/github-token`) on every message and passes it in `agent_config.credentials.github_token`. The runtime injects it as `GITHUB_TOKEN` and `GH_TOKEN` env vars, and configures a git credential helper (`scripts/git-credential-github.sh`) via `GIT_CONFIG_*` env vars. Inside the sandbox, both `git` and `gh` CLI are pre-authenticated.
+The supervisor fetches the user's GitHub token from Vault (`secret/aviary/credentials/{sub}/github-token`) on every `/publish` and `/a2a` call, keyed by the `sub` of the validated Bearer JWT, and injects it as `agent_config.credentials.github_token` into the outbound runtime request. The runtime then exposes it as `GITHUB_TOKEN` and `GH_TOKEN` env vars and configures a git credential helper (`scripts/git-credential-github.sh`) via `GIT_CONFIG_*` env vars. Inside the sandbox, both `git` and `gh` CLI are pre-authenticated. Callers (API, parent runtime) MUST NOT put `credentials` / `user_token` / `user_external_id` in the body — the supervisor overwrites them with the authoritative validated identity.
 
 ### Egress Enforcement
 Baseline NetworkPolicy (`charts/aviary-platform/templates/default-egress.yaml`) is always applied to every agent-runtime pod in the agents namespace. Environments can opt into additional egress rules via `charts/aviary-environment` values (`extraEgress`). K3s enforces NetworkPolicies via bundled kube-router.
@@ -165,10 +165,11 @@ The runtime (`runtime/src/agent.ts`) handles two streaming paths based on backen
 - **Non-Anthropic backends** (Ollama, vLLM): text and thinking come from cumulative assistant snapshots, diffed against `emittedTextLen` / `emittedThinkingLen`. Shorter content = new block from flushing → counter resets.
 
 ### Chat Streaming Pipeline (API ↔ Supervisor ↔ Redis)
-1. `api/app/services/stream/manager.py` reads `agent.runtime_endpoint` and POSTs to `/v1/sessions/{sid}/publish` (blocks until supervisor completes).
-2. Supervisor streams SSE from `{runtime_endpoint}/message`, RPUSHes each event into `session:{id}:stream:chunks` (for replay) and PUBLISHes to `session:{id}:messages` (for live WS), and updates Prometheus counters.
-3. On completion, supervisor rebuilds blocks (`app/assembly.py:rebuild_blocks_from_chunks`) and merges any A2A sub-agent events into `assembled_blocks`, returning `{status, reached_runtime, assembled_text, assembled_blocks}`.
-4. API saves the returned message to DB, then publishes the `done` event with `messageId`. WS clients receive live events via independent Redis subscription.
+1. `api/app/services/stream/manager.py` reads `agent.runtime_endpoint` and POSTs to `/v1/sessions/{sid}/publish` with `Authorization: Bearer <user JWT>` (blocks until supervisor completes).
+2. Supervisor validates the JWT, fetches per-user credentials (`github-token`) from Vault, and injects them + the validated identity into `agent_config` before calling the runtime.
+3. Supervisor streams SSE from `{runtime_endpoint}/message`, RPUSHes each event into `session:{id}:stream:chunks` (for replay) and PUBLISHes to `session:{id}:messages` (for live WS), and updates Prometheus counters.
+4. On completion, supervisor rebuilds blocks (`app/assembly.py:rebuild_blocks_from_chunks`) and merges any A2A sub-agent events into `assembled_blocks`, returning `{status, reached_runtime, assembled_text, assembled_blocks}`.
+5. API saves the returned message to DB, then publishes the `done` event with `messageId`. WS clients receive live events via independent Redis subscription.
 
 Workflow engine and A2A sub-agent paths use the transparent `/v1/sessions/{sid}/message` passthrough because they do in-process event transformation rather than Redis assembly.
 
@@ -255,7 +256,6 @@ docker run --rm -v "$PWD/charts:/charts:ro" alpine/helm:3.14.4 template \
 | `OIDC_INTERNAL_ISSUER` | Internal Keycloak URL (discovery/JWKS fetch) |
 | `DATABASE_URL` | PostgreSQL async connection |
 | `REDIS_URL` | Redis for pub/sub, caching, presence |
-| `VAULT_ADDR` / `VAULT_TOKEN` | Vault connection |
 | `AGENT_SUPERVISOR_URL` | Agent Supervisor URL (default: `http://localhost:9000`) |
 | `LITELLM_URL` | LiteLLM gateway URL (default: `http://litellm:4000`) |
 | `LITELLM_API_KEY` | LiteLLM master key (default: `sk-aviary-dev`) |
@@ -281,6 +281,9 @@ docker run --rm -v "$PWD/charts:/charts:ro" alpine/helm:3.14.4 template \
 | `REDIS_URL` | Redis DSN for publishing agent stream events (default: `redis://redis:6379/0`) |
 | `SUPERVISOR_DEFAULT_RUNTIME_ENDPOINT` | Fallback endpoint used when a caller passes `runtime_endpoint=null` |
 | `METRICS_ENABLED` | Toggle Prometheus `/metrics` (default: true) |
+| `OIDC_ISSUER` | Public Keycloak URL (Bearer token `iss` validation on `/publish` and `/a2a`) |
+| `OIDC_INTERNAL_ISSUER` | Internal Keycloak URL (JWKS fetch) |
+| `VAULT_ADDR` / `VAULT_TOKEN` | Vault connection for per-user credential lookup (keyed by JWT `sub`) |
 
 ## Key Environment Variables (LiteLLM Gateway)
 
