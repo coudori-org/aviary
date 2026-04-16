@@ -38,11 +38,11 @@ Platform (docker compose — same deploy unit as api/admin):
 
 K8s cluster (Helm-managed; the only thing in K3s/EKS):
   charts/aviary-platform — namespaces, baseline egress NP,
-    external-services proxy Services (dev only), image-warmer DaemonSet (optional)
+    external-services proxy Services (dev only), image-warmer DaemonSet
+    (optional), shared RWX workspace PVC (mounted by every env)
   charts/aviary-environment — one release per runtime environment:
     Deployment (replicas fixed, min 1) — pool serves every agent
     Service (NodePort in dev → supervisor hits k8s:<port>; ClusterIP in prod)
-    PVC (RWX — hostPath in dev / EFS in prod)
     optional per-env NetworkPolicy (union with baseline)
 
 Agent routing:
@@ -71,14 +71,14 @@ Three backend services with distinct roles:
 
 **Admin Console (`:8001`)** — Operator-facing. No authentication (local-only). Manages agent / workflow / MCP server definitions and per-user Vault credentials (github-token, anthropic-api-key, …). Runtime infrastructure is Helm-managed — admin never talks to K8s or the supervisor.
 
-**Agent Supervisor (`:9000`, docker compose service)** — Reverse SSE Proxy. Runs outside K8s, same deploy unit as API/Admin. No DB, no K8s API. Holds an **in-memory registry** of active stream tasks keyed by **stream_id** (one per `/message` call). `/sessions/{sid}/message` and `/sessions/{sid}/a2a` require `Authorization: Bearer <user JWT>` — the supervisor validates the token via OIDC and owns per-user runtime credential lookup: it fetches `github-token` from Vault using the JWT's `sub` and injects `agent_config.credentials` / `user_token` / `user_external_id` into the request body before forwarding to the runtime. Streams SSE from the runtime's Service endpoint, publishes every stream event (tagged with stream_id) to `session:{sid}:events`, buffers chunks under `stream:{stream_id}:chunks` for replay, assembles the final text + blocks, returns them to the caller — the API then persists the message and publishes the terminal `done`/`cancelled` event with the DB messageId. Emits Prometheus metrics at `/metrics`. **Abort** = `POST /v1/streams/{stream_id}/abort` → cancel the task; closing the outbound httpx stream propagates close through the Service-pinned TCP connection, which fires `req.on("close")` in the runtime pod and aborts the SDK.
+**Agent Supervisor (`:9000`, docker compose service)** — Reverse SSE Proxy. Runs outside K8s, same deploy unit as API/Admin. No DB, no K8s API. Holds an **in-memory registry** of active stream tasks keyed by **stream_id** (one per `/message` call). `/sessions/{sid}/message` and `/sessions/{sid}/a2a` require `Authorization: Bearer <user JWT>` — the supervisor validates the token via OIDC and owns per-user runtime credential lookup: it fetches `github-token` from Vault using the JWT's `sub` and injects `agent_config.credentials` / `user_token` / `user_external_id` into the request body before forwarding to the runtime. On each `/message` it allocates a `stream_id` and immediately publishes `stream_started {stream_id}` to `session:{sid}:events` — that's the frontend's confirmation signal for enabling the abort button. Streams SSE from the runtime's Service endpoint, publishes every stream event (tagged with stream_id) to `session:{sid}:events`, buffers chunks under `stream:{stream_id}:chunks` for replay, assembles the final text + blocks, returns them to the caller — the API then persists the message and publishes the terminal `done`/`cancelled` event with the DB messageId. Emits Prometheus metrics at `/metrics`. **Abort** = `POST /v1/streams/{stream_id}/abort` → cancel the task; closing the outbound httpx stream propagates close through the Service-pinned TCP connection, which fires `res.on("close")` in the runtime pod and aborts the SDK.
 
 **Shared DB package** (`shared/aviary_shared/`) — SQLAlchemy models, migrations, and session factory used by API + Admin. Migrations live at `shared/aviary_shared/db/migrations/` with alembic config at `shared/alembic.ini`.
 
 **Key flows:**
 - Agent creation → API saves config to DB. No infrastructure side effects.
 - Agent routing edit → Admin updates `agent.runtime_endpoint` in DB. Effective on the next chat message.
-- Chat message → WebSocket → API saves the user message to DB and publishes `user_message {messageId}` to `session:{sid}:events`, builds the full `agent_config` (runtime_endpoint, model_config, instruction, tools, mcp_servers, optional accessible_agents), POSTs `supervisor /v1/sessions/{sid}/message` with `Authorization: Bearer <user JWT>` → supervisor allocates a stream_id, validates the JWT, fetches Vault credentials, injects them into `agent_config`, streams SSE from `{endpoint}/message`, publishes every stream event to `session:{sid}:events` and buffers under `stream:{stream_id}:chunks`, assembles final text + blocks, returns them → API persists the agent message to DB, publishes `done {messageId}` (or `cancelled {messageId}` when the supervisor returned `status=aborted`), and INCRs `session:{sid}:unread:{uid}` for every session participant. Any WS actively relaying the terminal event clears its own user's unread counter on the same transition.
+- Chat message → WebSocket → API saves the user message to DB and publishes `user_message {messageId}` to `session:{sid}:events`, builds the full `agent_config` (runtime_endpoint, model_config, instruction, tools, mcp_servers, optional accessible_agents), POSTs `supervisor /v1/sessions/{sid}/message` with `Authorization: Bearer <user JWT>` → supervisor allocates a stream_id, publishes `stream_started {stream_id}` so the client can enable the abort button, validates the JWT, fetches Vault credentials, injects them into `agent_config`, streams SSE from `{endpoint}/message`, publishes every stream event to `session:{sid}:events` and buffers under `stream:{stream_id}:chunks`, assembles final text + blocks, returns them → API persists the agent message to DB, publishes `done {messageId}` (or `cancelled {messageId}` when the supervisor returned `status=aborted`), and INCRs `session:{sid}:unread:{uid}` for every session participant. Any WS actively relaying the terminal event clears its own user's unread counter on the same transition.
 - Agent config edit (instruction, tools, MCP servers) → API updates DB only. Passed to runtime on every message request body.
 
 **Pod Strategy (env-per-pool, (agent, session)-per-workdir):** One Helm release per environment. Replicas fixed (min 1), no scale-to-zero. Every pod serves every agent. Isolation comes from per-(agent, session) on-disk paths plus bubblewrap — the pod itself is agent-agnostic.
@@ -120,24 +120,29 @@ The supervisor is a docker-compose service (same deploy path as API/Admin), not 
 The TCP connection from supervisor to a runtime pod is pinned once established (kube-proxy load-balances at connect time, not per-request). So **cancelling the supervisor's outbound httpx stream is sufficient** to abort the specific pod handling it:
 
 ```
-WS disconnect / explicit abort
+Frontend Stop button (knows stream_id from `stream_started` event)
+  → WS {type: "cancel", stream_id}
   → API POST /v1/streams/{stream_id}/abort
   → supervisor._active[stream_id].cancel()
-  → httpx client context exits → TCP close → pod's req.on("close") → abortController.abort()
+  → httpx client context exits → TCP close → pod's res.on("close") → abortController.abort()
 ```
+
+Two subtle points the original design got wrong and had to be fixed:
+1. **`res.on("close")`, not `req.on("close")`.** Node/Express's `req.on("close")` doesn't fire for in-flight streaming responses — a previous version missed every abort because of this.
+2. **Client-driven `stream_id`.** The server doesn't remember "which stream is active for this session" — the frontend learns `stream_id` from the `stream_started` broadcast and sends it back on cancel. That's what unlocks per-user targeting when multi-participant sessions return.
 
 **Multi-replica** is handled by a supervisor-only Redis fan-out: if `/abort` lands on a replica that doesn't hold the task, it publishes to the `supervisor:abort` channel with the `stream_id` and whichever replica holds it cancels. Runtime has no knowledge of this and no Redis connectivity.
 
 ### claude-agent-sdk Multi-Turn (TypeScript)
-Uses the `query()` function from `@anthropic-ai/claude-agent-sdk`. TS SDK doesn't expose a `sessionId` option — Aviary session_id is injected via `extraArgs: { "session-id": sessionId }` which passes `--session-id <uuid>` to the CLI on the first message. Subsequent messages use `resume: sessionId` to load existing conversation history. Resume is determined by checking for existing JSONL in `<claudeDir>/projects/`. CLI session data persists on the environment PVC under `sessions/{sid}/agents/{aid}/.claude`. Runtime is a Node.js/Express server (`src/server.ts`). Agent config (instruction, tools, MCP servers) is sent in every message request body — no ConfigMap or on-disk config. `agent_id` arrives in `agent_config.agent_id`.
+Uses the `query()` function from `@anthropic-ai/claude-agent-sdk`. TS SDK doesn't expose a `sessionId` option — Aviary session_id is injected via `extraArgs: { "session-id": sessionId }` which passes `--session-id <uuid>` to the CLI on the first message. Subsequent messages use `resume: sessionId` to load existing conversation history. Resume is determined by checking for existing JSONL in `<claudeDir>/projects/`. CLI session data persists on the **shared workspace PVC** under `sessions/{sid}/agents/{aid}/.claude` — so a session can migrate between environments (e.g., admin swaps `agent.runtime_endpoint`) without losing its history. Runtime is a Node.js/Express server (`src/server.ts`). Agent config (instruction, tools, MCP servers) is sent in every message request body — no ConfigMap or on-disk config. `agent_id` arrives in `agent_config.agent_id`.
 
 ### Multi-Agent, Multi-Session Runtime
 Each runtime Pod serves every agent. The SessionManager keys entries by `(session_id, agent_id)` and serializes messages per-key. There is **no hard concurrency cap** — the runtime accepts every request; scaling is handled at the infra level (add more pods / environments via Helm).
 
-### Session Isolation (bubblewrap + single PVC)
+### Session Isolation (bubblewrap + shared PVC)
 The `claude` binary in PATH is a wrapper script (`scripts/claude-sandbox.sh`). The real binary is renamed to `claude-real` at build time (see Dockerfile). SDK must use `pathToClaudeCodeExecutable: "/usr/local/bin/claude"` to bypass the bundled binary and use the wrapper.
 
-The environment's single RWX PVC is mounted at `/workspace-root` in every pod. Inside it:
+The cluster-wide shared RWX PVC (`aviary-shared-workspace`, owned by `aviary-platform`) is mounted at `/workspace-root` in every runtime pod, across every environment. Inside it:
 
 ```
 /workspace-root/sessions/{sid}/shared/                 # shared across agents in the session
@@ -156,7 +161,7 @@ When the SDK invokes `claude`, the wrapper reads `SESSION_WORKSPACE` / `SESSION_
 Other agents' / sessions' files are invisible inside the bwrap view.
 
 ### GitHub Token Injection
-The supervisor fetches the user's GitHub token from Vault (`secret/aviary/credentials/{sub}/github-token`) on every `/publish` and `/a2a` call, keyed by the `sub` of the validated Bearer JWT, and injects it as `agent_config.credentials.github_token` into the outbound runtime request. The runtime then exposes it as `GITHUB_TOKEN` and `GH_TOKEN` env vars and configures a git credential helper (`scripts/git-credential-github.sh`) via `GIT_CONFIG_*` env vars. Inside the sandbox, both `git` and `gh` CLI are pre-authenticated. Callers (API, parent runtime) MUST NOT put `credentials` / `user_token` / `user_external_id` in the body — the supervisor overwrites them with the authoritative validated identity.
+The supervisor fetches the user's GitHub token from Vault (`secret/aviary/credentials/{sub}/github-token`) on every `/message` and `/a2a` call, keyed by the `sub` of the validated Bearer JWT, and injects it as `agent_config.credentials.github_token` into the outbound runtime request. The runtime exposes it as `GITHUB_TOKEN` / `GH_TOKEN` env vars and configures a git credential helper (`scripts/git-credential-github.sh`) via `GIT_CONFIG_*` env vars. Inside the sandbox `git` is pre-authenticated on every env; `gh` CLI is only present in the `aviary-runtime-custom` image (runtime/Dockerfile.custom) that the `custom` env uses. Callers (API, parent runtime) MUST NOT put `credentials` / `user_token` / `user_external_id` in the body — the supervisor overwrites them with the authoritative validated identity.
 
 ### Egress Enforcement
 Baseline NetworkPolicy (`charts/aviary-platform/templates/default-egress.yaml`) is always applied to every agent-runtime pod in the agents namespace. Environments can opt into additional egress rules via `charts/aviary-environment` values (`extraEgress`). K3s enforces NetworkPolicies via bundled kube-router.
@@ -197,7 +202,13 @@ All K8s custom images use `imagePullPolicy: Never`. Loaded via `docker save | do
 `--node-name=aviary-node` in docker-compose.yml prevents stale node accumulation on container restart.
 
 ### PVC Strategy
-One PVC per runtime environment (`aviary-env-<name>-workspace`). In dev the backing is a hostPath via K3s `local-path` on a docker volume (`k8sdata`); in prod it's an EFS volume with `efs-sc` storageClass and `ReadWriteMany`. The Helm values flip these (`pvc.storageClassName`, `pvc.accessMode`). Contents are keyed by `sessions/{sid}/…` so recreating an environment from scratch is explicit.
+One **shared RWX** PVC (`aviary-shared-workspace`) provisioned by `aviary-platform`, mounted by every runtime environment. Environments are capability boundaries (image + egress); data boundaries are `(agent_id, session_id)` on-disk paths. A session's Claude CLI history, shared files, and per-(agent, session) venv live under `sessions/{sid}/…` on this one PVC — so swapping `agent.runtime_endpoint` mid-session keeps the conversation intact.
+
+Backing differs per env:
+- **Dev**: static hostPath PV (path set by `sharedWorkspace.hostPath` in platform values-dev.yaml) + `storageClassName: manual`. K3s's bundled `local-path` provisioner hard-codes RWO, so we bypass it with a pre-declared PV that advertises RWX. Single-node K3s handles multi-pod RWX access fine.
+- **Prod**: dynamic provisioning via EFS (`storageClassName: efs-sc`). No static PV needed — the CSI driver creates one on PVC bind.
+
+`charts/aviary-environment` has no PVC template; the Deployment references `.Values.pvc.claimName` (default `aviary-shared-workspace`).
 
 ### React Strict Mode
 Use `useRef` guards for WebSocket connections and OIDC callbacks to prevent duplicate execution in dev mode.
