@@ -12,14 +12,6 @@
     <h2 style="font-size: 18px; font-weight: 600;">{{ workflow.name }}</h2>
     <p class="text-sm text-muted">{{ workflow.slug }} · {{ workflow.description or 'No description' }}</p>
   </div>
-  <div class="btn-group" id="action-buttons">
-    {% if deployment.active %}
-    <button class="btn btn-sm btn-danger" onclick="wfAction('deactivate')">Deactivate</button>
-    <button class="btn btn-sm" onclick="wfAction('restart')">Restart</button>
-    {% else %}
-    <button class="btn btn-sm btn-primary" onclick="wfAction('activate')">Activate</button>
-    {% endif %}
-  </div>
 </div>
 
 <div class="form-row mb-4">
@@ -28,124 +20,24 @@
     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 13px;">
       <span class="text-muted">Workflow Status</span>
       <span class="badge badge-{{ workflow.status }}">{{ workflow.status }}</span>
-      <span class="text-muted">Deployment</span>
-      <span id="deployment-badge">
-      {% if deployment.state == 'active' %}
-        <span class="badge badge-ready">active ({{ deployment.ready_replicas }}/{{ deployment.replicas }})</span>
-      {% elif deployment.state == 'unknown' %}
-        <span class="badge badge-warning">unknown</span>
-      {% else %}
-        <span class="badge badge-offline">inactive</span>
-      {% endif %}
-      </span>
       <span class="text-muted">Nodes</span>
       <span>{{ workflow.definition.nodes | length if workflow.definition and workflow.definition.nodes else 0 }}</span>
       <span class="text-muted">Created</span>
       <span>{{ workflow.created_at.strftime('%Y-%m-%d %H:%M') }}</span>
     </div>
   </div>
-  <div class="card">
-    <div class="card-header"><h3>Scaling</h3></div>
-    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 13px;">
-      <span class="text-muted">Min Pods</span>
-      <span>{{ policy_obj.min_pods if policy_obj else 0 }}</span>
-      <span class="text-muted">Max Pods</span>
-      <span>{{ policy_obj.max_pods if policy_obj else 3 }}</span>
-    </div>
-  </div>
 </div>
-
-<!-- Policy Form -->
-<form method="POST" action="/workflows/{{ workflow.id }}/policy" onsubmit="return submitForm(this, 'Policy saved')">
-  <div class="card">
-    <div class="card-header"><h2>Infrastructure Policy</h2></div>
-
-    <div class="section-title">Scaling</div>
-    <div class="form-row">
-      <div class="form-group">
-        <label>Min Pods</label>
-        <input type="number" name="min_pods" value="{{ policy_obj.min_pods if policy_obj else 0 }}" min="0" max="20">
-        <small class="text-muted">0 = scale-to-zero when idle (KEDA handles 0↔N).</small>
-      </div>
-      <div class="form-group">
-        <label>Max Pods</label>
-        <input type="number" name="max_pods" value="{{ policy_obj.max_pods if policy_obj else 3 }}" min="1" max="20">
-      </div>
-    </div>
-
-    <div class="section-title">Resource Limits</div>
-    <div class="form-row">
-      <div class="form-group">
-        <label>CPU limit (per pod)</label>
-        <input name="max_cpu" value="{{ policy.maxCpuPerSession | default('4') }}">
-      </div>
-      <div class="form-group">
-        <label>Memory limit (per pod)</label>
-        <input name="max_memory" value="{{ policy.maxMemoryPerSession | default('4Gi') }}">
-      </div>
-    </div>
-
-    <div class="mt-4">
-      <button type="submit" class="btn btn-primary">Save Policy</button>
-    </div>
-  </div>
-</form>
 
 <!-- Danger zone -->
 <div class="card" style="border-color: rgba(239,68,68,0.3);">
   <div class="card-header"><h2 style="color: var(--danger);">Danger Zone</h2></div>
   <div class="flex items-center justify-between">
     <div>
-      <p class="text-sm">Permanently delete this workflow and all its resources.</p>
+      <p class="text-sm">Permanently delete this workflow.</p>
     </div>
     <form method="POST" action="/workflows/{{ workflow.id }}/delete" onsubmit="return confirm('Delete this workflow? This cannot be undone.')">
       <button type="submit" class="btn btn-danger">Delete Workflow</button>
     </form>
   </div>
 </div>
-{% endblock %}
-
-{% block scripts %}
-<script>
-const WF_ID = '{{ workflow.id }}';
-
-async function wfAction(action) {
-  const labels = { activate: 'Activating...', deactivate: 'Deactivating...', restart: 'Restarting...' };
-  const btns = document.getElementById('action-buttons');
-  btns.innerHTML = `<button class="btn btn-sm" disabled style="opacity:0.6">${labels[action]}</button>`;
-  try {
-    const resp = await fetch(`/api/workflows/${WF_ID}/${action}`, { method: 'POST', headers: { 'Content-Type': 'application/json' } });
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    if (action === 'activate') {
-      for (let i = 0; i < 45; i++) { await new Promise(r => setTimeout(r, 2000)); const s = await checkDep(); if (s.ready > 0) break; }
-    } else if (action === 'deactivate') {
-      for (let i = 0; i < 15; i++) { await new Promise(r => setTimeout(r, 2000)); const s = await checkDep(); if (s.ready === 0) break; }
-    }
-  } catch (e) { console.error(e); }
-  location.reload();
-}
-
-async function checkDep() {
-  try {
-    const resp = await fetch(`/api/workflows/${WF_ID}/deployment`);
-    return await resp.json();
-  } catch { return { ready: 0 }; }
-}
-
-function submitForm(form, successMsg) {
-  const btn = form.querySelector('button[type="submit"]');
-  const origText = btn.textContent;
-  btn.disabled = true;
-  btn.textContent = 'Saving...';
-  fetch(form.action, { method: 'POST', body: new FormData(form), redirect: 'manual' })
-    .then(resp => {
-      if (resp.ok || resp.type === 'opaqueredirect' || resp.status === 303) {
-        location.reload();
-      }
-    })
-    .catch(() => {})
-    .finally(() => { btn.disabled = false; btn.textContent = origText; });
-  return false;
-}
-</script>
 {% endblock %}

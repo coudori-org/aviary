@@ -1,0 +1,73 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "aviary-environment.fullname" . }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "aviary-environment.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicas }}
+  selector:
+    matchLabels:
+      {{- include "aviary-environment.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "aviary-environment.labels" . | nindent 8 }}
+    spec:
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      {{- if .Values.hostGatewayIP }}
+      hostAliases:
+        - ip: {{ .Values.hostGatewayIP | quote }}
+          hostnames: ["host.k8s.internal"]
+      {{- end }}
+      initContainers:
+        - name: fix-workspace-perms
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext: { runAsUser: 0, runAsGroup: 0 }
+          command: ["chown", "-R", "1000:1000", {{ .Values.pvc.mountPath | quote }}]
+          volumeMounts:
+            - name: workspace
+              mountPath: {{ .Values.pvc.mountPath }}
+          resources:
+            requests: { cpu: 10m, memory: 16Mi }
+            limits:   { cpu: 100m, memory: 64Mi }
+      containers:
+        - name: agent-runtime
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - containerPort: {{ .Values.runtime.port }}
+          env:
+            - name: INFERENCE_ROUTER_URL
+              value: {{ .Values.runtime.inferenceRouterURL | quote }}
+            - name: MCP_GATEWAY_URL
+              value: {{ .Values.runtime.mcpGatewayURL | quote }}
+            - name: LITELLM_API_KEY
+              value: {{ .Values.runtime.litellmAPIKey | quote }}
+            - name: AVIARY_API_URL
+              value: {{ .Values.runtime.aviaryAPIURL | quote }}
+            - name: AVIARY_INTERNAL_API_KEY
+              value: {{ .Values.runtime.internalAPIKey | quote }}
+            - name: AVIARY_SUPERVISOR_URL
+              value: {{ .Values.runtime.supervisorURL | quote }}
+            - name: HOME
+              value: "/tmp"
+          volumeMounts:
+            - name: workspace
+              mountPath: {{ .Values.pvc.mountPath }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          livenessProbe:
+            {{- toYaml .Values.livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.readinessProbe | nindent 12 }}
+      volumes:
+        - name: workspace
+          persistentVolumeClaim:
+            claimName: {{ .Values.pvc.claimName }}

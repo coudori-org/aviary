@@ -2,16 +2,18 @@
  * Agent-to-Agent (A2A) calling tools.
  *
  * Runs a lightweight HTTP MCP server (JSON-RPC over HTTP POST) that exposes
- * one tool per accessible agent. Each tool calls the API server's A2A endpoint
- * which handles auth, ACL, agent provisioning, and dual-streams the response
- * (SSE to caller + Redis pub/sub to frontend).
+ * one tool per accessible agent. The API server pre-resolves accessible
+ * agents (with ACL) at chat-start and hands the runtime a trusted list
+ * containing each sub-agent's `agent_id` + `runtime_endpoint`. Each A2A
+ * tool POSTs straight to the supervisor's `/v1/sessions/{sid}/a2a` endpoint,
+ * which streams the sub-agent SSE back and tags tool events into the parent
+ * session's Redis buffer. The runtime never re-validates auth/ACL.
  */
 
 import * as http from "node:http";
 import * as crypto from "node:crypto";
 
-const API_URL = process.env.AVIARY_API_URL;
-const INTERNAL_API_KEY = process.env.AVIARY_INTERNAL_API_KEY;
+const SUPERVISOR_URL = process.env.AVIARY_SUPERVISOR_URL;
 const A2A_TIMEOUT = parseInt(process.env.A2A_CALL_TIMEOUT_SECONDS ?? "1800", 10) * 1000;
 
 const SUB_AGENT_PREFIX = `[SUB-AGENT MODE]
@@ -25,37 +27,60 @@ Guidelines:
 
 `;
 
+/**
+ * Full sub-agent spec as it arrives in the parent's agent_config.
+ * Mirrors the server-side `agent_config` contract: every field the
+ * sub-agent runtime needs to execute is here, so the parent's A2A server
+ * can forward it to the supervisor unchanged.
+ */
 export interface AccessibleAgent {
+  agent_id: string;
   slug: string;
   name: string;
   description: string | null;
+  runtime_endpoint: string | null;
+  model_config: Record<string, unknown>;
+  instruction: string;
+  tools: string[];
+  mcp_servers: Record<string, unknown>;
 }
 
 export interface A2AContext {
   sessionId: string;
-  userExternalId: string;
+  /** User JWT — forwarded to the supervisor as `Authorization: Bearer`.
+   *  The supervisor validates it and injects identity + per-user Vault
+   *  credentials into the sub-agent runtime body. */
+  userToken: string | undefined;
 }
 
-/**
- * Call the sub-agent via the API server's A2A endpoint.
- * The API handles auth, ACL, provisioning, and dual-streams to frontend via Redis.
- */
 async function callSubAgent(
   agent: AccessibleAgent,
   message: string,
   ctx: A2AContext,
   parentToolUseId: string,
 ): Promise<string> {
-  // API_URL/INTERNAL_API_KEY are validated at startA2AServer; reaching here without
-  // them means the runtime was misconfigured.
-  const url = `${API_URL}/a2a/${agent.slug}/message`;
+  const url = `${SUPERVISOR_URL}/v1/sessions/${ctx.sessionId}/a2a`;
 
   const body = {
-    content: message,
-    session_id: ctx.sessionId,
+    parent_session_id: ctx.sessionId,
     parent_tool_use_id: parentToolUseId,
-    user_external_id: ctx.userExternalId,
+    agent_config: {
+      agent_id: agent.agent_id,
+      slug: agent.slug,
+      name: agent.name,
+      description: agent.description,
+      runtime_endpoint: agent.runtime_endpoint,
+      model_config: agent.model_config,
+      instruction: agent.instruction,
+      tools: agent.tools,
+      mcp_servers: agent.mcp_servers,
+    },
+    content_parts: [{ text: message }],
   };
+
+  if (!ctx.userToken) {
+    return `Error calling agent @${agent.slug}: missing user token (required for supervisor auth)`;
+  }
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), A2A_TIMEOUT);
@@ -65,7 +90,7 @@ async function callSubAgent(
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "X-Internal-Key": INTERNAL_API_KEY!,
+        Authorization: `Bearer ${ctx.userToken}`,
       },
       body: JSON.stringify(body),
       signal: controller.signal,
@@ -77,7 +102,6 @@ async function callSubAgent(
       return `Error calling agent @${agent.slug}: HTTP ${resp.status} — ${errText}`;
     }
 
-    // Parse SSE stream and collect text chunks
     let result = "";
     const reader = resp.body?.getReader();
     if (!reader) return "Error: No response stream";
@@ -133,7 +157,6 @@ function buildToolDefinitions(
 ): McpTool[] {
   return agents.map((agent) => {
     const toolName = `ask_${agent.slug}`;
-    // Pre-create queue for this tool
     toolUseIdQueues.set(toolName, []);
     return {
       name: toolName,
@@ -147,10 +170,6 @@ function buildToolDefinitions(
       },
       handler: async (args: Record<string, unknown>) => {
         const fullMessage = SUB_AGENT_PREFIX + String(args.message ?? "");
-        // Dequeue the tool_use_id enqueued by PreToolUse hook.
-        // PreToolUse fires before tools/call, guaranteed by SDK lifecycle.
-        // Keyed by tool name so parallel calls to different agents are safe.
-        // Same-agent parallel calls are ordered because PreToolUse fires sequentially.
         const queue = toolUseIdQueues.get(toolName);
         const parentToolUseId = queue?.shift() || `a2a_${crypto.randomUUID()}`;
         const result = await callSubAgent(agent, fullMessage, ctx, parentToolUseId);
@@ -197,7 +216,6 @@ function handleJsonRpc(
   }
 
   if (method === "tools/call") {
-    // Handled separately via SSE to send progress notifications
     return Promise.resolve({ __stream_tool_call: true, id, params } as any);
   }
 
@@ -216,22 +234,15 @@ export interface A2AServer {
   enqueueToolUseId: (mcpToolName: string, id: string) => void;
 }
 
-/**
- * Start a local HTTP MCP server and return its URL.
- * The server lives for the duration of one processMessage call.
- */
 export async function startA2AServer(
   agents: AccessibleAgent[],
   ctx: A2AContext,
 ): Promise<A2AServer> {
-  if (!API_URL || !INTERNAL_API_KEY) {
+  if (!SUPERVISOR_URL) {
     throw new Error(
-      "AVIARY_API_URL and AVIARY_INTERNAL_API_KEY must be set when accessible_agents is provided",
+      "AVIARY_SUPERVISOR_URL must be set when accessible_agents is provided",
     );
   }
-  // Per-tool FIFO queues of tool_use_ids, populated by PreToolUse hook (agent.ts).
-  // SDK guarantees PreToolUse fires before tools/call, so the queue always has
-  // an entry when the handler runs. Keyed by tool name for parallel safety.
   const toolUseIdQueues = new Map<string, string[]>();
 
   const tools = buildToolDefinitions(agents, ctx, toolUseIdQueues);
@@ -246,7 +257,6 @@ export async function startA2AServer(
         const parsed = JSON.parse(body);
         const response = await handleJsonRpc(tools, parsed);
 
-        // tools/call: respond via SSE with periodic progress to prevent MCP 60s timeout
         if (response && (response as any).__stream_tool_call) {
           const { id, params: rpcParams } = response as any;
           const toolName = rpcParams?.name as string;
@@ -266,7 +276,6 @@ export async function startA2AServer(
             return;
           }
 
-          // Send progress notifications every 30s while tool executes
           let progress = 0;
           const progressInterval = progressToken ? setInterval(() => {
             progress++;
@@ -319,8 +328,6 @@ export async function startA2AServer(
     close: () => server.close(),
     toolNames,
     enqueueToolUseId: (mcpToolName: string, id: string) => {
-      // mcpToolName is the MCP-qualified name like "mcp__a2a__ask_slug",
-      // strip prefix to get the local tool name "ask_slug"
       const localName = mcpToolName.replace("mcp__a2a__", "");
       const queue = toolUseIdQueues.get(localName);
       if (queue) queue.push(id);

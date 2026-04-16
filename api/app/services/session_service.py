@@ -1,43 +1,22 @@
-"""Session business logic: CRUD and agent readiness."""
+"""Session CRUD — owner-only (multi-user participants will return under RBAC)."""
 
 import logging
 import uuid
-
 from datetime import datetime, timezone
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Agent, Message, Session, SessionParticipant, User
+from app.db.models import Agent, Message, Session, User
 from app.services import agent_supervisor, redis_service
 
 logger = logging.getLogger(__name__)
 
 
-async def create_session(
-    db: AsyncSession,
-    user: User,
-    agent: Agent,
-    session_type: str = "private",
-    team_id: uuid.UUID | None = None,
-) -> Session:
-    """Create a new chat session."""
-    session = Session(
-        agent_id=agent.id,
-        type=session_type,
-        created_by=user.id,
-        team_id=team_id,
-    )
+async def create_session(db: AsyncSession, user: User, agent: Agent) -> Session:
+    session = Session(agent_id=agent.id, created_by=user.id)
     db.add(session)
     await db.flush()
-
-    participant = SessionParticipant(
-        session_id=session.id,
-        user_id=user.id,
-    )
-    db.add(participant)
-    await db.flush()
-
     return session
 
 
@@ -49,7 +28,6 @@ async def get_session(db: AsyncSession, session_id: uuid.UUID) -> Session | None
 async def get_session_titles(
     db: AsyncSession, session_ids: list[uuid.UUID]
 ) -> dict[str, str | None]:
-    """Batch fetch titles for multiple sessions."""
     if not session_ids:
         return {}
     result = await db.execute(
@@ -58,17 +36,28 @@ async def get_session_titles(
     return {str(row[0]): row[1] for row in result.all()}
 
 
+async def get_session_participants(
+    db: AsyncSession, session_id: uuid.UUID,
+) -> list[str]:
+    """Return the list of user_ids that should receive events for a session.
+
+    Currently just the session creator — kept behind a helper so that when
+    multi-user sessions return the broadcast/unread paths don't change."""
+    session = await get_session(db, session_id)
+    if session is None:
+        return []
+    return [str(session.created_by)]
+
+
 async def list_sessions_for_agent(
     db: AsyncSession, user: User, agent_id: uuid.UUID
 ) -> list[Session]:
-    """List sessions for an agent that the user can access."""
     result = await db.execute(
         select(Session)
-        .join(SessionParticipant, SessionParticipant.session_id == Session.id)
         .where(
             Session.agent_id == agent_id,
             Session.status == "active",
-            SessionParticipant.user_id == user.id,
+            Session.created_by == user.id,
         )
         .order_by(Session.created_at.desc())
     )
@@ -81,15 +70,6 @@ async def get_session_messages(
     limit: int = 50,
     before: datetime | None = None,
 ) -> tuple[list[Message], bool]:
-    """Fetch a page of messages, newest-first-paginated but returned ascending.
-
-    - Without `before`: returns the most recent `limit` messages.
-    - With `before`: returns `limit` messages older than the given timestamp.
-
-    Returns `(messages, has_more)` where `has_more` is True if at least one
-    additional older message exists beyond the returned page. Implemented
-    with a `limit + 1` fetch trick to avoid a separate count query.
-    """
     stmt = select(Message).where(Message.session_id == session_id)
     if before is not None:
         stmt = stmt.where(Message.created_at < before)
@@ -98,7 +78,7 @@ async def get_session_messages(
     rows = list(result.scalars().all())
     has_more = len(rows) > limit
     rows = rows[:limit]
-    rows.reverse()  # Return ascending for display
+    rows.reverse()
     return rows, has_more
 
 
@@ -110,7 +90,6 @@ async def save_message(
     sender_id: uuid.UUID | None = None,
     metadata: dict | None = None,
 ) -> Message:
-    """Save a message and update session timestamp."""
     msg = Message(
         session_id=session_id,
         sender_type=sender_type,
@@ -120,8 +99,7 @@ async def save_message(
     )
     db.add(msg)
 
-    result = await db.execute(select(Session).where(Session.id == session_id))
-    session = result.scalar_one()
+    session = (await db.execute(select(Session).where(Session.id == session_id))).scalar_one()
     session.last_message_at = datetime.now(timezone.utc)
 
     if session.title is None and sender_type == "user":
@@ -144,45 +122,13 @@ async def delete_message(db: AsyncSession, message_id: uuid.UUID) -> None:
 async def update_session_title(
     db: AsyncSession, session_id: uuid.UUID, title: str
 ) -> Session:
-    """Update session title."""
-    result = await db.execute(select(Session).where(Session.id == session_id))
-    session = result.scalar_one()
+    session = (await db.execute(select(Session).where(Session.id == session_id))).scalar_one()
     session.title = title
     await db.flush()
     return session
 
 
-async def invite_user_to_session(
-    db: AsyncSession,
-    session: Session,
-    invitee: User,
-    invited_by: User,
-) -> SessionParticipant:
-    """Invite a user to a session."""
-    participant = SessionParticipant(
-        session_id=session.id,
-        user_id=invitee.id,
-        invited_by=invited_by.id,
-    )
-    db.add(participant)
-    await db.flush()
-    return participant
-
-
-async def is_session_participant(
-    db: AsyncSession, session_id: uuid.UUID, user_id: uuid.UUID
-) -> bool:
-    result = await db.execute(
-        select(SessionParticipant).where(
-            SessionParticipant.session_id == session_id,
-            SessionParticipant.user_id == user_id,
-        )
-    )
-    return result.scalar_one_or_none() is not None
-
-
 async def count_active_sessions(db: AsyncSession, agent_id: uuid.UUID) -> int:
-    """Count active (non-archived) sessions for an agent."""
     result = await db.execute(
         select(func.count())
         .select_from(Session)
@@ -192,47 +138,34 @@ async def count_active_sessions(db: AsyncSession, agent_id: uuid.UUID) -> int:
 
 
 async def delete_session(db: AsyncSession, session: Session) -> None:
-    """Full session deletion: cancel stream, clean Redis, hard-delete from DB,
-    and conditionally tear down agent resources if this was the last session
-    of a soft-deleted agent."""
+    """Cancel any active stream, clean Redis, drop the row, then clean the
+    runtime workspace. If the owning agent is soft-deleted and this was its
+    last session, hard-delete the agent too."""
     from app.services import agent_service
     from app.services.stream import manager as stream_manager
 
     session_id_str = str(session.id)
     agent_id = session.agent_id
 
-    # 1. Cancel any active stream for this session
     if stream_manager.is_streaming(session_id_str):
-        await stream_manager.cancel_stream(session_id_str, str(agent_id))
+        await stream_manager.cancel_session(session_id_str)
 
-    # 2. Clean up all Redis keys for this session
-    await redis_service.delete_all_session_keys(session_id_str)
+    participants = await get_session_participants(db, session.id)
+    await redis_service.delete_all_session_keys(session_id_str, participants)
 
-    # 3. Hard-delete session from DB (CASCADE removes messages + participants)
     await db.delete(session)
     await db.flush()
 
-    # 4–5. Agent-level cleanup
     result = await db.execute(select(Agent).where(Agent.id == agent_id))
     agent = result.scalar_one_or_none()
     if agent:
-        # 4. Session workspace cleanup (best-effort)
-        await agent_supervisor.cleanup_session(str(agent_id), session_id_str)
+        await agent_supervisor.cleanup_session(
+            session_id_str,
+            agent_id=str(agent_id),
+            runtime_endpoint=agent.runtime_endpoint,
+        )
 
-        # 5. If owning agent is soft-deleted and this was the last session, clean up
         if agent.status == "deleted":
             remaining = await count_active_sessions(db, agent_id)
             if remaining == 0:
                 await agent_service.cleanup_agent_resources(db, agent)
-
-
-async def ensure_agent_ready(db: AsyncSession, agent: Agent) -> None:
-    """Ensure agent is running via agent supervisor.
-
-    Fully delegated — the supervisor handles all resource provisioning
-    with secure defaults if the agent hasn't been set up yet.
-    """
-    await agent_supervisor.ensure_agent_running(
-        agent_id=str(agent.id),
-        owner_id=str(agent.owner_id),
-    )

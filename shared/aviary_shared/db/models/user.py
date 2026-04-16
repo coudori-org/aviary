@@ -1,4 +1,4 @@
-"""User, Team, and TeamMember models."""
+"""User model."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import ForeignKey, String, Text, Boolean, func
+from sqlalchemy import String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB, TIMESTAMP, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -23,9 +23,6 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
     display_name: Mapped[str] = mapped_column(String(255), nullable=False)
     avatar_url: Mapped[str | None] = mapped_column(Text, nullable=True)
-    is_platform_admin: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
-    # Cross-device UI preferences (sidebar ordering, default models, etc).
-    # Schema is intentionally loose — frontend features add keys freely.
     preferences: Mapped[dict[str, Any]] = mapped_column(
         JSONB, default=dict, server_default="{}", nullable=False
     )
@@ -37,34 +34,3 @@ class User(Base):
     )
 
     owned_agents: Mapped[list["Agent"]] = relationship(back_populates="owner")  # noqa: F821
-    team_memberships: Mapped[list["TeamMember"]] = relationship(back_populates="user")
-
-
-class Team(Base):
-    __tablename__ = "teams"
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, server_default=func.gen_random_uuid()
-    )
-    name: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
-    description: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True), server_default=func.now()
-    )
-
-    members: Mapped[list["TeamMember"]] = relationship(back_populates="team")
-
-
-class TeamMember(Base):
-    __tablename__ = "team_members"
-
-    team_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("teams.id", ondelete="CASCADE"), primary_key=True
-    )
-    user_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
-    )
-    role: Mapped[str] = mapped_column(String(50), default="member", server_default="member")
-
-    team: Mapped["Team"] = relationship(back_populates="members")
-    user: Mapped["User"] = relationship(back_populates="team_memberships")

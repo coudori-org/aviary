@@ -40,7 +40,7 @@ async def _noop_lifespan(app: FastAPI):
 def _create_test_app() -> FastAPI:
     """Create a FastAPI instance with the same routes but no lifespan."""
     from app.config import settings
-    from app.routers import acl, agents, auth, catalog, credentials, inference, sessions
+    from app.routers import agents, auth, catalog, inference, sessions
     from fastapi.middleware.cors import CORSMiddleware
 
     test_app = FastAPI(title="Aviary API Test", lifespan=_noop_lifespan)
@@ -53,9 +53,7 @@ def _create_test_app() -> FastAPI:
     )
     test_app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
     test_app.include_router(agents.router, prefix="/api/agents", tags=["agents"])
-    test_app.include_router(acl.router, prefix="/api/agents", tags=["acl"])
     test_app.include_router(catalog.router, prefix="/api/catalog", tags=["catalog"])
-    test_app.include_router(credentials.router, prefix="/api/agents", tags=["credentials"])
     test_app.include_router(inference.router, prefix="/api/inference", tags=["inference"])
     test_app.include_router(sessions.router, prefix="/api", tags=["sessions"])
 
@@ -94,12 +92,7 @@ async def _ensure_test_db():
     _db_initialized = True
 
 
-_TABLES = [
-    "messages", "session_participants", "sessions",
-    "agent_credentials", "agent_acl", "agents",
-    "team_members", "teams", "users",
-    "service_accounts",
-]
+_TABLES = ["messages", "sessions", "agents", "users"]
 
 
 @pytest.fixture(autouse=True)
@@ -113,12 +106,8 @@ async def clean_tables():
 def _mock_agent_supervisor():
     """Stub out supervisor HTTP calls — the ServiceClient is never initialized in tests."""
     targets = [
-        "register_agent",
-        "unregister_agent",
-        "ensure_agent_running",
-        "check_agent_ready",
-        "wait_for_agent_ready",
-        "abort_session",
+        "post_message",
+        "abort_stream",
         "cleanup_session",
         "health_check",
     ]

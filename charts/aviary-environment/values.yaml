@@ -1,0 +1,85 @@
+# Default values — overridden per env by values-dev.yaml / values-prod.yaml
+# or per release via --set/--values. One release = one environment.
+
+# Env identity. release name defaults to "aviary-env-<name>"; all resources
+# derive from this.
+name: default
+
+namespace: agents
+platformNamespace: platform
+
+# Static replica count. Scale-to-zero intentionally unsupported — environments
+# are always on. If scaling becomes needed, add an HPA/KEDA resource here.
+replicas: 1
+
+image:
+  repository: aviary-runtime
+  tag: latest
+  pullPolicy: Never
+
+runtime:
+  port: 3000
+  inferenceRouterURL: "http://litellm.platform.svc:4000"
+  mcpGatewayURL: "http://mcp-gateway.platform.svc:8100"
+  litellmAPIKey: "sk-aviary-dev"
+  aviaryAPIURL: "http://host.k8s.internal:8000/api"
+  internalAPIKey: "sk-aviary-internal"
+  # Supervisor URL — used by the runtime's A2A tool server to invoke sub-agents.
+  supervisorURL: "http://supervisor.platform.svc:9000"
+
+# How the supervisor (running outside k3s in dev) reaches this env's runtime
+# pods. Dev: NodePort on the k3s container — supervisor hits `http://k8s:<port>`.
+# Prod: ClusterIP (supervisor runs in-cluster or the env is behind an LB).
+service:
+  type: NodePort
+  # Fix per-env. Override for additional environments so they don't clash.
+  nodePort: 30300
+
+# Host IP seen from inside the cluster — used for the runtime's hostAliases
+# entry so it can reach docker-compose services via host.k8s.internal.
+hostGatewayIP: ""
+
+resources:
+  requests:
+    cpu: "1"
+    memory: "1Gi"
+  limits:
+    cpu: "4"
+    memory: "4Gi"
+
+pvc:
+  # Mount point of the shared workspace PVC inside each runtime pod.
+  mountPath: /workspace-root
+  # PVC is provisioned by aviary-platform (see sharedWorkspace.*).
+  # Every env mounts the same claim so workspace state — Claude CLI history,
+  # shared files, per-(agent,session) venv — is preserved across env switches.
+  claimName: aviary-shared-workspace
+
+# Extra NetworkPolicy egress rules for this environment's pods. Empty list
+# = baseline only. Rules are raw networking.k8s.io/v1 egress fragments.
+#
+# Example:
+#   extraEgress:
+#     - to:
+#         - ipBlock:
+#             cidr: 140.82.112.0/20
+#       ports:
+#         - { port: 443, protocol: TCP }
+extraEgress: []
+
+# Termination grace period — long so in-flight sessions can drain. Matches
+# the runtime's gracefulShutdown default (570s + 30s buffer).
+terminationGracePeriodSeconds: 600
+
+livenessProbe:
+  httpGet:
+    path: /health
+    port: 3000
+  initialDelaySeconds: 5
+  periodSeconds: 30
+
+readinessProbe:
+  httpGet:
+    path: /ready
+    port: 3000
+  initialDelaySeconds: 3

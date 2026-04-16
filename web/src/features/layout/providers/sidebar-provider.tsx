@@ -11,7 +11,6 @@ import {
 import { usePathname } from "next/navigation";
 import { http } from "@/lib/http";
 import { useAuth } from "@/features/auth/providers/auth-provider";
-import { useSetAgentIds } from "./agent-status-provider";
 import { useSetSessionIds } from "./session-status-provider";
 import type { Agent, Session } from "@/types";
 
@@ -79,7 +78,6 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
   const [viewMode, setViewModeState] = useState<SidebarViewMode>("agent");
   const [collapsedAgents, setCollapsedAgents] = useState<Set<string>>(() => new Set());
-  const setAgentIds = useSetAgentIds();
   const setSessionIds = useSetSessionIds();
 
   // Read persisted preferences after mount (avoid SSR localStorage access)
@@ -156,14 +154,9 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
     }
   }, [pathname, refresh]);
 
-  // Push IDs into the polling providers
   useEffect(() => {
     setSessionIds(groups.flatMap((g) => g.sessions).map((s) => s.id));
   }, [groups, setSessionIds]);
-
-  useEffect(() => {
-    setAgentIds(groups.filter((g) => g.sessions.length > 0).map((g) => g.agent.id));
-  }, [groups, setAgentIds]);
 
   const updateSessionTitle = useCallback((sessionId: string, title: string) => {
     setGroups((prev) =>

@@ -1,0 +1,20 @@
+{{- if .Values.extraEgress }}
+{{/*
+   Per-environment NetworkPolicy. Unions on top of the aviary-platform
+   baseline-egress NetworkPolicy (K8s evaluates egress as a disjunction).
+*/}}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "aviary-environment.fullname" . }}-egress
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "aviary-environment.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      aviary/environment: {{ include "aviary-environment.name" . }}
+  policyTypes: ["Egress"]
+  egress:
+    {{- toYaml .Values.extraEgress | nindent 4 }}
+{{- end }}

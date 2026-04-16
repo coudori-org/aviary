@@ -1,0 +1,39 @@
+{{- if .Values.baselineEgress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: baseline-egress
+  namespace: {{ include "aviary-platform.agentsNamespace" . }}
+  labels:
+    aviary/service: baseline-egress
+spec:
+  podSelector:
+    matchLabels:
+      aviary/role: agent-runtime
+  policyTypes: ["Egress", "Ingress"]
+  ingress:
+    - {}
+  egress:
+    - to:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - { port: 53, protocol: UDP }
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              aviary/namespace: {{ include "aviary-platform.platformNamespace" . }}
+      ports:
+        - { port: 8080, protocol: TCP }
+    {{- if .Values.hostGatewayIP }}
+    - to:
+        - ipBlock:
+            cidr: {{ .Values.hostGatewayIP }}/32
+      ports:
+        {{- range .Values.baselineEgress.allowHostGatewayPorts }}
+        - { port: {{ . }}, protocol: TCP }
+        {{- end }}
+    {{- end }}
+{{- end }}

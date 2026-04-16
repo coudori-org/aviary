@@ -1,0 +1,55 @@
+# Default values — inherited by values-dev.yaml and values-prod.yaml.
+
+platformNamespace: platform
+agentsNamespace: agents
+
+# Host IP seen from inside the cluster. Must resolve to the docker-compose
+# bridge (dev) or the VPC NAT/ALB IP (prod).
+hostGatewayIP: ""
+
+# NetworkPolicy enforced on every pod labeled aviary/role=agent-runtime in the
+# agents namespace. Agents always see this in addition to any extra rules an
+# environment opts into via extraEgress.
+baselineEgress:
+  enabled: true
+  allowHostGatewayPorts:
+    - 8000   # API
+    - 8090   # LiteLLM
+    - 8100   # MCP Gateway
+    - 9000   # Agent Supervisor (A2A sub-agent invocations from runtime)
+
+# Dev-only: proxy docker-compose services (mcp-gateway, litellm, supervisor)
+# into the cluster via Service + Endpoints with the host gateway IP.
+externalServices:
+  enabled: false
+  services:
+    - name: mcp-gateway
+      clusterPort: 8100
+      hostPort: 8100
+    - name: litellm
+      clusterPort: 4000
+      hostPort: 8090
+    - name: supervisor
+      clusterPort: 9000
+      hostPort: 9000
+
+# Warm the runtime image on every node so pod starts don't pay the pull cost.
+imageWarmer:
+  enabled: false
+  image: aviary-runtime:latest
+
+# Single RWX PVC shared across every runtime environment. Envs are capability
+# boundaries (image, egress); workspace state lives in one place so a session
+# can migrate between envs with its Claude CLI history / shared files / venv
+# intact.
+sharedWorkspace:
+  enabled: true
+  name: aviary-shared-workspace
+  size: 50Gi
+  # RWX StorageClass. Dev: "manual" — bound to the static hostPath PV below.
+  # Prod: EFS (or similar RWX CSI driver).
+  storageClassName: manual
+  # Dev only: if set, a hostPath PersistentVolume is created on the node with
+  # this path, and the PVC binds to it (RWX is fine on single-node K3s).
+  # Leave empty in prod — the CSI driver provisions the PV dynamically.
+  hostPath: ""

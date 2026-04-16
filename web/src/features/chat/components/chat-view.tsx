@@ -163,6 +163,7 @@ function ChatViewInner({ sessionId }: { sessionId: string }) {
               onCancel={chat.cancel}
               disabled={isInputDisabled}
               isStreaming={chat.isStreaming}
+              canCancel={chat.canCancel}
               placeholder={
                 !isReady ? "Waiting for agent…" : chat.isStreaming ? "Agent is responding…" : undefined
               }

@@ -19,10 +19,6 @@ class Settings(BaseSettings):
     oidc_client_id: str
     oidc_audience: str | None = None
 
-    # Vault
-    vault_addr: str
-    vault_token: str
-
     # MCP Gateway
     mcp_gateway_url: str
 

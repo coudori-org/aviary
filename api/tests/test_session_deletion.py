@@ -6,20 +6,19 @@ import pytest
 from httpx import AsyncClient
 
 
-async def _create_agent(client: AsyncClient, slug: str, visibility: str = "public") -> str:
+async def _create_agent(client: AsyncClient, slug: str) -> str:
     resp = await client.post("/api/agents", json={
         "name": f"Agent {slug}",
         "slug": slug,
         "instruction": "Be helpful.",
         "model_config": {"backend": "dummy-backend", "model": "dummy-model"},
-        "visibility": visibility,
     })
     assert resp.status_code == 201
     return resp.json()["id"]
 
 
 async def _create_session(client: AsyncClient, agent_id: str) -> str:
-    resp = await client.post(f"/api/agents/{agent_id}/sessions", json={"type": "private"})
+    resp = await client.post(f"/api/agents/{agent_id}/sessions", json={})
     assert resp.status_code == 201
     return resp.json()["id"]
 
@@ -153,7 +152,7 @@ async def test_deleted_agent_blocks_new_sessions(user1_client: AsyncClient):
     resp = await user1_client.delete(f"/api/agents/{agent_id}")
     assert resp.status_code == 204
 
-    resp = await user1_client.post(f"/api/agents/{agent_id}/sessions", json={"type": "private"})
+    resp = await user1_client.post(f"/api/agents/{agent_id}/sessions", json={})
     assert resp.status_code == 410
 
 
@@ -201,8 +200,7 @@ async def test_deleted_agent_hard_deleted_after_all_sessions_removed(user1_clien
     assert resp.status_code == 200
     assert resp.json()["status"] == "deleted"
 
-    with patch("app.services.agent_supervisor.cleanup_session", new_callable=AsyncMock), \
-         patch("app.services.agent_supervisor.unregister_agent", new_callable=AsyncMock):
+    with patch("app.services.agent_supervisor.cleanup_session", new_callable=AsyncMock):
         resp = await user1_client.delete(f"/api/sessions/{session_id}")
     assert resp.status_code == 204
 

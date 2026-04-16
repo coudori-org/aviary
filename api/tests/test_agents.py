@@ -13,13 +13,11 @@ async def test_create_agent(user1_client: AsyncClient):
         "instruction": "You are a helpful assistant.",
         "model_config": _MODEL_CONFIG,
         "tools": ["read_file", "write_file"],
-        "visibility": "private",
     })
     assert resp.status_code == 201, resp.text
     data = resp.json()
     assert data["name"] == "Test Agent"
     assert data["slug"] == "test-agent"
-    assert data["visibility"] == "private"
     assert data["model_config"]["backend"] == "dummy-backend"
 
 

@@ -16,12 +16,6 @@ FROM node:22-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git curl ca-certificates bubblewrap python3 python3-venv python-is-python3 \
-    && rm -rf /var/lib/apt/lists/* \
-    && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
-       -o /usr/share/keyrings/githubcli-archive-keyring.gpg \
-    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
-       > /etc/apt/sources.list.d/github-cli.list \
-    && apt-get update && apt-get install -y --no-install-recommends gh \
     && rm -rf /var/lib/apt/lists/*
 
 ARG NPM_CONFIG_REGISTRY
@@ -51,7 +45,10 @@ RUN CLAUDE_BIN=$(which claude-real) && \
     cp /app/scripts/claude-sandbox.sh "$(dirname "$CLAUDE_BIN")/claude" && \
     chmod +x "$(dirname "$CLAUDE_BIN")/claude"
 
-# Create mount point for bwrap sandbox (shared workspace).
+# bwrap sandbox needs /workspace to exist as the bind target for
+# $SESSION_WORKSPACE. /workspace-root is the K8s PVC mount point (created
+# at pod startup); bwrap then tmpfs-masks it so sibling sessions living
+# under the same PVC are invisible inside the sandbox.
 RUN mkdir -p /workspace
 
 # Global git config — available inside bwrap via --ro-bind / /

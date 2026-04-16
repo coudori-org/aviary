@@ -13,8 +13,6 @@
       <tr>
         <th>Email</th>
         <th>Display Name</th>
-        <th>Teams</th>
-        <th>Admin</th>
         <th>Created</th>
         <th></th>
       </tr>
@@ -24,13 +22,6 @@
       <tr>
         <td><a href="/users/{{ u.id }}">{{ u.email }}</a></td>
         <td>{{ u.display_name }}</td>
-        <td class="text-sm">
-          {% for t in u.teams %}
-          <span class="badge">{{ t }}</span>
-          {% endfor %}
-          {% if not u.teams %}<span class="text-muted">—</span>{% endif %}
-        </td>
-        <td>{% if u.is_platform_admin %}<span class="badge badge-active">admin</span>{% else %}—{% endif %}</td>
         <td class="text-sm text-muted">{{ u.created_at[:10] }}</td>
         <td><a href="/users/{{ u.id }}" class="btn btn-sm">Manage</a></td>
       </tr>
@@ -49,11 +40,6 @@
     <label>Email<br><input type="email" id="u-email" required></label>
     <label>Display Name<br><input type="text" id="u-name" required></label>
     <label>Password<br><input type="text" id="u-password" value="password"></label>
-    <label>Groups (comma-separated)<br><input type="text" id="u-groups" placeholder="engineering, product"></label>
-    <label style="display: flex; align-items: center; gap: 8px;">
-      <input type="checkbox" id="u-admin" style="width: auto;">
-      Platform Admin
-    </label>
     <div class="dialog-actions">
       <button type="button" class="btn btn-sm" onclick="document.getElementById('add-dialog').close()">Cancel</button>
       <button type="submit" class="btn btn-sm btn-primary">Create</button>
@@ -71,8 +57,6 @@ document.getElementById('add-form').addEventListener('submit', async (e) => {
     email: document.getElementById('u-email').value,
     display_name: document.getElementById('u-name').value,
     password: document.getElementById('u-password').value,
-    groups: document.getElementById('u-groups').value.split(',').map(g => g.trim()).filter(Boolean),
-    is_platform_admin: document.getElementById('u-admin').checked,
   };
   const resp = await fetch('/api/users', {
     method: 'POST',

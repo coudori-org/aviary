@@ -21,6 +21,7 @@ interface ChatInputProps {
   onCancel?: () => void;
   disabled?: boolean;
   isStreaming?: boolean;
+  canCancel?: boolean;
   placeholder?: string;
   agentId?: string;
   visionEnabled?: boolean;
@@ -33,6 +34,7 @@ export function ChatInput({
   onCancel,
   disabled,
   isStreaming,
+  canCancel,
   placeholder,
   agentId,
   visionEnabled,
@@ -273,8 +275,9 @@ export function ChatInput({
             <button
               type="button"
               onClick={onCancel}
-              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-danger/15 text-danger hover:bg-danger/25 transition-colors"
-              aria-label="Stop generation"
+              disabled={!canCancel}
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-danger/15 text-danger hover:bg-danger/25 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              aria-label={canCancel ? "Stop generation" : "Waiting for server to acknowledge request…"}
             >
               <Square size={16} strokeWidth={2} fill="currentColor" />
             </button>

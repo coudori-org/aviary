@@ -3,11 +3,10 @@
 # Quick Rebuild — only rebuild what changed
 #
 # Usage:
-#   ./scripts/quick-rebuild.sh runtime           # Rebuild runtime image + load to K8s
-#   ./scripts/quick-rebuild.sh agent-supervisor  # Rebuild agent-supervisor + load to K8s
-#   ./scripts/quick-rebuild.sh k8s              # All K8s images
-#   ./scripts/quick-rebuild.sh compose          # Rebuild docker compose services
-#   ./scripts/quick-rebuild.sh full             # docker compose down -v + setup-dev.sh
+#   ./scripts/quick-rebuild.sh runtime           # Rebuild runtime image (K3s) + rolling restart
+#   ./scripts/quick-rebuild.sh agent-supervisor  # Rebuild supervisor (compose) + restart
+#   ./scripts/quick-rebuild.sh compose          # Rebuild all docker compose services
+#   ./scripts/quick-rebuild.sh full             # docker compose down + setup-dev.sh
 #   ./scripts/quick-rebuild.sh smoke            # Just run smoke test
 #
 # Add --smoke --backend <name> to run smoke test after rebuild:
@@ -56,20 +55,21 @@ load_k8s_image() {
 }
 
 rebuild_runtime() {
-  echo -e "${BOLD}Rebuilding runtime...${NC}"
+  echo -e "${BOLD}Rebuilding runtime (+ custom variant)...${NC}"
   docker build "${BUILD_ARGS[@]}" -t aviary-runtime:latest ./runtime/
   load_k8s_image "aviary-runtime:latest"
+  # The custom variant layers on top of the base, so rebuild it too — any
+  # change to the base should propagate to the `custom` environment.
+  docker build "${BUILD_ARGS[@]}" -f ./runtime/Dockerfile.custom -t aviary-runtime-custom:latest ./runtime/
+  load_k8s_image "aviary-runtime-custom:latest"
   echo -e "${CYAN}Rolling restart runtime pods...${NC}"
   docker compose exec -T k8s kubectl rollout restart deployment -n agents \
     -l aviary/role=agent-runtime 2>/dev/null || true
 }
 
 rebuild_agent_supervisor() {
-  echo -e "${BOLD}Rebuilding agent-supervisor...${NC}"
-  docker build "${BUILD_ARGS[@]}" -t aviary-agent-supervisor:latest -f agent-supervisor/Dockerfile .
-  load_k8s_image "aviary-agent-supervisor:latest"
-  echo -e "${CYAN}Restarting agent-supervisor deployment...${NC}"
-  docker compose exec -T k8s kubectl rollout restart deployment/agent-supervisor -n platform
+  echo -e "${BOLD}Rebuilding agent-supervisor (docker compose)...${NC}"
+  docker compose up -d --build supervisor
 }
 
 case "$TARGET" in
@@ -77,10 +77,6 @@ case "$TARGET" in
     rebuild_runtime
     ;;
   agent-supervisor)
-    rebuild_agent_supervisor
-    ;;
-  k8s)
-    rebuild_runtime
     rebuild_agent_supervisor
     ;;
   compose)
@@ -105,11 +101,10 @@ case "$TARGET" in
     echo "Usage: $0 <target> [--smoke]"
     echo ""
     echo "Targets:"
-    echo "  runtime            Rebuild runtime image + load to K8s + rolling restart"
-    echo "  agent-supervisor   Rebuild agent-supervisor + load to K8s + restart"
-    echo "  k8s                All K8s images (runtime + agent-supervisor)"
-    echo "  compose            Rebuild docker compose services (hot-reload)"
-    echo "  full               Full rebuild — preserves DB, Vault, and per-agent chat history"
+    echo "  runtime            Rebuild runtime image (K3s) + rolling restart"
+    echo "  agent-supervisor   Rebuild supervisor (docker compose) + restart"
+    echo "  compose            Rebuild all docker compose services (hot-reload)"
+    echo "  full               Full rebuild — preserves DB, Vault, and per-env workspace"
     echo "  full-clean         Full rebuild — wipes all volumes including chat history"
     echo "  smoke              Just run smoke test"
     echo ""

@@ -9,10 +9,10 @@ from fastapi.responses import HTMLResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aviary_shared.db.models import Team, TeamMember, User
+from aviary_shared.db.models import User
 from app.db import get_db
 from app.routers.pages._templates import templates
-from app.routers.users import _vault, _sync_keycloak_users
+from app.routers.users import _sync_keycloak_users, _vault
 
 logger = logging.getLogger(__name__)
 
@@ -22,57 +22,31 @@ router = APIRouter()
 @router.get("/users", response_class=HTMLResponse)
 async def user_list(request: Request, db: AsyncSession = Depends(get_db)):
     await _sync_keycloak_users(db)
+    all_users = list((await db.execute(
+        select(User).order_by(User.created_at.desc())
+    )).scalars().all())
 
-    result = await db.execute(select(User).order_by(User.created_at.desc()))
-    all_users = list(result.scalars().all())
-
-    user_data = []
-    for u in all_users:
-        result = await db.execute(
-            select(Team.name)
-            .join(TeamMember, TeamMember.team_id == Team.id)
-            .where(TeamMember.user_id == u.id)
-        )
-        teams = list(result.scalars().all())
-        user_data.append({
+    user_data = [
+        {
             "id": str(u.id),
             "external_id": u.external_id,
             "email": u.email,
             "display_name": u.display_name,
-            "is_platform_admin": u.is_platform_admin,
-            "teams": teams,
             "created_at": u.created_at.isoformat(),
-        })
-
+        }
+        for u in all_users
+    ]
     return templates.TemplateResponse(request, "users.html", {"users": user_data})
 
 
 @router.get("/users/{user_id}", response_class=HTMLResponse)
 async def user_detail(request: Request, user_id: str, db: AsyncSession = Depends(get_db)):
     u_uuid = uuid.UUID(user_id)
-    result = await db.execute(select(User).where(User.id == u_uuid))
-    user = result.scalar_one_or_none()
+    user = (await db.execute(select(User).where(User.id == u_uuid))).scalar_one_or_none()
     if not user:
         return HTMLResponse("<h1>User not found</h1>", status_code=404)
 
-    result = await db.execute(
-        select(Team.name)
-        .join(TeamMember, TeamMember.team_id == Team.id)
-        .where(TeamMember.user_id == user.id)
-    )
-    teams = list(result.scalars().all())
-
-    user_data = {
-        "id": str(user.id),
-        "external_id": user.external_id,
-        "email": user.email,
-        "display_name": user.display_name,
-        "is_platform_admin": user.is_platform_admin,
-        "teams": teams,
-        "created_at": user.created_at.isoformat(),
-    }
-
-    credentials = []
+    credentials: list[dict] = []
     try:
         keys = await _vault().list_user_credentials(user.external_id)
         for key in keys:
@@ -85,6 +59,12 @@ async def user_detail(request: Request, user_id: str, db: AsyncSession = Depends
         logger.warning("Vault unreachable while loading user %s credentials", user.id, exc_info=True)
 
     return templates.TemplateResponse(request, "user_detail.html", {
-        "user": user_data,
+        "user": {
+            "id": str(user.id),
+            "external_id": user.external_id,
+            "email": user.email,
+            "display_name": user.display_name,
+            "created_at": user.created_at.isoformat(),
+        },
         "credentials": credentials,
     })

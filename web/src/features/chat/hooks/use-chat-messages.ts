@@ -37,6 +37,7 @@ interface UseChatMessagesResult {
   retryNow: ReturnType<typeof useSessionWebSocket>["retryNow"];
   send: (content: string, attachments?: FileRef[]) => boolean;
   cancel: () => void;
+  canCancel: boolean;
   patchSession: (patch: Partial<Session>) => void;
   /** Content to restore into the input after a rollback error. */
   restoreDraft: { content: string; attachments?: FileRef[]; error?: string } | null;
@@ -53,6 +54,11 @@ export function useChatMessages(sessionId: string): UseChatMessagesResult {
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(true);
   const [isStreaming, setIsStreaming] = useState(false);
+  // Set when the supervisor publishes `stream_started` — that event is our
+  // confirmation the request was accepted. The abort button only goes active
+  // once we have this id, and cancel sends it back so the server aborts the
+  // specific stream (not whatever is latest on the session).
+  const [streamId, setStreamId] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(false);
   const [restoreDraft, setRestoreDraft] = useState<{ content: string; attachments?: FileRef[]; error?: string } | null>(null);
   const [loadingEarlier, setLoadingEarlier] = useState(false);
@@ -133,15 +139,17 @@ export function useChatMessages(sessionId: string): UseChatMessagesResult {
             // response surfaces correctly.
             bs.reset();
             setIsStreaming(false);
+            setStreamId(null);
             void reloadHistory();
           }
           break;
 
         case "user_message":
+          setIsStreaming(true);
           setMessages((prev) => [
             ...prev,
             {
-              id: crypto.randomUUID(),
+              id: msg.messageId,
               session_id: sessionId,
               sender_type: "user",
               sender_id: msg.sender_id,
@@ -150,6 +158,11 @@ export function useChatMessages(sessionId: string): UseChatMessagesResult {
               created_at: new Date().toISOString(),
             },
           ]);
+          break;
+
+        case "stream_started":
+          setIsStreaming(true);
+          setStreamId(msg.stream_id);
           break;
 
         case "thinking":
@@ -185,12 +198,14 @@ export function useChatMessages(sessionId: string): UseChatMessagesResult {
             });
           }
           setIsStreaming(false);
+          setStreamId(null);
           break;
         }
 
         case "error":
           bs.reset();
           setIsStreaming(false);
+          setStreamId(null);
           // "Session expired" is the backend's signal that the auth
           // session is dead — bounce through refreshUser so AuthGuard
           // sends the user to /login instead of leaving them on a
@@ -274,6 +289,7 @@ export function useChatMessages(sessionId: string): UseChatMessagesResult {
             });
           }
           setIsStreaming(false);
+          setStreamId(null);
           break;
         }
 
@@ -327,8 +343,9 @@ export function useChatMessages(sessionId: string): UseChatMessagesResult {
   const clearRestoreDraft = useCallback(() => setRestoreDraft(null), []);
 
   const cancel = useCallback(() => {
-    sendWsMessage(ws, { type: "cancel" });
-  }, [ws]);
+    if (!streamId) return;
+    sendWsMessage(ws, { type: "cancel", stream_id: streamId });
+  }, [ws, streamId]);
 
   const patchSession = useCallback((patch: Partial<Session>) => {
     setSession((prev) => (prev ? { ...prev, ...patch } : prev));
@@ -350,6 +367,7 @@ export function useChatMessages(sessionId: string): UseChatMessagesResult {
     retryNow,
     send,
     cancel,
+    canCancel: streamId !== null,
     patchSession,
     restoreDraft,
     clearRestoreDraft,

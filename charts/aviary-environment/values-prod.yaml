@@ -1,0 +1,23 @@
+name: default
+
+replicas: 2
+
+image:
+  pullPolicy: IfNotPresent
+  # Set via --set on install.
+  repository: ""
+  tag: ""
+
+# In prod, supervisor runs in-cluster (or behind a proper ingress/LB).
+service:
+  type: ClusterIP
+
+# Shared PVC lives at the platform level — sized/provisioned there.
+
+resources:
+  requests:
+    cpu: "1"
+    memory: "2Gi"
+  limits:
+    cpu: "4"
+    memory: "8Gi"

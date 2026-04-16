@@ -1,8 +1,24 @@
-"""Redis connection management: pub/sub, session cache, job queue."""
+"""Redis client — responsibility split with the supervisor:
+
+- **Supervisor writes** stream events (chunk / thinking / tool_use / …)
+  because they originate in the SSE stream it drives.
+- **API writes** DB-consistent events and per-user state because only the
+  API knows the DB ids and the session participant list:
+    * `user_message` — broadcast after the user's WS message is saved
+    * `done` / `cancelled` — broadcast after agent message persistence
+    * `error` — pre-stream / save-path failures
+    * `session:{id}:unread:{uid}` counters
+
+Both publish to the same `session:{id}:events` channel; the API WS relay
+subscribes and forwards every event to connected clients. Broadcast via
+Redis (rather than direct WS sends) keeps the design ready for
+multi-participant / multi-replica deployments.
+"""
+
+from __future__ import annotations
 
 import json
 import logging
-from typing import Any
 
 import redis.asyncio as redis
 
@@ -10,26 +26,23 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
-_pool: redis.ConnectionPool | None = None
 _client: redis.Redis | None = None
+_pool: redis.ConnectionPool | None = None
 
 
 async def init_redis() -> None:
-    """Initialize Redis connection pool. Called on app startup."""
-    global _pool, _client
+    global _client, _pool
     _pool = redis.ConnectionPool.from_url(settings.redis_url, decode_responses=True)
     _client = redis.Redis(connection_pool=_pool)
-    # Verify connectivity
     try:
         await _client.ping()
         logger.info("Redis connected: %s", settings.redis_url)
-    except redis.RedisError:  # Best-effort: Redis is optional for degraded mode
-        logger.warning("Redis not reachable at %s — pub/sub and caching disabled", settings.redis_url)
+    except redis.RedisError:
+        logger.warning("Redis not reachable at %s — reads will return empty", settings.redis_url)
         _client = None
 
 
 async def close_redis() -> None:
-    """Close Redis connections. Called on app shutdown."""
     global _client, _pool
     if _client:
         await _client.aclose()
@@ -40,341 +53,150 @@ async def close_redis() -> None:
 
 
 def get_client() -> redis.Redis | None:
-    """Return the shared Redis client (None if unavailable)."""
     return _client
 
 
-# ── Pub/Sub for WebSocket message broadcasting ───────────────
-
-def _channel_name(session_id: str) -> str:
-    return f"session:{session_id}:messages"
+def _session_channel(session_id: str) -> str:
+    return f"session:{session_id}:events"
 
 
-async def publish_message(session_id: str, message: dict) -> None:
-    """Publish a chat message/event to all subscribers on this session's channel."""
-    client = get_client()
-    if not client:
-        return
-    try:
-        await client.publish(_channel_name(session_id), json.dumps(message))
-    except redis.RedisError:  # Best-effort: publish failure is non-critical
-        logger.warning("Redis publish failed for session %s", session_id, exc_info=True)
+def _stream_chunks(stream_id: str) -> str:
+    return f"stream:{stream_id}:chunks"
 
 
-async def subscribe(session_id: str) -> redis.client.PubSub | None:
-    """Subscribe to a session's message channel. Returns a PubSub object."""
-    client = get_client()
-    if not client:
+def _stream_status(stream_id: str) -> str:
+    return f"stream:{stream_id}:status"
+
+
+def _session_status(session_id: str) -> str:
+    return f"session:{session_id}:status"
+
+
+def _session_latest_stream(session_id: str) -> str:
+    return f"session:{session_id}:latest_stream"
+
+
+async def subscribe(session_id: str):
+    if not _client:
         return None
-    pubsub = client.pubsub()
-    await pubsub.subscribe(_channel_name(session_id))
+    pubsub = _client.pubsub()
+    await pubsub.subscribe(_session_channel(session_id))
     return pubsub
 
 
-# ── Session state cache ──────────────────────────────────────
+# ── Writes owned by the API (DB-consistent events + unread) ────────────────
 
-_SESSION_CACHE_TTL = 300  # 5 minutes
-
-
-async def cache_session_pod(session_id: str, pod_name: str | None, namespace: str | None) -> None:
-    """Cache the active Pod info for a session (avoids DB lookup on every WS message)."""
-    client = get_client()
-    if not client:
+async def publish_message(session_id: str, event: dict) -> None:
+    """Broadcast a DB-consistent event to every WS watching this session."""
+    if not _client:
         return
-    key = f"session:{session_id}:pod"
-    if pod_name and namespace:
-        await client.hset(key, mapping={"pod_name": pod_name, "namespace": namespace})
-        await client.expire(key, _SESSION_CACHE_TTL)
-    else:
-        await client.delete(key)
+    try:
+        await _client.publish(_session_channel(session_id), json.dumps(event))
+    except redis.RedisError:
+        logger.warning("publish_message failed for session %s", session_id, exc_info=True)
 
 
-async def get_cached_session_pod(session_id: str) -> dict[str, str] | None:
-    """Get cached Pod info for a session. Returns {"pod_name": ..., "namespace": ...} or None."""
-    client = get_client()
-    if not client:
-        return None
-    key = f"session:{session_id}:pod"
-    data = await client.hgetall(key)
-    return data if data else None
+def _unread_key(session_id: str, user_id: str) -> str:
+    return f"session:{session_id}:unread:{user_id}"
 
-
-# ── Agent deployment cache ─────────────────────────────────
-
-_DEPLOYMENT_CACHE_TTL = 600  # 10 minutes
-
-
-async def cache_agent_deployment(agent_id: str, namespace: str) -> None:
-    """Cache the agent's deployment namespace (avoids DB lookup for routing)."""
-    client = get_client()
-    if not client:
-        return
-    key = f"agent:{agent_id}:deployment"
-    await client.hset(key, mapping={"namespace": namespace, "service": "agent-runtime-svc"})
-    await client.expire(key, _DEPLOYMENT_CACHE_TTL)
-
-
-async def get_cached_agent_deployment(agent_id: str) -> dict[str, str] | None:
-    """Get cached deployment info for an agent. Returns {"namespace": ..., "service": ...} or None."""
-    client = get_client()
-    if not client:
-        return None
-    key = f"agent:{agent_id}:deployment"
-    data = await client.hgetall(key)
-    return data if data else None
-
-
-async def clear_agent_deployment_cache(agent_id: str) -> None:
-    """Clear cached deployment info for an agent."""
-    client = get_client()
-    if not client:
-        return
-    await client.delete(f"agent:{agent_id}:deployment")
-
-
-# ── Online presence tracking ─────────────────────────────────
-
-async def add_ws_connection(session_id: str, user_id: str) -> None:
-    """Track that a user has an active WebSocket connection to a session.
-
-    Uses a hash with reference counting so that multiple connections from the
-    same user (e.g. multiple browser tabs) are tracked independently.
-    """
-    client = get_client()
-    if not client:
-        return
-    key = f"session:{session_id}:online"
-    await client.hincrby(key, user_id, 1)
-    await client.expire(key, 3600)
-
-
-async def remove_ws_connection(session_id: str, user_id: str) -> None:
-    """Decrement connection count for a user. Removes entry when count reaches zero."""
-    client = get_client()
-    if not client:
-        return
-    key = f"session:{session_id}:online"
-    new_count = await client.hincrby(key, user_id, -1)
-    if new_count <= 0:
-        await client.hdel(key, user_id)
-
-
-async def get_online_users(session_id: str) -> set[str]:
-    """Get the set of user IDs with at least one active connection to a session."""
-    client = get_client()
-    if not client:
-        return set()
-    key = f"session:{session_id}:online"
-    data = await client.hgetall(key)
-    return {uid for uid, count in data.items() if int(count) > 0}
-
-
-# ── Stream buffer (chunk replay for reconnecting clients) ───
-
-_STREAM_BUFFER_TTL = 600  # 10 minutes
-
-
-async def append_stream_chunk(session_id: str, chunk_event: dict) -> None:
-    """Append a streaming chunk to the session's replay buffer."""
-    client = get_client()
-    if not client:
-        return
-    key = f"session:{session_id}:stream:chunks"
-    await client.rpush(key, json.dumps(chunk_event))
-    await client.expire(key, _STREAM_BUFFER_TTL)
-
-
-async def get_stream_chunks(session_id: str) -> list[dict]:
-    """Get all buffered chunks for replay."""
-    client = get_client()
-    if not client:
-        return []
-    key = f"session:{session_id}:stream:chunks"
-    raw = await client.lrange(key, 0, -1)
-    return [json.loads(r) for r in raw]
-
-
-async def set_stream_status(session_id: str, status: str) -> None:
-    """Set stream status: 'streaming', 'complete', 'error'."""
-    client = get_client()
-    if not client:
-        return
-    key = f"session:{session_id}:stream:status"
-    await client.set(key, status, ex=_STREAM_BUFFER_TTL)
-
-
-async def get_stream_status(session_id: str) -> str | None:
-    """Get current stream status."""
-    client = get_client()
-    if not client:
-        return None
-    key = f"session:{session_id}:stream:status"
-    return await client.get(key)
-
-
-async def set_stream_result(session_id: str, result: str, message_id: str) -> None:
-    """Store the completed agent response for late-joining clients."""
-    client = get_client()
-    if not client:
-        return
-    key = f"session:{session_id}:stream:result"
-    await client.set(key, json.dumps({"content": result, "messageId": message_id}), ex=120)
-
-
-async def get_stream_result(session_id: str) -> dict | None:
-    """Get the completed stream result (content + messageId)."""
-    client = get_client()
-    if not client:
-        return None
-    key = f"session:{session_id}:stream:result"
-    raw = await client.get(key)
-    return json.loads(raw) if raw else None
-
-
-async def append_a2a_event(
-    session_id: str, parent_tool_use_id: str, event: dict
-) -> None:
-    """Append a sub-agent tool_use event for persistence in saved message metadata."""
-    client = get_client()
-    if not client:
-        return
-    key = f"session:{session_id}:a2a:{parent_tool_use_id}"
-    await client.rpush(key, json.dumps(event))
-    await client.expire(key, _STREAM_BUFFER_TTL)
-
-
-async def get_a2a_events(session_id: str, parent_tool_use_id: str) -> list[dict]:
-    """Get accumulated sub-agent tool_use events for a tool call."""
-    client = get_client()
-    if not client:
-        return []
-    key = f"session:{session_id}:a2a:{parent_tool_use_id}"
-    raw = await client.lrange(key, 0, -1)
-    return [json.loads(r) for r in raw]
-
-
-async def clear_a2a_events(session_id: str, parent_tool_use_id: str) -> None:
-    """Remove sub-agent event buffer after saving."""
-    client = get_client()
-    if not client:
-        return
-    key = f"session:{session_id}:a2a:{parent_tool_use_id}"
-    await client.delete(key)
-
-
-async def clear_stream_buffer(session_id: str) -> None:
-    """Remove all stream buffer keys for a session."""
-    client = get_client()
-    if not client:
-        return
-    keys = [
-        f"session:{session_id}:stream:chunks",
-        f"session:{session_id}:stream:status",
-        f"session:{session_id}:stream:result",
-    ]
-    await client.delete(*keys)
-
-
-# ── Session status (for sidebar) ────────────────────────────
-
-async def set_session_status(session_id: str, status: str) -> None:
-    """Set session-level status: 'streaming', 'idle', 'offline'."""
-    client = get_client()
-    if not client:
-        return
-    key = f"session:{session_id}:status"
-    await client.set(key, status, ex=3600)
-
-
-async def get_session_status(session_id: str) -> str:
-    """Get session status."""
-    client = get_client()
-    if not client:
-        return "offline"
-    key = f"session:{session_id}:status"
-    return await client.get(key) or "offline"
-
-
-async def get_sessions_status(session_ids: list[str]) -> dict[str, str]:
-    """Batch get status for multiple sessions."""
-    client = get_client()
-    if not client or not session_ids:
-        return {}
-    pipe = client.pipeline()
-    for sid in session_ids:
-        pipe.get(f"session:{sid}:status")
-    results = await pipe.execute()
-    return {sid: (r or "offline") for sid, r in zip(session_ids, results)}
-
-
-# ── Unread message tracking ─────────────────────────────────
 
 async def increment_unread(session_id: str, user_id: str) -> None:
-    """Increment unread count for a user in a session."""
-    client = get_client()
-    if not client:
+    if not _client:
         return
-    key = f"session:{session_id}:unread:{user_id}"
-    await client.incr(key)
-    await client.expire(key, 86400)
-
-
-async def get_unread(session_id: str, user_id: str) -> int:
-    """Get unread count for a user in a session."""
-    client = get_client()
-    if not client:
-        return 0
-    key = f"session:{session_id}:unread:{user_id}"
-    val = await client.get(key)
-    return int(val) if val else 0
+    try:
+        await _client.incr(_unread_key(session_id, user_id))
+        await _client.expire(_unread_key(session_id, user_id), 86400)
+    except redis.RedisError:
+        logger.warning("increment_unread failed for %s/%s", session_id, user_id, exc_info=True)
 
 
 async def clear_unread(session_id: str, user_id: str) -> None:
-    """Clear unread count when user opens a session."""
-    client = get_client()
-    if not client:
+    if not _client:
         return
-    key = f"session:{session_id}:unread:{user_id}"
-    await client.delete(key)
+    try:
+        await _client.delete(_unread_key(session_id, user_id))
+    except redis.RedisError:
+        pass
 
 
 async def get_bulk_unread(session_ids: list[str], user_id: str) -> dict[str, int]:
-    """Batch get unread counts for multiple sessions."""
-    client = get_client()
-    if not client or not session_ids:
-        return {}
-    pipe = client.pipeline()
-    for sid in session_ids:
-        pipe.get(f"session:{sid}:unread:{user_id}")
-    results = await pipe.execute()
-    return {sid: int(r) if r else 0 for sid, r in zip(session_ids, results)}
+    if not _client or not session_ids:
+        return {sid: 0 for sid in session_ids}
+    try:
+        raw = await _client.mget([_unread_key(sid, user_id) for sid in session_ids])
+        return {
+            sid: int(val) if val else 0
+            for sid, val in zip(session_ids, raw, strict=True)
+        }
+    except redis.RedisError:
+        return {sid: 0 for sid in session_ids}
 
 
+async def get_stream_chunks(stream_id: str) -> list[dict]:
+    if not _client:
+        return []
+    try:
+        raw = await _client.lrange(_stream_chunks(stream_id), 0, -1)
+        return [json.loads(r) for r in raw]
+    except redis.RedisError:
+        logger.warning("get_stream_chunks failed for stream %s", stream_id, exc_info=True)
+        return []
 
-async def delete_all_session_keys(session_id: str) -> None:
-    """Remove all Redis keys associated with a session (cleanup on deletion)."""
-    client = get_client()
-    if not client:
+
+async def get_stream_status(stream_id: str) -> str | None:
+    if not _client:
+        return None
+    try:
+        return await _client.get(_stream_status(stream_id))
+    except redis.RedisError:
+        return None
+
+
+async def get_session_status(session_id: str) -> str:
+    if not _client:
+        return "offline"
+    try:
+        return (await _client.get(_session_status(session_id))) or "idle"
+    except redis.RedisError:
+        return "offline"
+
+
+async def get_sessions_status(session_ids: list[str]) -> dict[str, str]:
+    if not _client or not session_ids:
+        return {sid: "offline" for sid in session_ids}
+    try:
+        values = await _client.mget([_session_status(sid) for sid in session_ids])
+        return {sid: (val or "idle") for sid, val in zip(session_ids, values, strict=True)}
+    except redis.RedisError:
+        return {sid: "offline" for sid in session_ids}
+
+
+async def get_latest_stream_id(session_id: str) -> str | None:
+    """Return the most recent stream_id the supervisor attached to this session,
+    used so a reconnecting WS client can replay any in-flight or just-finished
+    stream."""
+    if not _client:
+        return None
+    try:
+        return await _client.get(_session_latest_stream(session_id))
+    except redis.RedisError:
+        return None
+
+
+async def delete_all_session_keys(session_id: str, user_ids: list[str]) -> None:
+    """Best-effort cleanup on session delete."""
+    if not _client:
         return
-    fixed_keys = [
-        f"session:{session_id}:pod",
-        f"session:{session_id}:online",
-        f"session:{session_id}:stream:chunks",
-        f"session:{session_id}:stream:status",
-        f"session:{session_id}:stream:result",
-        f"session:{session_id}:status",
-    ]
-    # Scan for per-user unread keys (session:{id}:unread:{user_id})
-    unread_pattern = f"session:{session_id}:unread:*"
-    unread_keys: list[str] = []
-    cursor: int | str = 0
-    while True:
-        cursor, keys = await client.scan(cursor, match=unread_pattern, count=100)
-        unread_keys.extend(keys)
-        if cursor == 0:
-            break
-    all_keys = fixed_keys + unread_keys
-    if all_keys:
-        await client.delete(*all_keys)
-
-
+    try:
+        latest = await _client.get(_session_latest_stream(session_id))
+        keys = [
+            _session_channel(session_id),
+            _session_status(session_id),
+            _session_latest_stream(session_id),
+            *[_unread_key(session_id, uid) for uid in user_ids],
+        ]
+        if latest:
+            keys.extend([_stream_chunks(latest), _stream_status(latest)])
+        await _client.delete(*keys)
+    except redis.RedisError:
+        logger.warning("delete_all_session_keys failed for %s", session_id, exc_info=True)

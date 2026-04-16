@@ -113,14 +113,48 @@ services:
       K3S_TOKEN: aviary-dev-token
     ports:
       - "6443:6443"
-      - "9000:30900"   # agent-supervisor NodePort
+      - "30300:30300"   # aviary-env-default NodePort (supervisor → runtime)
     volumes:
       - k8sdata:/var/lib/rancher/k3s
-      # Backing store for static agent PVs.
-      - agent_workspace_pv:/var/lib/aviary
-      # Cross-agent session workspace (A2A file exchange).
-      - shared_workspace:/workspace-shared
       - ./config/k3s/registries.yaml:/etc/rancher/k3s/registries.yaml
+
+  supervisor:
+    build:
+      context: .
+      dockerfile: agent-supervisor/Dockerfile
+      args:
+        UV_INDEX_URL: ${UV_INDEX_URL:-}
+    ports:
+      - "9000:9000"
+    volumes:
+      - ./agent-supervisor:/workspace/agent-supervisor
+      - /workspace/.venv
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      # Runtime env endpoint used when agent.runtime_endpoint is NULL.
+      # Points at k3s NodePort for aviary-env-default.
+      SUPERVISOR_DEFAULT_RUNTIME_ENDPOINT: http://k8s:30300
+      METRICS_ENABLED: "true"
+      # OIDC — supervisor validates the caller's user JWT (Bearer) on
+      # /publish and /a2a before looking up Vault credentials.
+      OIDC_ISSUER: http://localhost:8080/realms/aviary
+      OIDC_INTERNAL_ISSUER: http://keycloak:8080/realms/aviary
+      # Vault — per-user GitHub token lookup keyed by the JWT's `sub`.
+      VAULT_ADDR: http://vault:8200
+      VAULT_TOKEN: dev-root-token
+    depends_on:
+      redis:
+        condition: service_healthy
+      vault:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9000/v1/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   db-migrate:
     build:
@@ -165,20 +199,6 @@ services:
 
   # ── Platform Services ───────────────────────────────────────
 
-  portkey:
-    image: portkeyai/gateway:latest
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    environment:
-      AWS_ACCESS_KEY_ID: "${AWS_ACCESS_KEY_ID:-}"
-      AWS_SECRET_ACCESS_KEY: "${AWS_SECRET_ACCESS_KEY:-}"
-    healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8787/ || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
-
   litellm:
     image: ghcr.io/berriai/litellm:main-latest
     command: ["--config", "/app/config.yaml", "--port", "4000"]
@@ -192,6 +212,12 @@ services:
       - ./config/litellm/patches/aviary_patches.pth:/usr/lib/python3.13/site-packages/aviary_patches.pth
     environment:
       LITELLM_MASTER_KEY: "sk-aviary-dev"
+      # DB-backed UI: keys, teams, spend, and model registry live in Postgres.
+      # LiteLLM expects a plain `postgresql://` URL (Prisma), not asyncpg.
+      DATABASE_URL: "postgresql://aviary:aviary@postgres:5432/litellm"
+      STORE_MODEL_IN_DB: "True"
+      UI_USERNAME: "${LITELLM_UI_USERNAME:-admin}"
+      UI_PASSWORD: "${LITELLM_UI_PASSWORD:-admin}"
       AWS_ACCESS_KEY_ID: "${AWS_ACCESS_KEY_ID:-}"
       AWS_SECRET_ACCESS_KEY: "${AWS_SECRET_ACCESS_KEY:-}"
       AWS_REGION: "${AWS_REGION:-ap-northeast-2}"
@@ -200,9 +226,9 @@ services:
       OIDC_ISSUER: "http://localhost:8080/realms/aviary"
       OIDC_INTERNAL_ISSUER: "http://keycloak:8080/realms/aviary"
     depends_on:
-      vault:
+      postgres:
         condition: service_healthy
-      portkey:
+      vault:
         condition: service_healthy
       keycloak:
         condition: service_healthy
@@ -212,6 +238,33 @@ services:
       timeout: 5s
       retries: 5
       start_period: 15s
+
+  prometheus:
+    image: prom/prometheus:v3.0.1
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=7d"
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./config/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheusdata:/prometheus
+
+  grafana:
+    image: grafana/grafana:11.3.0
+    ports:
+      - "3001:3000"
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: "Admin"
+      GF_SECURITY_ADMIN_PASSWORD: "${GRAFANA_ADMIN_PASSWORD:-admin}"
+    volumes:
+      - ./config/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./config/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafanadata:/var/lib/grafana
+    depends_on:
+      - prometheus
 
   # ── Application ─────────────────────────────────────────────
 
@@ -238,9 +291,7 @@ services:
       # Internal issuer (container-to-container — for fetching discovery/JWKS/token exchange)
       OIDC_INTERNAL_ISSUER: http://keycloak:8080/realms/aviary
       OIDC_CLIENT_ID: aviary-web
-      VAULT_ADDR: http://vault:8200
-      VAULT_TOKEN: dev-root-token
-      AGENT_SUPERVISOR_URL: http://k8s:30900
+      AGENT_SUPERVISOR_URL: http://supervisor:9000
       LITELLM_URL: http://litellm:4000
       LITELLM_API_KEY: "sk-aviary-dev"
       MCP_GATEWAY_URL: http://mcp-gateway:8100
@@ -250,8 +301,6 @@ services:
       db-migrate:
         condition: service_completed_successfully
       redis:
-        condition: service_healthy
-      vault:
         condition: service_healthy
       keycloak:
         condition: service_healthy
@@ -342,7 +391,7 @@ services:
       - /workspace/.venv
     environment:
       DATABASE_URL: postgresql+asyncpg://aviary:aviary@postgres:5432/aviary
-      AGENT_SUPERVISOR_URL: http://k8s:30900
+      AGENT_SUPERVISOR_URL: http://supervisor:9000
       VAULT_ADDR: http://vault:8200
       VAULT_TOKEN: dev-root-token
       KEYCLOAK_URL: http://keycloak:8080
@@ -367,5 +416,5 @@ volumes:
   pgdata:
   k8sdata:
   vaultdata:
-  agent_workspace_pv:
-  shared_workspace:
+  prometheusdata:
+  grafanadata:

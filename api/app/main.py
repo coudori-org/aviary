@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.auth.oidc import init_oidc
 from app.config import settings
-from app.routers import a2a, acl, agents, auth, catalog, credentials, inference, mcp, search, sessions, uploads, workflows
+from app.routers import agents, auth, catalog, inference, mcp, search, sessions, uploads, workflows
 from app.services import agent_supervisor
 from app.services.redis_service import close_redis, get_client, init_redis
 
@@ -44,14 +44,11 @@ app.add_middleware(
 
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(agents.router, prefix="/api/agents", tags=["agents"])
-app.include_router(acl.router, prefix="/api/agents", tags=["acl"])
 app.include_router(catalog.router, prefix="/api/catalog", tags=["catalog"])
-app.include_router(credentials.router, prefix="/api/agents", tags=["credentials"])
 app.include_router(inference.router, prefix="/api/inference", tags=["inference"])
 app.include_router(mcp.router, prefix="/api/mcp", tags=["mcp"])
 app.include_router(sessions.router, prefix="/api", tags=["sessions"])
 app.include_router(search.router, prefix="/api/search", tags=["search"])
-app.include_router(a2a.router, prefix="/api/a2a", tags=["a2a"])
 app.include_router(uploads.router, prefix="/api/uploads", tags=["uploads"])
 app.include_router(workflows.router, prefix="/api/workflows", tags=["workflows"])
 

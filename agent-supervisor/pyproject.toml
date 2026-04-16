@@ -11,6 +11,8 @@ dependencies = [
     "pydantic>=2.10.0",
     "pydantic-settings>=2.7.0",
     "redis>=5.2.0",
+    "prometheus-client>=0.20.0",
+    "python-jose[cryptography]>=3.3.0",
 ]
 
 [build-system]

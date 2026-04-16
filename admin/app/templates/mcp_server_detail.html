@@ -59,66 +59,7 @@
   <div class="empty">No tools discovered yet. Click "Discover Tools" to connect to the server.</div>
   {% endif %}
 
-  <h3 style="font-size: 16px; font-weight: 600; margin: 24px 0 12px;">ACL Rules</h3>
-  <div style="margin-bottom: 12px;">
-    <button class="btn btn-sm" onclick="document.getElementById('acl-dialog').showModal()">+ Add Rule</button>
-  </div>
-  {% if acl_rules %}
-  <table class="table">
-    <thead>
-      <tr>
-        <th>Grantee</th>
-        <th>Scope</th>
-        <th>Permission</th>
-        <th></th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for rule in acl_rules %}
-      <tr>
-        <td class="text-sm">
-          {% if rule.user_id %}User: {{ rule.user_id }}{% endif %}
-          {% if rule.team_id %}Team: {{ rule.team_id }}{% endif %}
-        </td>
-        <td class="text-sm">{{ 'Tool: ' + rule.tool_id if rule.tool_id else 'All tools' }}</td>
-        <td><span class="badge">{{ rule.permission }}</span></td>
-        <td>
-          <button class="btn btn-sm" style="color: red;" onclick="deleteAcl('{{ rule.id }}')">Delete</button>
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  {% else %}
-  <div class="empty">No ACL rules. Default-deny: no user can access this server's tools.</div>
-  {% endif %}
 </div>
-
-<dialog id="acl-dialog">
-  <form id="acl-form">
-    <h3>Add ACL Rule</h3>
-    <label>User ID (UUID, optional)<br><input type="text" id="acl-user-id"></label>
-    <label>Team ID (UUID, optional)<br><input type="text" id="acl-team-id"></label>
-    <label>Tool (optional — leave blank for server-level)<br>
-      <select id="acl-tool-id">
-        <option value="">All tools on this server</option>
-        {% for tool in tools %}
-        <option value="{{ tool.id }}">{{ tool.name }}</option>
-        {% endfor %}
-      </select>
-    </label>
-    <label>Permission<br>
-      <select id="acl-perm">
-        <option value="use">use</option>
-        <option value="view">view</option>
-      </select>
-    </label>
-    <div class="dialog-actions">
-      <button type="button" class="btn btn-sm" onclick="document.getElementById('acl-dialog').close()">Cancel</button>
-      <button type="submit" class="btn btn-sm btn-primary">Create</button>
-    </div>
-  </form>
-</dialog>
 
 {% endblock %}
 
@@ -145,36 +86,5 @@ async function deleteServer() {
   else alert('Failed to delete server');
 }
 
-async function deleteAcl(aclId) {
-  if (!confirm('Delete this ACL rule?')) return;
-  const resp = await fetch(`/api/mcp/acl/${aclId}`, { method: 'DELETE' });
-  if (resp.ok) window.location.reload();
-  else alert('Failed to delete ACL rule');
-}
-
-document.getElementById('acl-form').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const userId = document.getElementById('acl-user-id').value.trim() || null;
-  const teamId = document.getElementById('acl-team-id').value.trim() || null;
-  const toolId = document.getElementById('acl-tool-id').value || null;
-  const permission = document.getElementById('acl-perm').value;
-
-  const resp = await fetch('/api/mcp/acl', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      server_id: serverId,
-      tool_id: toolId,
-      user_id: userId,
-      team_id: teamId,
-      permission: permission,
-    }),
-  });
-  if (resp.ok) window.location.reload();
-  else {
-    const err = await resp.json();
-    alert('Error: ' + (err.detail || JSON.stringify(err)));
-  }
-});
 </script>
 {% endblock %}

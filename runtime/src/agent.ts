@@ -1,19 +1,11 @@
 /**
  * Agent runner using the official @anthropic-ai/claude-agent-sdk (TypeScript).
  *
- * All inference is routed through LiteLLM:
- *   claude-agent-sdk -> Claude Code CLI -> Anthropic SDK
- *     -> POST http://litellm.platform.svc:4000/v1/messages
- *     -> LiteLLM routes by model name prefix (anthropic/, ollama/, vllm/, bedrock/)
- *
- * Multi-turn conversation is maintained via the SDK's session management:
- *   - Aviary session_id is passed directly as CLI session_id
- *   - CLI stores conversation history at <workspace>/.claude/projects/...
- *   - Pod restart with same PVC: resume=<session_id> restores conversation
- *
- * Session isolation: each claude-agent-sdk subprocess runs inside a bubblewrap
- * sandbox where only its own workspace directory is visible. Other sessions'
- * directories don't exist in the mount namespace. See scripts/claude-sandbox.sh.
+ * The runtime is agent-agnostic: agent_id and session_id arrive in the request
+ * body and are used to scope on-disk paths via the single-PVC layout in
+ * constants.ts. All inference is routed through LiteLLM, and bubblewrap maps
+ * the per-(agent, session) directories onto /workspace inside the sandbox —
+ * see scripts/claude-sandbox.sh.
  */
 
 import * as fs from "node:fs";
@@ -22,9 +14,9 @@ import * as path from "node:path";
 import { query, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { startA2AServer, type AccessibleAgent, type A2AServer } from "./a2a-tools.js";
 import {
-  WORKSPACE_ROOT,
+  SANDBOX_WORKSPACE,
   sessionClaudeDir,
-  sessionHome,
+  sessionSharedDir,
   sessionTmp,
   sessionVenvDir,
 } from "./constants.js";
@@ -60,10 +52,21 @@ const PASSTHROUGH_KEYS = ["PATH"] as const;
 
 
 
+interface ModelConfig {
+  model?: string;
+  backend?: string;
+  max_output_tokens?: number;
+}
+
 interface AgentConfig {
+  agent_id: string;
+  slug?: string;
+  name?: string;
+  description?: string | null;
+  runtime_endpoint?: string | null;
+  model_config?: ModelConfig | null;
   instruction?: string;
   tools?: string[];
-  policy?: Record<string, unknown>;
   mcp_servers?: Record<string, unknown>;
   user_token?: string;
   user_external_id?: string;
@@ -72,15 +75,12 @@ interface AgentConfig {
   is_sub_agent?: boolean;
 }
 
-interface ModelConfig {
-  model?: string;
-  backend?: string;
-  max_output_tokens?: number;
-}
-
 const MCP_GATEWAY_URL = process.env.MCP_GATEWAY_URL;
 
-function buildMcpServers(agentConfig: AgentConfig): Record<string, any> | undefined {
+function buildMcpServers(
+  agentConfig: AgentConfig,
+  agentId: string,
+): Record<string, any> | undefined {
   const servers: Record<string, any> = {};
 
   // Legacy stdio servers from ConfigMap / API
@@ -89,9 +89,9 @@ function buildMcpServers(agentConfig: AgentConfig): Record<string, any> | undefi
   }
 
   // MCP Gateway — single HTTP endpoint for all platform-managed tools.
-  // URL comes from K8s env var; auth token comes from API per-request.
+  // URL comes from runtime env var; auth token comes from API per-request;
+  // agent_id is the per-request agent identity.
   if (MCP_GATEWAY_URL && agentConfig.user_token) {
-    const agentId = process.env.AGENT_ID || "";
     servers["gateway"] = {
       type: "http",
       url: `${MCP_GATEWAY_URL}/mcp/v1/${agentId}`,
@@ -201,25 +201,24 @@ function buildMessageContent(
 
 export async function* processMessage(
   sessionId: string,
-  agentId: string,
   contentParts: ContentPart[],
-  modelConfig: ModelConfig | null | undefined,
   agentConfig: AgentConfig,
   abortController?: AbortController,
   outputFormat?: { type: "json_schema"; schema: Record<string, unknown> },
 ): AsyncGenerator<SSEChunk> {
-  const home = sessionHome(sessionId);
-  const claudeDir = sessionClaudeDir(sessionId);
-  const tmpDir = sessionTmp(sessionId);
-  const venvDir = sessionVenvDir(sessionId);
-  fs.mkdirSync(home, { recursive: true });
+  const agentId = agentConfig.agent_id;
+  const shared = sessionSharedDir(sessionId);
+  const claudeDir = sessionClaudeDir(sessionId, agentId);
+  const tmpDir = sessionTmp(sessionId, agentId);
+  const venvDir = sessionVenvDir(sessionId, agentId);
+  fs.mkdirSync(shared, { recursive: true });
   fs.mkdirSync(claudeDir, { recursive: true });
   fs.mkdirSync(tmpDir, { recursive: true });
   fs.mkdirSync(path.dirname(venvDir), { recursive: true });
 
-  const mc: ModelConfig = modelConfig ?? {};
+  const mc: ModelConfig = agentConfig.model_config ?? {};
   if (!mc.model || !mc.backend) {
-    throw new Error("model_config.model and model_config.backend are required");
+    throw new Error("agent_config.model_config.model and .backend are required");
   }
   // Backend is the LiteLLM model-name prefix. If the stored model
   // already includes a prefix we use it verbatim, otherwise we join
@@ -234,7 +233,7 @@ export async function* processMessage(
     ...(agentConfig.user_token
       ? { ANTHROPIC_CUSTOM_HEADERS: `X-Aviary-User-Token: ${agentConfig.user_token}` }
       : {}),
-    SESSION_WORKSPACE: home,
+    SESSION_WORKSPACE: shared,
     SESSION_CLAUDE_DIR: claudeDir,
     SESSION_VENV_DIR: venvDir,
     SESSION_TMP: tmpDir,
@@ -262,7 +261,7 @@ export async function* processMessage(
   };
 
   // Build MCP servers (gateway + legacy)
-  const mcpServers: Record<string, any> = buildMcpServers(agentConfig) ?? {};
+  const mcpServers: Record<string, any> = buildMcpServers(agentConfig, agentId) ?? {};
 
   // A2A tools: start a local HTTP MCP server if accessible_agents is present and NOT a sub-agent.
   // Uses HTTP type (not SDK in-process type) so the CLI can reconnect on session resume.
@@ -271,10 +270,10 @@ export async function* processMessage(
   let a2aServer: A2AServer | null = null;
   const a2aToolNames: string[] = [];
 
-  if (accessibleAgents.length > 0 && !isSubAgent && agentConfig.user_external_id) {
+  if (accessibleAgents.length > 0 && !isSubAgent) {
     a2aServer = await startA2AServer(accessibleAgents, {
       sessionId,
-      userExternalId: agentConfig.user_external_id,
+      userToken: agentConfig.user_token,
     });
     mcpServers["a2a"] = { type: "http", url: a2aServer.url };
     a2aToolNames.push(...a2aServer.toolNames);
@@ -308,7 +307,7 @@ export async function* processMessage(
     model: resolvedModel,
     systemPrompt,
     settingSources: ["user"],
-    cwd: WORKSPACE_ROOT,
+    cwd: SANDBOX_WORKSPACE,
     pathToClaudeCodeExecutable: CLAUDE_CLI_PATH,
     permissionMode: "bypassPermissions" as const,
     allowedTools: allowedTools.length > 0 ? allowedTools : undefined,

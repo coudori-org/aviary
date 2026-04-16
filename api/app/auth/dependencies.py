@@ -1,3 +1,10 @@
+"""Auth dependencies — owner-only access model.
+
+Broader RBAC (teams, sharing, roles) will return when we redesign access
+control. For now, an agent/workflow/session is only accessible to its
+owner/creator.
+"""
+
 import uuid
 
 from fastapi import Cookie, Depends, HTTPException, status
@@ -10,13 +17,11 @@ from app.auth.session_store import (
     SessionData,
     get_fresh_session,
 )
-from app.db.models import User
+from app.db.models import Agent, User, Workflow
 from app.db.session import get_db
-from app.services.team_sync_service import sync_user_teams
 
 
 async def _upsert_user(db: AsyncSession, claims: TokenClaims) -> User:
-    """Create user on first login or update existing user info."""
     result = await db.execute(select(User).where(User.external_id == claims.sub))
     user = result.scalar_one_or_none()
 
@@ -28,14 +33,10 @@ async def _upsert_user(db: AsyncSession, claims: TokenClaims) -> User:
         )
         db.add(user)
         await db.flush()
-    else:
+    elif user.email != claims.email or user.display_name != claims.display_name:
         user.email = claims.email
         user.display_name = claims.display_name
         await db.flush()
-
-    # Sync OIDC groups → Aviary teams
-    if claims.groups is not None:
-        await sync_user_teams(db, user.id, claims.groups)
 
     return user
 
@@ -44,16 +45,10 @@ async def get_session_data(
     aviary_session: str | None = Cookie(default=None, alias=SESSION_COOKIE_NAME),
 ) -> SessionData:
     if not aviary_session:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Not authenticated",
-        )
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
     data = await get_fresh_session(aviary_session)
     if data is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Session expired",
-        )
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Session expired")
     return data
 
 
@@ -64,55 +59,43 @@ async def get_current_user(
     try:
         claims = await validate_token(session.access_token)
     except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=str(e),
-        ) from e
-
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(e)) from e
     return await _upsert_user(db, claims)
 
 
-def require_agent_permission(permission: str, include_deleted: bool = False):
-    """FastAPI dependency factory: fetch agent by ID, check ACL permission.
-
-    Usage: agent: Agent = Depends(require_agent_permission("view"))
-    """
-    from app.db.models import Agent
-    from app.services import acl_service, agent_service
-
+def require_agent_owner(include_deleted: bool = False):
+    """Fetch agent by path `agent_id` and 403 unless the caller owns it."""
     async def dependency(
         agent_id: uuid.UUID,
         user: User = Depends(get_current_user),
         db: AsyncSession = Depends(get_db),
     ) -> Agent:
-        agent = await agent_service.get_agent(db, agent_id, include_deleted=include_deleted)
+        stmt = select(Agent).where(Agent.id == agent_id)
+        if not include_deleted:
+            stmt = stmt.where(Agent.status != "deleted")
+        agent = (await db.execute(stmt)).scalar_one_or_none()
         if not agent:
             raise HTTPException(status_code=404, detail="Agent not found")
-        try:
-            await acl_service.check_agent_permission(db, user, agent, permission)
-        except PermissionError as e:
-            raise HTTPException(status_code=403, detail=str(e)) from e
+        if agent.owner_id != user.id:
+            raise HTTPException(status_code=403, detail="Not the owner of this agent")
         return agent
 
     return dependency
 
 
-def require_workflow_permission(permission: str):
-    from app.db.models import Workflow
-    from app.services import acl_service, workflow_service
-
+def require_workflow_owner():
     async def dependency(
         workflow_id: uuid.UUID,
         user: User = Depends(get_current_user),
         db: AsyncSession = Depends(get_db),
     ) -> Workflow:
-        workflow = await workflow_service.get_workflow(db, workflow_id)
+        workflow = (await db.execute(
+            select(Workflow).where(Workflow.id == workflow_id)
+        )).scalar_one_or_none()
         if not workflow:
             raise HTTPException(status_code=404, detail="Workflow not found")
-        try:
-            await acl_service.check_workflow_permission(db, user, workflow, permission)
-        except PermissionError as e:
-            raise HTTPException(status_code=403, detail=str(e)) from e
+        if workflow.owner_id != user.id:
+            raise HTTPException(status_code=403, detail="Not the owner of this workflow")
         return workflow
 
     return dependency

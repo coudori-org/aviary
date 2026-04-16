@@ -1,4 +1,4 @@
-"""Session, SessionParticipant, and Message models."""
+"""Session + Message — single-owner; participants will return under RBAC later."""
 
 from __future__ import annotations
 
@@ -21,16 +21,11 @@ class Session(Base):
     agent_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("agents.id"), nullable=False
     )
-    type: Mapped[str] = mapped_column(String(20), default="private", server_default="private")
     created_by: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id"), nullable=False
     )
-    team_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("teams.id"), nullable=True
-    )
     title: Mapped[str | None] = mapped_column(String(255), nullable=True)
     status: Mapped[str] = mapped_column(String(20), default="active", server_default="active")
-    pod_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     last_message_at: Mapped[datetime | None] = mapped_column(
         TIMESTAMP(timezone=True), nullable=True
     )
@@ -40,32 +35,9 @@ class Session(Base):
 
     agent: Mapped["Agent"] = relationship(back_populates="sessions")  # noqa: F821
     creator: Mapped["User"] = relationship(foreign_keys=[created_by])  # noqa: F821
-    participants: Mapped[list["SessionParticipant"]] = relationship(
-        back_populates="session", cascade="all, delete-orphan", passive_deletes=True,
-    )
     messages: Mapped[list["Message"]] = relationship(
         back_populates="session", cascade="all, delete-orphan", passive_deletes=True,
     )
-
-
-class SessionParticipant(Base):
-    __tablename__ = "session_participants"
-
-    session_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("sessions.id", ondelete="CASCADE"), primary_key=True
-    )
-    user_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
-    )
-    invited_by: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("users.id"), nullable=True
-    )
-    joined_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True), server_default=func.now()
-    )
-
-    session: Mapped["Session"] = relationship(back_populates="participants")
-    user: Mapped["User"] = relationship(foreign_keys=[user_id])  # noqa: F821
 
 
 class Message(Base):

@@ -16,19 +16,6 @@
       <div class="mono text-sm" style="word-break: break-all;">{{ user.external_id }}</div>
     </div>
     <div class="card" style="padding: 12px;">
-      <div class="text-sm text-dim">Teams</div>
-      <div>
-        {% for t in user.teams %}
-        <span class="badge">{{ t }}</span>
-        {% endfor %}
-        {% if not user.teams %}—{% endif %}
-      </div>
-    </div>
-    <div class="card" style="padding: 12px;">
-      <div class="text-sm text-dim">Admin</div>
-      <div>{% if user.is_platform_admin %}<span class="badge badge-active">Yes</span>{% else %}No{% endif %}</div>
-    </div>
-    <div class="card" style="padding: 12px;">
       <div class="text-sm text-dim">Created</div>
       <div class="text-sm">{{ user.created_at[:10] }}</div>
     </div>

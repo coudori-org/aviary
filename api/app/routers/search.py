@@ -1,13 +1,4 @@
-"""Search router — full-text search across messages the caller can access.
-
-Uses PostgreSQL `pg_trgm` GIN index on `messages.content` for fast
-ILIKE-based substring matching that handles Korean and other multi-byte
-content correctly. ACL is enforced by joining `session_participants`
-so only sessions the user has actually been invited to are searched.
-
-Snippets are computed in SQL to keep response size small — for messages
-longer than 200 chars, we slice a 200-char window centered on the match.
-"""
+"""Full-text search across the caller's own sessions."""
 
 import logging
 
@@ -24,15 +15,9 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# Hard cap on result count — no pagination in v1, just take the most recent N.
 MAX_RESULTS = 50
-
-# Snippet window length around the match (in characters)
 SNIPPET_LENGTH = 200
 SNIPPET_HALF = SNIPPET_LENGTH // 2
-
-# Minimum query length — single character searches return too much noise
-# and don't benefit from the trigram index (trigrams need 3+ chars).
 MIN_QUERY_LENGTH = 2
 
 
@@ -43,20 +28,11 @@ async def search_messages(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> MessageSearchResponse:
-    """Search messages by content substring, scoped to the caller's accessible sessions.
-
-    Returns the most recent N matches ordered by created_at DESC.
-    """
+    """Search messages by content substring across sessions the user owns."""
     query = q.strip()
     if len(query) < MIN_QUERY_LENGTH:
         return MessageSearchResponse(items=[], total=0)
 
-    # Single SQL query joins messages → sessions → agents and applies the
-    # ACL filter via session_participants. Snippet is sliced in SQL.
-    #
-    # Why raw SQL: the snippet expression and pg_trgm-friendly ILIKE are
-    # awkward to express via SQLAlchemy's expression language, and the
-    # query is read-only with no ORM mapping needed for the result rows.
     sql = text("""
         SELECT
             m.id AS message_id,
@@ -80,9 +56,8 @@ async def search_messages(
             m.created_at
         FROM messages m
         JOIN sessions s ON s.id = m.session_id
-        JOIN session_participants sp ON sp.session_id = s.id
         JOIN agents a ON a.id = s.agent_id
-        WHERE sp.user_id = :user_id
+        WHERE s.created_by = :user_id
           AND m.content ILIKE '%' || :q || '%'
         ORDER BY m.created_at DESC
         LIMIT :limit
@@ -98,8 +73,6 @@ async def search_messages(
             "snippet_half": SNIPPET_HALF,
         },
     )
-
     rows = result.mappings().all()
     items = [MessageSearchHit(**dict(row)) for row in rows]
-
     return MessageSearchResponse(items=items, total=len(items))

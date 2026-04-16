@@ -1,0 +1,11 @@
+# Local K3S overrides. hostGatewayIP is passed on the command line by
+# setup-dev.sh because docker-compose resolves it at runtime.
+
+externalServices:
+  enabled: true
+
+imageWarmer:
+  enabled: true
+
+sharedWorkspace:
+  hostPath: /var/lib/aviary-workspace

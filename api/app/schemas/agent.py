@@ -4,9 +4,7 @@ from pydantic import BaseModel, Field
 
 
 class ModelConfig(BaseModel):
-    # `backend` is opaque to the API server — it's passed through to
-    # LiteLLM as the model-name prefix. We don't enforce an allow-list
-    # here; LiteLLM will reject unknown backends at request time.
+    # `backend` is the LiteLLM model-name prefix; validated at request time by LiteLLM.
     backend: str = Field(..., min_length=1)
     model: str = Field(..., min_length=1)
     max_output_tokens: int | None = None
@@ -26,7 +24,6 @@ class AgentCreate(BaseModel):
     model_config_data: ModelConfig = Field(..., alias="model_config")
     tools: list[str] = []
     mcp_servers: list[McpServerConfig] = []
-    visibility: str = Field("private", pattern="^(public|team|private)$")
     category: str | None = None
     icon: str | None = None
 
@@ -40,7 +37,6 @@ class AgentUpdate(BaseModel):
     model_config_data: ModelConfig | None = Field(None, alias="model_config")
     tools: list[str] | None = None
     mcp_servers: list[McpServerConfig] | None = None
-    visibility: str | None = Field(None, pattern="^(public|team|private)$")
     category: str | None = None
     icon: str | None = None
 
@@ -59,7 +55,6 @@ class AgentResponse(BaseModel):
     model_config_data: dict = Field(alias="model_config")
     tools: list
     mcp_servers: list
-    visibility: str
     category: str | None = None
     icon: str | None = None
     status: str
@@ -78,7 +73,6 @@ class AgentResponse(BaseModel):
             model_config=agent.model_config_json,
             tools=agent.tools,
             mcp_servers=agent.mcp_servers,
-            visibility=agent.visibility,
             category=agent.category,
             icon=agent.icon,
             status=agent.status,
@@ -90,11 +84,3 @@ class AgentResponse(BaseModel):
 class AgentListResponse(BaseModel):
     items: list[AgentResponse]
     total: int
-
-
-class AccessibleAgent(BaseModel):
-    """Minimal agent info passed to runtime for A2A tool construction."""
-
-    slug: str
-    name: str
-    description: str | None = None

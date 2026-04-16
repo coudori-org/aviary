@@ -4,9 +4,7 @@ import os
 import uuid
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from unittest.mock import AsyncMock, patch
 
-import httpx
 import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
@@ -32,12 +30,10 @@ async def _noop_lifespan(app: FastAPI):
 
 
 def _create_test_app() -> FastAPI:
-    from app.routers import agents, deployments, policies
+    from app.routers import agents
 
     test_app = FastAPI(title="Aviary Admin Test", lifespan=_noop_lifespan)
     test_app.include_router(agents.router, prefix="/api/agents", tags=["agents"])
-    test_app.include_router(deployments.router, prefix="/api/agents", tags=["deployments"])
-    test_app.include_router(policies.router, prefix="/api/agents", tags=["policies"])
 
     @test_app.get("/health")
     async def health():
@@ -74,12 +70,7 @@ async def _ensure_test_db():
     _db_initialized = True
 
 
-_TABLES = [
-    "messages", "session_participants", "sessions",
-    "agent_credentials", "agent_acl", "agents",
-    "team_members", "teams", "users",
-    "service_accounts",
-]
+_TABLES = ["messages", "sessions", "agents", "users"]
 
 
 @pytest.fixture(autouse=True)
@@ -87,39 +78,6 @@ async def clean_tables():
     async with engine.begin() as conn:
         await conn.execute(text(f"TRUNCATE {', '.join(_TABLES)} CASCADE"))
     yield
-
-
-@pytest.fixture(autouse=True)
-def _mock_supervisor_client():
-    """Stub out supervisor HTTP calls — the ServiceClient is never initialized in tests."""
-    targets = [
-        "ensure_agent",
-        "delete_agent",
-        "get_deployment_status",
-        "scale_deployment",
-        "scale_to_zero",
-        "rolling_restart",
-        "bind_identity",
-        "unbind_identity",
-        "get_pod_metrics",
-    ]
-    patchers = [
-        patch(f"app.services.supervisor_client.{name}", new_callable=AsyncMock)
-        for name in targets
-    ]
-    mocks = {name: p.start() for name, p in zip(targets, patchers)}
-
-    def _raise_404(*args, **kwargs):
-        req = httpx.Request("GET", "http://supervisor/test")
-        raise httpx.HTTPStatusError(
-            "Not Found", request=req, response=httpx.Response(404, request=req),
-        )
-
-    mocks["get_deployment_status"].side_effect = _raise_404
-    mocks["get_pod_metrics"].return_value = {"pods": []}
-    yield mocks
-    for p in patchers:
-        p.stop()
 
 
 async def _override_get_db() -> AsyncGenerator[AsyncSession, None]:
@@ -135,8 +93,6 @@ async def _override_get_db() -> AsyncGenerator[AsyncSession, None]:
 app.dependency_overrides[get_db] = _override_get_db
 
 
-# ── Client fixture ────────────────────────────────────────────
-
 @pytest.fixture
 def client() -> AsyncClient:
     """Admin console has no auth — just a plain HTTP client."""
@@ -145,8 +101,6 @@ def client() -> AsyncClient:
         base_url="http://test",
     )
 
-
-# ── Seed helpers ──────────────────────────────────────────────
 
 @pytest.fixture
 async def seed_agent() -> Agent:
@@ -170,7 +124,6 @@ async def seed_agent() -> Agent:
             model_config_json={"backend": "dummy-backend", "model": "dummy-model"},
             tools=["read_file"],
             mcp_servers=[],
-            visibility="public",
         )
         db.add(agent)
         await db.flush()

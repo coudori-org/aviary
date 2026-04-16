@@ -1,13 +1,16 @@
+"""Workflow CRUD — owner-only.
+
+The in-process execution engine is gone; run/version/execution state will
+be re-introduced once the Temporal worker wiring lands. Until then this
+module is a pure CRUD service over the Workflow DB row.
+"""
+
 import uuid
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
-from aviary_shared.db.models import (
-    Workflow, WorkflowACL, WorkflowRun, WorkflowNodeRun,
-    WorkflowVersion, TeamMember, User,
-)
+from app.db.models import User, Workflow
 from app.schemas.workflow import WorkflowCreate, WorkflowUpdate
 
 
@@ -21,7 +24,6 @@ async def create_workflow(db: AsyncSession, user: User, data: WorkflowCreate) ->
         slug=data.slug,
         description=data.description,
         owner_id=user.id,
-        visibility=data.visibility,
         model_config_json=data.model_config_data.model_dump(),
     )
     db.add(workflow)
@@ -29,55 +31,20 @@ async def create_workflow(db: AsyncSession, user: User, data: WorkflowCreate) ->
     return workflow
 
 
-async def get_workflow(
-    db: AsyncSession, workflow_id: uuid.UUID, include_deleted: bool = False
-) -> Workflow | None:
-    query = select(Workflow).where(Workflow.id == workflow_id)
-    if not include_deleted:
-        query = query.where(Workflow.status != "deleted")
-    result = await db.execute(query)
+async def get_workflow(db: AsyncSession, workflow_id: uuid.UUID) -> Workflow | None:
+    result = await db.execute(
+        select(Workflow).where(Workflow.id == workflow_id, Workflow.status != "deleted")
+    )
     return result.scalar_one_or_none()
 
 
 async def list_workflows_for_user(
     db: AsyncSession, user: User, offset: int = 0, limit: int = 50
 ) -> tuple[list[Workflow], int]:
-    team_ids_result = await db.execute(
-        select(TeamMember.team_id).where(TeamMember.user_id == user.id)
-    )
-    user_team_ids = [row[0] for row in team_ids_result.all()]
-
-    conditions = [
-        Workflow.owner_id == user.id,
-        Workflow.visibility == "public",
-    ]
-
-    conditions.append(
-        select(WorkflowACL.id).where(
-            WorkflowACL.workflow_id == Workflow.id,
-            WorkflowACL.user_id == user.id,
-        ).exists()
-    )
-
-    if user_team_ids:
-        conditions.append(
-            select(WorkflowACL.id).where(
-                WorkflowACL.workflow_id == Workflow.id,
-                WorkflowACL.team_id.in_(user_team_ids),
-            ).exists()
-        )
-        conditions.append(Workflow.visibility == "team")
-
     base_query = select(Workflow).where(
-        Workflow.status != "deleted",
-        or_(*conditions),
+        Workflow.status != "deleted", Workflow.owner_id == user.id,
     )
-
-    count_result = await db.execute(
-        select(func.count()).select_from(base_query.subquery())
-    )
-    total = count_result.scalar() or 0
-
+    total = (await db.execute(select(func.count()).select_from(base_query.subquery()))).scalar() or 0
     result = await db.execute(
         base_query.order_by(Workflow.created_at.desc()).offset(offset).limit(limit)
     )
@@ -93,35 +60,6 @@ async def update_workflow(db: AsyncSession, workflow: Workflow, data: WorkflowUp
         workflow.definition = data.definition
     if data.model_config_data is not None:
         workflow.model_config_json = data.model_config_data.model_dump()
-    if data.visibility is not None:
-        workflow.visibility = data.visibility
-
-    await db.flush()
-    return workflow
-
-
-async def deploy_workflow(db: AsyncSession, workflow: Workflow, user: User) -> WorkflowVersion:
-    result = await db.execute(
-        select(func.coalesce(func.max(WorkflowVersion.version), 0))
-        .where(WorkflowVersion.workflow_id == workflow.id)
-    )
-    next_version = result.scalar() + 1
-
-    version = WorkflowVersion(
-        workflow_id=workflow.id,
-        version=next_version,
-        definition_snapshot=workflow.definition,
-        deployed_by=user.id,
-    )
-    db.add(version)
-
-    workflow.status = "active"
-    await db.flush()
-    return version
-
-
-async def edit_workflow(db: AsyncSession, workflow: Workflow) -> Workflow:
-    workflow.status = "draft"
     await db.flush()
     return workflow
 
@@ -129,40 +67,3 @@ async def edit_workflow(db: AsyncSession, workflow: Workflow) -> Workflow:
 async def delete_workflow(db: AsyncSession, workflow: Workflow) -> None:
     await db.delete(workflow)
     await db.flush()
-
-
-async def get_run(
-    db: AsyncSession, run_id: uuid.UUID, with_node_runs: bool = False
-) -> WorkflowRun | None:
-    query = select(WorkflowRun).where(WorkflowRun.id == run_id)
-    if with_node_runs:
-        query = query.options(selectinload(WorkflowRun.node_runs))
-    result = await db.execute(query)
-    return result.scalar_one_or_none()
-
-
-async def list_runs(
-    db: AsyncSession, workflow_id: uuid.UUID, offset: int = 0, limit: int = 50
-) -> tuple[list[WorkflowRun], int]:
-    base_query = select(WorkflowRun).where(WorkflowRun.workflow_id == workflow_id)
-
-    count_result = await db.execute(
-        select(func.count()).select_from(base_query.subquery())
-    )
-    total = count_result.scalar() or 0
-
-    result = await db.execute(
-        base_query.order_by(WorkflowRun.created_at.desc()).offset(offset).limit(limit)
-    )
-    return list(result.scalars().all()), total
-
-
-async def list_versions(
-    db: AsyncSession, workflow_id: uuid.UUID
-) -> list[WorkflowVersion]:
-    result = await db.execute(
-        select(WorkflowVersion)
-        .where(WorkflowVersion.workflow_id == workflow_id)
-        .order_by(WorkflowVersion.version.desc())
-    )
-    return list(result.scalars().all())

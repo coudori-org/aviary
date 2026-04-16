@@ -1,4 +1,7 @@
-"""MCP Gateway models — McpServer, McpTool, McpAgentToolBinding, McpToolAcl."""
+"""MCP Gateway models — server catalog, tool catalog, agent bindings.
+
+ACL has been removed alongside the broader visibility/team rollback; it will
+return under the re-designed RBAC system."""
 
 from __future__ import annotations
 
@@ -7,9 +10,7 @@ from datetime import datetime
 
 from sqlalchemy import (
     Boolean,
-    CheckConstraint,
     ForeignKey,
-    Index,
     String,
     Text,
     UniqueConstraint,
@@ -22,8 +23,6 @@ from aviary_shared.db.models.base import Base
 
 
 class McpServer(Base):
-    """Registered backend MCP server in the platform catalog."""
-
     __tablename__ = "mcp_servers"
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -47,14 +46,9 @@ class McpServer(Base):
     tools: Mapped[list["McpTool"]] = relationship(
         back_populates="server", cascade="all, delete-orphan", passive_deletes=True
     )
-    acl_entries: Mapped[list["McpToolAcl"]] = relationship(
-        back_populates="server", cascade="all, delete-orphan", passive_deletes=True
-    )
 
 
 class McpTool(Base):
-    """Auto-discovered tool from a backend MCP server."""
-
     __tablename__ = "mcp_tools"
     __table_args__ = (UniqueConstraint("server_id", "name", name="uq_mcp_tool_server_name"),)
 
@@ -73,14 +67,9 @@ class McpTool(Base):
     bindings: Mapped[list["McpAgentToolBinding"]] = relationship(
         back_populates="tool", cascade="all, delete-orphan", passive_deletes=True
     )
-    acl_entries: Mapped[list["McpToolAcl"]] = relationship(
-        back_populates="tool", cascade="all, delete-orphan", passive_deletes=True
-    )
 
 
 class McpAgentToolBinding(Base):
-    """Binds an MCP tool to an agent."""
-
     __tablename__ = "mcp_agent_tool_bindings"
     __table_args__ = (UniqueConstraint("agent_id", "tool_id", name="uq_mcp_binding_agent_tool"),)
 
@@ -96,39 +85,3 @@ class McpAgentToolBinding(Base):
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=func.now())
 
     tool: Mapped["McpTool"] = relationship(back_populates="bindings")
-
-
-class McpToolAcl(Base):
-    """ACL rule for MCP tool access. Default-deny: no rule = no access."""
-
-    __tablename__ = "mcp_tool_acl"
-    __table_args__ = (
-        CheckConstraint(
-            "(user_id IS NOT NULL AND team_id IS NULL) OR (user_id IS NULL AND team_id IS NOT NULL)",
-            name="mcp_acl_grantee",
-        ),
-        UniqueConstraint("server_id", "tool_id", "user_id", name="uq_mcp_acl_user"),
-        UniqueConstraint("server_id", "tool_id", "team_id", name="uq_mcp_acl_team"),
-        Index("idx_mcp_acl_server", "server_id"),
-    )
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, server_default=func.gen_random_uuid()
-    )
-    server_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("mcp_servers.id", ondelete="CASCADE"), nullable=False
-    )
-    tool_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("mcp_tools.id", ondelete="CASCADE"), nullable=True
-    )
-    user_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=True
-    )
-    team_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("teams.id", ondelete="CASCADE"), nullable=True
-    )
-    permission: Mapped[str] = mapped_column(String(20), nullable=False, default="use", server_default="use")
-    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=func.now())
-
-    server: Mapped["McpServer"] = relationship(back_populates="acl_entries")
-    tool: Mapped["McpTool | None"] = relationship(back_populates="acl_entries")

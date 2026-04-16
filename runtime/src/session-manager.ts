@@ -1,28 +1,26 @@
 /**
- * Session registry + per-session mutex for the agent runtime.
+ * Session registry + per-(session, agent) mutex for the agent runtime.
  *
- * No hard concurrency cap — KEDA (on the supervisor side) triggers pod
- * scale-up when average active sessions per pod exceeds its target.
- * Transient overshoot during scale-up is accepted; new pods absorb
- * the next batch of sessions as they become Ready.
+ * No concurrency cap — scaling is an infra-level concern. The runtime accepts
+ * every request it receives.
  */
 
 import * as fs from "node:fs";
 import * as path from "node:path";
 import {
-  SHARED_WORKSPACE_ROOT,
   WORKSPACE_ROOT,
   sessionClaudeDir,
-  sessionHome,
+  sessionSharedDir,
   sessionTmp,
   sessionVenvDir,
 } from "./constants.js";
 
-export { WORKSPACE_ROOT, SHARED_WORKSPACE_ROOT };
+export { WORKSPACE_ROOT };
 
 export interface SessionEntry {
   sessionId: string;
-  workspace: string;
+  agentId: string;
+  sharedDir: string;
   createdAt: number;
   /** Simple mutex: resolves when the lock is released. */
   _lock: {
@@ -30,7 +28,6 @@ export interface SessionEntry {
   };
 }
 
-/** Creates a simple async mutex. */
 function createMutex() {
   let _queue: Array<() => void> = [];
   let _locked = false;
@@ -56,6 +53,10 @@ function createMutex() {
   };
 }
 
+function entryKey(sessionId: string, agentId: string): string {
+  return `${sessionId}/${agentId}`;
+}
+
 export class SessionManager {
   private _sessions = new Map<string, SessionEntry>();
 
@@ -64,20 +65,21 @@ export class SessionManager {
   }
 
   getOrCreate(sessionId: string, agentId: string): SessionEntry {
-    const key = `${sessionId}/${agentId}`;
+    const key = entryKey(sessionId, agentId);
     const existing = this._sessions.get(key);
     if (existing) return existing;
 
-    const home = sessionHome(sessionId);
-    fs.mkdirSync(home, { recursive: true });
-    fs.mkdirSync(sessionClaudeDir(sessionId), { recursive: true });
-    fs.mkdirSync(sessionTmp(sessionId), { recursive: true });
+    const shared = sessionSharedDir(sessionId);
+    fs.mkdirSync(shared, { recursive: true });
+    fs.mkdirSync(sessionClaudeDir(sessionId, agentId), { recursive: true });
+    fs.mkdirSync(sessionTmp(sessionId, agentId), { recursive: true });
     // venv parent only — claude-sandbox.sh creates the venv itself.
-    fs.mkdirSync(path.dirname(sessionVenvDir(sessionId)), { recursive: true });
+    fs.mkdirSync(path.dirname(sessionVenvDir(sessionId, agentId)), { recursive: true });
 
     const entry: SessionEntry = {
       sessionId,
-      workspace: home,
+      agentId,
+      sharedDir: shared,
       createdAt: Date.now() / 1000,
       _lock: createMutex(),
     };
@@ -86,23 +88,31 @@ export class SessionManager {
   }
 
   get(sessionId: string, agentId: string): SessionEntry | undefined {
-    return this._sessions.get(`${sessionId}/${agentId}`);
+    return this._sessions.get(entryKey(sessionId, agentId));
   }
 
   remove(sessionId: string, agentId: string, cleanupFiles = false): boolean {
-    const key = `${sessionId}/${agentId}`;
+    const key = entryKey(sessionId, agentId);
     const entry = this._sessions.get(key);
     if (!entry) return false;
     this._sessions.delete(key);
-    if (cleanupFiles && fs.existsSync(entry.workspace)) {
-      fs.rmSync(entry.workspace, { recursive: true, force: true });
+    if (cleanupFiles) {
+      const claude = sessionClaudeDir(sessionId, agentId);
+      const venv = sessionVenvDir(sessionId, agentId);
+      const tmp = sessionTmp(sessionId, agentId);
+      for (const p of [claude, venv, tmp]) {
+        if (fs.existsSync(p)) {
+          fs.rmSync(p, { recursive: true, force: true });
+        }
+      }
     }
     return true;
   }
 
-  listSessions(): Array<{ session_id: string; created_at: number }> {
+  listSessions(): Array<{ session_id: string; agent_id: string; created_at: number }> {
     return Array.from(this._sessions.values()).map((e) => ({
       session_id: e.sessionId,
+      agent_id: e.agentId,
       created_at: e.createdAt,
     }));
   }

@@ -5,7 +5,6 @@ import { usePathname } from "next/navigation";
 import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { ChevronRight, Plus } from "@/components/icons";
 import { Spinner } from "@/components/ui/spinner";
-import { useAgentStatus } from "@/features/layout/providers/agent-status-provider";
 import { useSidebar } from "@/features/layout/providers/sidebar-provider";
 import { useCreateSession } from "@/features/agents/hooks/use-create-session";
 import { SortableSessionItem } from "./sortable-session-item";
@@ -25,7 +24,7 @@ interface SidebarAgentGroupProps {
  *   - chevron toggle (collapse/expand the nested session list)
  *   - agent icon + name (links to detail page)
  *   - hover-revealed `+` button (start new chat)
- *   - readiness dot OR "deleted" tag
+ *   - "deleted" tag for soft-deleted agents
  *
  * Collapsed state is per-agent, persisted via SidebarProvider's
  * `collapsedAgents` Set in localStorage. The chevron sits on the LEFT
@@ -38,7 +37,6 @@ interface SidebarAgentGroupProps {
 export function SidebarAgentGroup({ agent, sessions }: SidebarAgentGroupProps) {
   const pathname = usePathname();
   const isActive = pathname.startsWith(`/agents/${agent.id}`);
-  const readiness = useAgentStatus(agent.id);
   const isDeleted = agent.status === "deleted";
   const { createAndNavigate, creating } = useCreateSession(agent.id);
   const { collapsedAgents, toggleAgentCollapsed } = useSidebar();
@@ -112,17 +110,8 @@ export function SidebarAgentGroup({ agent, sessions }: SidebarAgentGroupProps) {
           </button>
         )}
 
-        {isDeleted ? (
+        {isDeleted && (
           <span className="shrink-0 text-[9px] text-danger/60">deleted</span>
-        ) : (
-          <span
-            className={cn(
-              "h-1.5 w-1.5 shrink-0 rounded-full",
-              readiness === "ready" ? "bg-success" : "bg-fg-disabled/50",
-            )}
-            title={readiness === "ready" ? "Agent ready" : "Agent offline"}
-            aria-label={readiness === "ready" ? "Agent ready" : "Agent offline"}
-          />
         )}
       </Link>
 

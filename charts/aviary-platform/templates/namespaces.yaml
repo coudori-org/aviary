@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ include "aviary-platform.platformNamespace" . }}
+  labels:
+    aviary/namespace: platform
+    aviary/managed: "true"
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ include "aviary-platform.agentsNamespace" . }}
+  labels:
+    aviary/namespace: agents
+    aviary/managed: "true"

@@ -1,0 +1,6 @@
+name: default
+
+replicas: 1
+
+image:
+  pullPolicy: Never

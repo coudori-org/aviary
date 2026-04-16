@@ -1,10 +1,9 @@
 import os
 
-os.environ.setdefault("BACKEND_KIND", "k3s")
-os.environ.setdefault("HOST_GATEWAY_IP", "127.0.0.1")
-os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/dummy")
-os.environ.setdefault("INFERENCE_ROUTER_URL", "http://litellm:4000")
-os.environ.setdefault("MCP_GATEWAY_URL", "http://mcp-gateway:8100")
-os.environ.setdefault("LITELLM_API_KEY", "sk-test")
-os.environ.setdefault("AVIARY_API_URL", "http://api:8000")
-os.environ.setdefault("INTERNAL_API_KEY", "internal-test")
+os.environ.setdefault("SUPERVISOR_DEFAULT_RUNTIME_ENDPOINT", "http://aviary-env-default.agents.svc:3000")
+os.environ.setdefault("REDIS_URL", "redis://localhost:6379/0")
+os.environ.setdefault("METRICS_ENABLED", "true")
+os.environ.setdefault("OIDC_ISSUER", "http://localhost:8080/realms/aviary")
+os.environ.setdefault("OIDC_INTERNAL_ISSUER", "http://keycloak:8080/realms/aviary")
+os.environ.setdefault("VAULT_ADDR", "http://localhost:8200")
+os.environ.setdefault("VAULT_TOKEN", "dev-root-token")
