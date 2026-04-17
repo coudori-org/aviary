@@ -14,7 +14,7 @@ from datetime import timedelta
 
 from temporalio import workflow
 from temporalio.common import RetryPolicy
-from temporalio.exceptions import ActivityError
+from temporalio.exceptions import ActivityError, CancelledError as TemporalCancelledError
 
 with workflow.unsafe.imports_passed_through():
     from aviary_shared.workflow_types import WorkflowRunInput, WorkflowRunResult
@@ -152,6 +152,17 @@ class WorkflowRunWorkflow:
                 )
                 continue
             except ActivityError as e:
+                # Activity-level cancellation surfaces here (not as
+                # asyncio.CancelledError) because Temporal wraps the
+                # activity's CancelledError. Treat the node as skipped and
+                # let the outer loop finish with "cancelled".
+                if isinstance(e.cause, (asyncio.CancelledError, TemporalCancelledError)):
+                    await workflow.execute_activity(
+                        set_node_status,
+                        args=[inp.run_id, node.id, node.type, "skipped", None, None, None],
+                        start_to_close_timeout=_ACT_TIMEOUT,
+                    )
+                    continue
                 # Temporal wraps the real exception — unwrap so the UI sees
                 # "Claude Code process exited with code 1" rather than the
                 # generic "Activity task failed".

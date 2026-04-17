@@ -84,7 +84,10 @@ async def run_agent_step_activity(
     trigger_data: dict,
     inputs: dict,
 ) -> dict:
-    wf_session_id = f"wf:{run_id}"
+    # Claude CLI requires session_id to be a valid UUID. run_id already is
+    # one, so reuse it directly — the workflow run and its sole Claude
+    # session share a namespace.
+    wf_session_id = run_id
 
     prompt_tpl = data.get("prompt_template") or ""
     rendered_prompt = _jinja.from_string(prompt_tpl).render(
