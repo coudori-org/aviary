@@ -9,7 +9,13 @@ import logging
 from temporalio.client import Client
 from temporalio.worker import Worker
 
-from worker.activities.persistence import set_run_status
+from worker.activities.nodes import (
+    evaluate_condition_activity,
+    merge_activity,
+    parse_payload_activity,
+    render_template_activity,
+)
+from worker.activities.persistence import set_node_status, set_run_status
 from worker.config import settings
 from worker.workflows.workflow_run import WorkflowRunWorkflow
 
@@ -32,7 +38,14 @@ async def main() -> None:
         client,
         task_queue=settings.temporal_task_queue,
         workflows=[WorkflowRunWorkflow],
-        activities=[set_run_status],
+        activities=[
+            set_run_status,
+            set_node_status,
+            render_template_activity,
+            evaluate_condition_activity,
+            parse_payload_activity,
+            merge_activity,
+        ],
     )
     logger.info("Worker ready on task_queue=%s", settings.temporal_task_queue)
     await worker.run()
