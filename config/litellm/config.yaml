@@ -40,6 +40,21 @@ model_list:
       max_output_tokens: 32768
       max_tokens: 32000
       _ui:
+        capabilities:
+          - vision
+          - tools
+          - thinking
+
+  - model_name: "local/vllm/qwen3.6-35b"
+    litellm_params:
+      model: "anthropic/vllm/qwen3.6-35b"
+      api_base: "http://host.docker.internal:9292"
+      api_key: "none"
+    model_info:
+      max_input_tokens: 100000
+      max_output_tokens: 32768
+      max_tokens: 32000
+      _ui:
         default_model: true
         capabilities:
           - vision

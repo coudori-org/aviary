@@ -4,40 +4,32 @@ logLevel: info
 models:
   "llamacpp/gemma4-26b":
     cmd: |
-      llama-server
-      --hf-repo unsloth/gemma-4-26B-A4B-it-GGUF
-      --hf-file gemma-4-26B-A4B-it-UD-Q4_K_M.gguf
-      --port ${PORT}
-      --ctx-size 131072
-      -ngl 99 -fa on --jinja
+      llama-server \
+      --hf-repo unsloth/gemma-4-26B-A4B-it-GGUF \
+      --hf-file gemma-4-26B-A4B-it-UD-Q4_K_M.gguf \
+      --port ${PORT} \
+      --ctx-size 131072 \
+      -ngl 99 -fa on --jinja \
       -np 1 -ctk q8_0 -ctv q8_0
     concurrencyLimit: 8
   
-  # "vllm/gemma4-26b":
-  #   cmd: |
-  #     docker run --rm \
-  #       --name vllm-gemma4-26b \
-  #       --gpus all \
-  #       --network host \
-  #       --shm-size 32G \
-  #       -e PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
-  #       -e NVIDIA_VISIBLE_DEVICES=all \
-  #       -e NVIDIA_DRIVER_CAPABILITIES=compute,utility \
-  #       -e HF_TOKEN=${env.HF_TOKEN} \
-  #       -e VLLM_SLEEP_WHEN_IDLE=1 \
-  #       -v ${env.HOME}/.cache/huggingface:/root/.cache/huggingface \
-  #       "vllm/vllm-openai:gemma4-cu130" \
-  #       --model lcu0312/gemma-4-26B-A4B-it-AWQ-4bit \
-  #       --tensor-parallel-size 1 \
-  #       --gpu-memory-utilization 0.90 \
-  #       --max-num-seqs 4 \
-  #       --max-model-len 16384 \
-  #       --reasoning-parser gemma4  \
-  #       --tool-call-parser gemma4  \
-  #       --enable-auto-tool-choice \
-  #       --async-scheduling \
-  #       --kv-cache-dtype fp8 \
-  #       --host 0.0.0.0 \
-  #       --port ${PORT}
-  #   cmdStop: |
-  #     docker stop vllm-gemma4-26b-${PORT} || true
+  "vllm/qwen3.6-35b":
+    cmd: |
+      docker run --rm \
+      --name vllm-qwen3.6-35b \
+      --gpus all \
+      -p ${PORT}:${PORT} \
+      --shm-size 16G \
+      -e HF_TOKEN=${env.HF_TOKEN} \
+      -e VLLM_SLEEP_WHEN_IDLE=1 \
+      -e VLLM_USE_DEEP_GEMM=0 \
+      -e VLLM_USE_FLASHINFER_MOE_FP16=1 \
+      -e VLLM_USE_FLASHINFER_SAMPLER=0 \
+      -e OMP_NUM_THREADS=4 \
+      -v ${env.HOME}/.cache/huggingface:/root/.cache/huggingface \
+      --entrypoint bash \
+      vllm/vllm-openai:cu130-nightly \
+      -c "pip install -q pandas && exec vllm serve QuantTrio/Qwen3.6-35B-A3B-AWQ --served-model-name vllm/qwen3.6-35b --max-num-seqs 4 --max-model-len 100000 --gpu-memory-utilization 0.92 --tensor-parallel-size 1 --enable-auto-tool-choice --tool-call-parser qwen3_coder --reasoning-parser qwen3 --speculative-config '{\"method\":\"qwen3_next_mtp\",\"num_speculative_tokens\":2}' --host 0.0.0.0 --port ${PORT}"
+    cmdStop: |
+      docker stop vllm-qwen3.6-35b || true
+    concurrencyLimit: 32
