@@ -127,6 +127,24 @@ def _mock_agent_supervisor():
         p.stop()
 
 
+@pytest.fixture(autouse=True)
+def _mock_temporal_client():
+    """Stub out Temporal — tests never talk to a real Temporal server."""
+    p_start = patch(
+        "app.services.temporal_client.start_workflow_run",
+        new_callable=AsyncMock, return_value="temporal-run-id-stub",
+    )
+    p_cancel = patch(
+        "app.services.temporal_client.cancel_workflow_run",
+        new_callable=AsyncMock,
+    )
+    p_start.start()
+    p_cancel.start()
+    yield
+    p_start.stop()
+    p_cancel.stop()
+
+
 async def _override_get_db() -> AsyncGenerator[AsyncSession, None]:
     async with test_session_factory() as session:
         try:

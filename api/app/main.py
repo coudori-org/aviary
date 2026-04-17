@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.auth.oidc import init_oidc
 from app.config import settings
 from app.routers import agents, auth, catalog, inference, mcp, search, sessions, uploads, workflows
-from app.services import agent_supervisor
+from app.services import agent_supervisor, temporal_client
 from app.services.redis_service import close_redis, get_client, init_redis
 
 logger = logging.getLogger(__name__)
@@ -20,10 +20,12 @@ async def lifespan(app: FastAPI):
     await init_oidc()
     await init_redis()
     await agent_supervisor.init_client()
+    await temporal_client.init_client()
 
     yield
 
     # Shutdown
+    await temporal_client.close_client()
     await agent_supervisor.close_client()
     await close_redis()
 

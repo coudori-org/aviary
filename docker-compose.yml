@@ -371,12 +371,17 @@ services:
       MCP_GATEWAY_URL: http://mcp-gateway:8100
       INTERNAL_API_KEY: sk-aviary-internal
       CORS_ORIGINS: '["http://localhost:3000"]'
+      TEMPORAL_HOST: temporal:7233
+      TEMPORAL_NAMESPACE: default
+      TEMPORAL_TASK_QUEUE: aviary-workflows
     depends_on:
       db-migrate:
         condition: service_completed_successfully
       redis:
         condition: service_healthy
       keycloak:
+        condition: service_healthy
+      temporal:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8000/api/health || exit 1"]

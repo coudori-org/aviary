@@ -83,3 +83,90 @@ async def test_versions_empty_for_never_deployed(user1_client: AsyncClient):
     resp = await user1_client.get(f"/api/workflows/{wf_id}/versions")
     assert resp.status_code == 200
     assert resp.json() == []
+
+
+# ── Runs ────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_trigger_draft_run_inserts_row_and_starts_workflow(user1_client: AsyncClient):
+    wf = await _create(user1_client, "wf-draftrun")
+    wf_id = wf["id"]
+
+    resp = await user1_client.post(
+        f"/api/workflows/{wf_id}/runs",
+        json={"run_type": "draft", "trigger_type": "manual", "trigger_data": {"hello": "world"}},
+    )
+    assert resp.status_code == 201, resp.text
+    run = resp.json()
+    assert run["run_type"] == "draft"
+    assert run["trigger_type"] == "manual"
+    assert run["trigger_data"] == {"hello": "world"}
+    assert run["status"] == "pending"
+    assert run["version_id"] is None
+
+
+@pytest.mark.asyncio
+async def test_trigger_deployed_run_without_version_returns_400(user1_client: AsyncClient):
+    wf = await _create(user1_client, "wf-noverrun")
+    wf_id = wf["id"]
+
+    resp = await user1_client.post(
+        f"/api/workflows/{wf_id}/runs",
+        json={"run_type": "deployed"},
+    )
+    assert resp.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_trigger_deployed_run_after_deploy(user1_client: AsyncClient):
+    wf = await _create(user1_client, "wf-deprun")
+    wf_id = wf["id"]
+    await user1_client.post(f"/api/workflows/{wf_id}/deploy")
+
+    resp = await user1_client.post(
+        f"/api/workflows/{wf_id}/runs",
+        json={"run_type": "deployed"},
+    )
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["version_id"] is not None
+
+
+@pytest.mark.asyncio
+async def test_list_runs_excludes_drafts_by_default(user1_client: AsyncClient):
+    wf = await _create(user1_client, "wf-listrun")
+    wf_id = wf["id"]
+    await user1_client.post(f"/api/workflows/{wf_id}/deploy")
+    # one draft + one deployed
+    await user1_client.post(f"/api/workflows/{wf_id}/runs", json={"run_type": "draft"})
+    await user1_client.post(f"/api/workflows/{wf_id}/runs", json={"run_type": "deployed"})
+
+    resp = await user1_client.get(f"/api/workflows/{wf_id}/runs")
+    data = resp.json()
+    assert data["total"] == 1
+    assert data["items"][0]["run_type"] == "deployed"
+
+    resp = await user1_client.get(f"/api/workflows/{wf_id}/runs?include_drafts=true")
+    data = resp.json()
+    assert data["total"] == 2
+
+
+@pytest.mark.asyncio
+async def test_cancel_run_returns_accepted(user1_client: AsyncClient):
+    wf = await _create(user1_client, "wf-cancelrun")
+    wf_id = wf["id"]
+    r = await user1_client.post(f"/api/workflows/{wf_id}/runs", json={"run_type": "draft"})
+    run_id = r.json()["id"]
+
+    resp = await user1_client.post(f"/api/workflows/{wf_id}/runs/{run_id}/cancel")
+    assert resp.status_code == 202
+
+
+@pytest.mark.asyncio
+async def test_non_owner_cannot_trigger_run(
+    user1_client: AsyncClient, user2_client: AsyncClient,
+):
+    wf = await _create(user1_client, "wf-runacl")
+    wf_id = wf["id"]
+    resp = await user2_client.post(f"/api/workflows/{wf_id}/runs", json={"run_type": "draft"})
+    assert resp.status_code == 403

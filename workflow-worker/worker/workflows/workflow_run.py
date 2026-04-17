@@ -7,26 +7,13 @@ and per-node activity dispatch.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from datetime import timedelta
 
 from temporalio import workflow
 
 with workflow.unsafe.imports_passed_through():
+    from aviary_shared.workflow_types import WorkflowRunInput, WorkflowRunResult
     from worker.activities.persistence import set_run_status
-
-
-@dataclass
-class WorkflowRunInput:
-    run_id: str                   # WorkflowRun.id (also = Temporal workflow_id)
-    owner_external_id: str        # OIDC sub — used by supervisor worker-auth path
-    definition_snapshot: dict     # React Flow graph to execute
-    trigger_data: dict
-
-
-@dataclass
-class WorkflowRunResult:
-    status: str   # "completed" | "cancelled" | "failed"
 
 
 @workflow.defn(name="WorkflowRun")

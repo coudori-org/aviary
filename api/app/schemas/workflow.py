@@ -78,3 +78,77 @@ class WorkflowVersionResponse(BaseModel):
             deployed_by=str(v.deployed_by),
             deployed_at=v.deployed_at,
         )
+
+
+class WorkflowRunCreate(BaseModel):
+    run_type: str = Field(default="deployed", pattern="^(draft|deployed)$")
+    trigger_type: str = Field(default="manual", pattern="^(manual|webhook|cron)$")
+    trigger_data: dict = Field(default_factory=dict)
+
+
+class WorkflowNodeRunResponse(BaseModel):
+    id: str
+    node_id: str
+    node_type: str
+    status: str
+    input_data: dict | None = None
+    output_data: dict | None = None
+    error: str | None = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+
+    @classmethod
+    def from_orm_node_run(cls, n) -> "WorkflowNodeRunResponse":
+        return cls(
+            id=str(n.id),
+            node_id=n.node_id,
+            node_type=n.node_type,
+            status=n.status,
+            input_data=n.input_data,
+            output_data=n.output_data,
+            error=n.error,
+            started_at=n.started_at,
+            completed_at=n.completed_at,
+        )
+
+
+class WorkflowRunResponse(BaseModel):
+    id: str
+    workflow_id: str
+    version_id: str | None = None
+    run_type: str
+    trigger_type: str
+    trigger_data: dict
+    triggered_by: str
+    status: str
+    error: str | None = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    created_at: datetime
+    node_runs: list[WorkflowNodeRunResponse] | None = None
+
+    @classmethod
+    def from_orm_run(cls, r, include_node_runs: bool = False) -> "WorkflowRunResponse":
+        return cls(
+            id=str(r.id),
+            workflow_id=str(r.workflow_id),
+            version_id=str(r.version_id) if r.version_id else None,
+            run_type=r.run_type,
+            trigger_type=r.trigger_type,
+            trigger_data=r.trigger_data or {},
+            triggered_by=str(r.triggered_by),
+            status=r.status,
+            error=r.error,
+            started_at=r.started_at,
+            completed_at=r.completed_at,
+            created_at=r.created_at,
+            node_runs=(
+                [WorkflowNodeRunResponse.from_orm_node_run(n) for n in r.node_runs]
+                if include_node_runs else None
+            ),
+        )
+
+
+class WorkflowRunListResponse(BaseModel):
+    items: list[WorkflowRunResponse]
+    total: int
