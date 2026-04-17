@@ -14,9 +14,13 @@ from typing import Any
 @dataclass
 class WorkflowRunInput:
     run_id: str                        # = Temporal workflow_id and WorkflowRun.id
-    owner_external_id: str             # OIDC sub — supervisor worker-auth uses this
+    owner_external_id: str             # OIDC sub — supervisor worker-auth fallback
     definition_snapshot: dict[str, Any]
     trigger_data: dict[str, Any] = field(default_factory=dict)
+    # JWT of the triggering user. Forwarded through supervisor → runtime →
+    # LiteLLM so per-user credential lookup works exactly as in chat.
+    # Unset for cron / webhook triggers (worker-auth fallback kicks in).
+    user_token: str | None = None
 
 
 @dataclass

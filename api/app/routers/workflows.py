@@ -9,9 +9,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSock
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth.dependencies import get_current_user, require_workflow_owner
+from app.auth.dependencies import get_current_user, get_session_data, require_workflow_owner
 from app.auth.oidc import validate_token
-from app.auth.session_store import SESSION_COOKIE_NAME, get_fresh_session
+from app.auth.session_store import SESSION_COOKIE_NAME, SessionData, get_fresh_session
 from app.config import settings
 from app.db.models import User, Workflow
 from app.db.session import async_session_factory, get_db
@@ -128,10 +128,13 @@ async def trigger_run(
     body: WorkflowRunCreate,
     workflow: Workflow = Depends(require_workflow_owner()),
     user: User = Depends(get_current_user),
+    session_data: SessionData = Depends(get_session_data),
     db: AsyncSession = Depends(get_db),
 ):
     try:
-        run = await workflow_run_service.create_run(db, workflow, user, body)
+        run = await workflow_run_service.create_run(
+            db, workflow, user, body, user_token=session_data.access_token,
+        )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
     return WorkflowRunResponse.from_orm_run(run)

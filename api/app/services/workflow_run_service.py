@@ -32,6 +32,7 @@ async def _latest_version(db: AsyncSession, workflow_id: uuid.UUID) -> WorkflowV
 
 async def create_run(
     db: AsyncSession, workflow: Workflow, user: User, body: WorkflowRunCreate,
+    user_token: str | None = None,
 ) -> WorkflowRun:
     """Insert the run row, hand off to Temporal, return the persisted row.
 
@@ -70,6 +71,7 @@ async def create_run(
             owner_external_id=user.external_id,
             definition_snapshot=definition_snapshot,
             trigger_data=body.trigger_data or {},
+            user_token=user_token,
         )
     )
     run.temporal_run_id = temporal_run_id

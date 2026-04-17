@@ -48,3 +48,12 @@ async def publish_event(run_id: str, event: dict) -> None:
         pipe.rpush(_replay_key(run_id), payload)
         pipe.expire(_replay_key(run_id), REPLAY_TTL_SECONDS)
         await pipe.execute()
+
+
+async def subscribe_session(session_id: str):
+    """Subscribe to the supervisor's session event channel. Agent Step
+    activity fans these events into the workflow run channel as node_log."""
+    cli = await _get_client()
+    ps = cli.pubsub()
+    await ps.subscribe(f"session:{session_id}:events")
+    return ps

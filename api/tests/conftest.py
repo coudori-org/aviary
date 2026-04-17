@@ -189,8 +189,9 @@ _TOKEN_CLAIMS: dict[str, TokenClaims] = {}
 
 
 def _setup_auth_override():
-    """Install a single get_current_user override that dispatches by Bearer token."""
-    from app.auth.dependencies import get_current_user, _upsert_user
+    """Install auth overrides keyed off the Bearer token header."""
+    from app.auth.dependencies import get_current_user, get_session_data, _upsert_user
+    from app.auth.session_store import SessionData
     from fastapi import Depends
     from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
     from sqlalchemy import select
@@ -210,7 +211,21 @@ def _setup_auth_override():
             result = await session.execute(select(User).where(User.id == user.id))
             return result.scalar_one()
 
+    async def _mock_get_session_data(
+        credentials: HTTPAuthorizationCredentials = Depends(security),
+    ) -> SessionData:
+        token = credentials.credentials
+        claims = _TOKEN_CLAIMS.get(token)
+        return SessionData(
+            user_external_id=claims.sub if claims else "unknown",
+            access_token=token,
+            refresh_token="test-refresh",
+            id_token=None,
+            access_token_expires_at=0,
+        )
+
     app.dependency_overrides[get_current_user] = _mock_get_current_user
+    app.dependency_overrides[get_session_data] = _mock_get_session_data
 
 
 _setup_auth_override()

@@ -11,9 +11,12 @@ from __future__ import annotations
 from datetime import timedelta
 
 from temporalio import workflow
+from temporalio.common import RetryPolicy
+from temporalio.exceptions import ActivityError
 
 with workflow.unsafe.imports_passed_through():
     from aviary_shared.workflow_types import WorkflowRunInput, WorkflowRunResult
+    from worker.activities.agent_step import run_agent_step_activity
     from worker.activities.nodes import (
         evaluate_condition_activity,
         merge_activity,
@@ -25,14 +28,15 @@ with workflow.unsafe.imports_passed_through():
 
 
 _ACT_TIMEOUT = timedelta(seconds=30)
+_AGENT_STEP_TIMEOUT = timedelta(minutes=30)  # LLM turns can run long
 _TRIGGER_TYPES = {"manual_trigger", "webhook_trigger"}
 
 
-async def _dispatch_node(node: PlanNode, inputs: dict, trigger_data: dict) -> dict:
+async def _dispatch_node(node: PlanNode, inputs: dict, inp: WorkflowRunInput) -> dict:
     """Map a node type to the activity that owns its side effects."""
     if node.type in _TRIGGER_TYPES:
-        return {"payload": trigger_data}
-    ctx = {"inputs": inputs, "trigger": trigger_data}
+        return {"payload": inp.trigger_data}
+    ctx = {"inputs": inputs, "trigger": inp.trigger_data}
     if node.type == "template":
         return await workflow.execute_activity(
             render_template_activity,
@@ -46,7 +50,7 @@ async def _dispatch_node(node: PlanNode, inputs: dict, trigger_data: dict) -> di
             start_to_close_timeout=_ACT_TIMEOUT,
         )
     if node.type == "payload_parser":
-        source = next(iter(inputs.values())) if inputs else trigger_data
+        source = next(iter(inputs.values())) if inputs else inp.trigger_data
         return await workflow.execute_activity(
             parse_payload_activity,
             args=[node.data.get("mapping", {}), source],
@@ -58,8 +62,19 @@ async def _dispatch_node(node: PlanNode, inputs: dict, trigger_data: dict) -> di
             start_to_close_timeout=_ACT_TIMEOUT,
         )
     if node.type == "agent_step":
-        # Phase 9 wires this to the supervisor.
-        raise RuntimeError("agent_step activity not implemented yet")
+        # LLM calls are non-deterministic — a failure usually means the model
+        # refused, an API key was missing, or the backend returned an error.
+        # Blindly retrying doubles cost without fixing anything, so we cap at
+        # one attempt and let the workflow fail fast.
+        return await workflow.execute_activity(
+            run_agent_step_activity,
+            args=[
+                inp.run_id, node.id, inp.owner_external_id, inp.user_token,
+                node.data, inp.trigger_data, inputs,
+            ],
+            start_to_close_timeout=_AGENT_STEP_TIMEOUT,
+            retry_policy=RetryPolicy(maximum_attempts=1),
+        )
     raise ValueError(f"Unknown node type: {node.type}")
 
 
@@ -110,9 +125,12 @@ class WorkflowRunWorkflow:
             )
 
             try:
-                output = await _dispatch_node(node, inputs, inp.trigger_data)
-            except Exception as e:  # noqa: BLE001 — surface to DB + WS
-                err = str(e)
+                output = await _dispatch_node(node, inputs, inp)
+            except ActivityError as e:
+                # Temporal wraps the real exception — unwrap so the UI sees
+                # "Claude Code process exited with code 1" rather than the
+                # generic "Activity task failed".
+                err = str(e.cause) if e.cause else str(e)
                 await workflow.execute_activity(
                     set_node_status,
                     args=[inp.run_id, node.id, node.type, "failed", None, None, err],

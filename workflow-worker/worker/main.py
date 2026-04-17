@@ -9,6 +9,7 @@ import logging
 from temporalio.client import Client
 from temporalio.worker import Worker
 
+from worker.activities.agent_step import run_agent_step_activity
 from worker.activities.nodes import (
     evaluate_condition_activity,
     merge_activity,
@@ -45,6 +46,7 @@ async def main() -> None:
             evaluate_condition_activity,
             parse_payload_activity,
             merge_activity,
+            run_agent_step_activity,
         ],
     )
     logger.info("Worker ready on task_queue=%s", settings.temporal_task_queue)
