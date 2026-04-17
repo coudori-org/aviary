@@ -20,7 +20,7 @@ class AgentCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
     slug: str = Field(..., min_length=1, max_length=255, pattern="^[a-z0-9][a-z0-9-]*[a-z0-9]$")
     description: str | None = None
-    instruction: str = Field(..., min_length=1)
+    instruction: str = ""
     model_config_data: ModelConfig = Field(..., alias="model_config")
     tools: list[str] = []
     mcp_servers: list[McpServerConfig] = []
@@ -33,7 +33,7 @@ class AgentCreate(BaseModel):
 class AgentUpdate(BaseModel):
     name: str | None = Field(None, min_length=1, max_length=255)
     description: str | None = None
-    instruction: str | None = Field(None, min_length=1)
+    instruction: str | None = None
     model_config_data: ModelConfig | None = Field(None, alias="model_config")
     tools: list[str] | None = None
     mcp_servers: list[McpServerConfig] | None = None

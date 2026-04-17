@@ -298,23 +298,14 @@ export async function* processMessage(
     a2aToolNames.push(...a2aServer.toolNames);
   }
 
-  // Build system prompt — use preset with append so SDK built-in tools
-  // (like Agent) also receive the instruction.
-  let appendPrompt = agentConfig.instruction || "";
+  let systemPrompt = agentConfig.instruction || "";
 
-  // Append sub-agent catalog (for main agents with A2A tools)
   if (a2aToolNames.length > 0) {
     const agentList = accessibleAgents
       .map((a) => `- @${a.slug}: ${a.description || a.name}`)
       .join("\n");
-    appendPrompt += `\n\n## Available Sub-Agents\nYou can delegate tasks to these agents using the corresponding mcp__a2a__ask_{slug} tool:\n${agentList}`;
+    systemPrompt += `\n\n## Available Sub-Agents\nYou can delegate tasks to these agents using the corresponding mcp__a2a__ask_{slug} tool:\n${agentList}`;
   }
-
-  const systemPrompt = {
-    type: "preset" as const,
-    preset: "claude_code" as const,
-    append: appendPrompt,
-  };
 
   // Merge allowed tools with A2A tool names
   const allowedTools = [

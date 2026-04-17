@@ -89,7 +89,7 @@ async def update_agent_config(
     db: AsyncSession = Depends(get_db),
     name: str = Form(...),
     description: str = Form(""),
-    instruction: str = Form(...),
+    instruction: str = Form(""),
     runtime_endpoint: str = Form(""),
 ):
     result = await db.execute(select(Agent).where(Agent.id == agent_id))

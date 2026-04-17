@@ -27,7 +27,6 @@ export function InstructionSection({ data, setField }: InstructionSectionProps) 
           placeholder="You are a helpful assistant that specializes in… (Type @ to reference another agent)"
           rows={8}
           className="font-mono type-code-sm"
-          required
         />
         <MentionAutocomplete
           textareaRef={ref}
