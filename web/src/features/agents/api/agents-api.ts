@@ -24,8 +24,6 @@ export interface AgentMutationData {
     max_output_tokens: number;
   };
   tools: string[];
-  visibility: string;
-  category: string;
 }
 
 export const agentsApi = {

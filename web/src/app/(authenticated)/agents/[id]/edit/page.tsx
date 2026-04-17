@@ -86,8 +86,6 @@ export default function EditAgentPage() {
             model_config: agent.model_config as AgentFormData["model_config"],
             tools: agent.tools as string[],
             mcp_tool_ids: existingToolIds,
-            visibility: agent.visibility,
-            category: agent.category || "",
           }}
           initialToolInfo={existingToolInfo}
           onSubmit={handleSubmit}

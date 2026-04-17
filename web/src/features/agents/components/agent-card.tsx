@@ -13,18 +13,6 @@ interface AgentCardProps {
   deleted?: boolean;
 }
 
-const VISIBILITY_VARIANTS: Record<Agent["visibility"], "success" | "warning" | "muted"> = {
-  public: "success",
-  team: "warning",
-  private: "muted",
-};
-
-const VISIBILITY_LABELS: Record<Agent["visibility"], string> = {
-  public: "Public",
-  team: "Team",
-  private: "Private",
-};
-
 /**
  * AgentCard — single tile in the agents grid.
  *
@@ -90,13 +78,7 @@ export function AgentCard({ agent, deleted }: AgentCardProps) {
             </div>
           </div>
 
-          {deleted ? (
-            <Badge variant="danger">Deleted</Badge>
-          ) : (
-            <Badge variant={VISIBILITY_VARIANTS[agent.visibility]}>
-              {VISIBILITY_LABELS[agent.visibility]}
-            </Badge>
-          )}
+          {deleted && <Badge variant="danger">Deleted</Badge>}
         </div>
 
         {/* Description */}
@@ -105,13 +87,7 @@ export function AgentCard({ agent, deleted }: AgentCardProps) {
         </p>
 
         {/* Footer */}
-        <div className="flex items-center justify-between gap-3 border-t border-white/[0.06] pt-3">
-          {agent.category ? (
-            <Badge variant="muted">{agent.category}</Badge>
-          ) : (
-            <span />
-          )}
-
+        <div className="flex items-center justify-end gap-3 border-t border-white/[0.06] pt-3">
           {deleted ? (
             <span className="type-caption text-fg-disabled">View sessions →</span>
           ) : (

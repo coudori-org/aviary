@@ -1,7 +1,7 @@
 """Agent catalog — owner-only for now. Public/team sharing returns with RBAC."""
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import distinct, func, or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import get_current_user
@@ -25,24 +25,6 @@ async def browse_catalog(
         items=[AgentResponse.from_orm_agent(a) for a in agents],
         total=total,
     )
-
-
-@router.get("/categories")
-async def list_categories(
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    result = await db.execute(
-        select(distinct(Agent.category))
-        .where(
-            Agent.status != "deleted",
-            Agent.category.is_not(None),
-            Agent.owner_id == user.id,
-        )
-        .order_by(Agent.category)
-    )
-    categories = [row[0] for row in result.all()]
-    return {"categories": categories}
 
 
 @router.get("/search", response_model=AgentListResponse)

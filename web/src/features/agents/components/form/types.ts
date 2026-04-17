@@ -14,8 +14,6 @@ export interface AgentFormData {
   };
   tools: string[];
   mcp_tool_ids: string[];
-  visibility: string;
-  category: string;
 }
 
 export const DEFAULT_AGENT_FORM_DATA: AgentFormData = {
@@ -28,10 +26,8 @@ export const DEFAULT_AGENT_FORM_DATA: AgentFormData = {
     // picks the first available backend if this is still empty.
     backend: "",
     model: "",
-    max_output_tokens: 4000,
+    max_output_tokens: 8000,
   },
   tools: [],
   mcp_tool_ids: [],
-  visibility: "private",
-  category: "",
 };

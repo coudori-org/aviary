@@ -15,7 +15,7 @@ interface AgentConfigGridProps {
  *
  * Four cards in a 2-column grid:
  *   1. Model         — backend, model id, max tokens
- *   2. Identity      — slug, visibility, status
+ *   2. Identity      — slug, status
  *   3. Instruction   — full-width, system instruction
  *   4. Tools         — full-width, built-in + MCP tools
  *
@@ -49,7 +49,6 @@ export function AgentConfigGrid({ agent, mcpTools }: AgentConfigGridProps) {
           </CardHeader>
           <CardContent className="space-y-3">
             <InfoRow label="Identifier" value={agent.slug} mono />
-            <InfoRow label="Visibility" value={agent.visibility} capitalize />
             <InfoRow label="Status" value={agent.status} capitalize />
           </CardContent>
         </Card>

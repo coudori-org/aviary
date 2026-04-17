@@ -80,7 +80,7 @@ export function ModelSection({ data, setModelConfig }: ModelSectionProps) {
   // Reset max_output_tokens to a sensible default when user manually changes models
   useEffect(() => {
     if (!userChangedModel) return;
-    setModelConfig("max_output_tokens", Math.min(4000, maxLimit));
+    setModelConfig("max_output_tokens", Math.min(8000, maxLimit));
   }, [data.model_config.model, maxLimit, userChangedModel, setModelConfig]);
 
   const currentTokens = Math.min(data.model_config.max_output_tokens, maxLimit);

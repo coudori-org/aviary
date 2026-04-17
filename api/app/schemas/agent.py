@@ -24,7 +24,6 @@ class AgentCreate(BaseModel):
     model_config_data: ModelConfig = Field(..., alias="model_config")
     tools: list[str] = []
     mcp_servers: list[McpServerConfig] = []
-    category: str | None = None
     icon: str | None = None
 
     model_config = {"populate_by_name": True}
@@ -37,7 +36,6 @@ class AgentUpdate(BaseModel):
     model_config_data: ModelConfig | None = Field(None, alias="model_config")
     tools: list[str] | None = None
     mcp_servers: list[McpServerConfig] | None = None
-    category: str | None = None
     icon: str | None = None
 
     model_config = {"populate_by_name": True}
@@ -55,7 +53,6 @@ class AgentResponse(BaseModel):
     model_config_data: dict = Field(alias="model_config")
     tools: list
     mcp_servers: list
-    category: str | None = None
     icon: str | None = None
     status: str
     created_at: datetime
@@ -73,7 +70,6 @@ class AgentResponse(BaseModel):
             model_config=agent.model_config_json,
             tools=agent.tools,
             mcp_servers=agent.mcp_servers,
-            category=agent.category,
             icon=agent.icon,
             status=agent.status,
             created_at=agent.created_at,

@@ -9,7 +9,6 @@ import { BasicInfoSection } from "./basic-info-section";
 import { InstructionSection } from "./instruction-section";
 import { ModelSection } from "./model-section";
 import { ToolsSection } from "./tools-section";
-import { AccessSection } from "./access-section";
 import type { AgentFormData } from "./types";
 import type { McpToolInfo } from "@/types";
 
@@ -63,7 +62,6 @@ export function AgentForm({ initialData, initialToolInfo, onSubmit, submitLabel 
         toolInfoMap={toolInfoMap}
         setToolInfoMap={setToolInfoMap}
       />
-      <AccessSection data={data} setField={setField} />
 
       <div className="flex items-center justify-end border-t border-white/[0.06] pt-6">
         <Button type="submit" disabled={submitting} variant="cta" size="lg">

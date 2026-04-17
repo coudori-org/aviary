@@ -32,7 +32,6 @@ class Agent(Base):
     tools: Mapped[list] = mapped_column(JSONB, server_default="[]")
     mcp_servers: Mapped[list] = mapped_column(JSONB, server_default="[]")
 
-    category: Mapped[str | None] = mapped_column(String(100), nullable=True)
     icon: Mapped[str | None] = mapped_column(String(50), nullable=True)
 
     # Optional per-agent runtime endpoint override. NULL → caller falls back to

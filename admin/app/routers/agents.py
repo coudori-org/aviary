@@ -28,7 +28,6 @@ class AgentResponse(BaseModel):
     model_config_data: dict
     tools: list
     mcp_servers: list
-    category: str | None = None
     icon: str | None = None
     runtime_endpoint: str | None = None
     status: str
@@ -47,7 +46,6 @@ class AgentResponse(BaseModel):
             model_config_data=agent.model_config_json,
             tools=agent.tools,
             mcp_servers=agent.mcp_servers,
-            category=agent.category,
             icon=agent.icon,
             runtime_endpoint=agent.runtime_endpoint,
             status=agent.status,
@@ -70,7 +68,6 @@ class AgentUpdateRequest(BaseModel):
     model_config_data: dict | None = Field(None, alias="model_config")
     tools: list[str] | None = None
     mcp_servers: list | None = None
-    category: str | None = None
     icon: str | None = None
     runtime_endpoint: str | None = None
 

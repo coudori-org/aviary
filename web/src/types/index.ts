@@ -35,8 +35,6 @@ export interface Agent {
   model_config: ModelConfig;
   tools: string[];
   mcp_servers: McpServer[];
-  visibility: "public" | "team" | "private";
-  category?: string;
   icon?: string;
   status: "active" | "disabled" | "deleted";
   created_at: string;
