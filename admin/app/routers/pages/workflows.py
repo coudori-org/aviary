@@ -1,10 +1,10 @@
-"""Workflow list, detail, and delete pages."""
+"""Workflow list, detail, update, and delete pages."""
 
 import math
 import uuid
 import logging
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -49,9 +49,43 @@ async def workflow_detail(
     if not workflow:
         return RedirectResponse("/workflows?error=Workflow+not+found", status_code=303)
 
+    flash = request.query_params.get("flash")
+    flash_data = None
+    if flash:
+        flash_data = {"type": "success", "message": flash}
+    error = request.query_params.get("error")
+    if error:
+        flash_data = {"type": "error", "message": error}
+
     return templates.TemplateResponse(request, "workflow_detail.html", {
         "workflow": workflow,
+        "flash": flash_data,
     })
+
+
+@router.post("/workflows/{workflow_id}/update")
+async def update_workflow_config(
+    workflow_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    name: str = Form(...),
+    description: str = Form(""),
+    runtime_endpoint: str = Form(""),
+):
+    result = await db.execute(select(Workflow).where(Workflow.id == workflow_id))
+    workflow = result.scalar_one_or_none()
+    if not workflow:
+        return RedirectResponse(
+            f"/workflows/{workflow_id}?error=Workflow+not+found", status_code=303,
+        )
+
+    workflow.name = name
+    workflow.description = description or None
+    workflow.runtime_endpoint = runtime_endpoint.strip() or None
+    await db.flush()
+
+    return RedirectResponse(
+        f"/workflows/{workflow_id}?flash=Configuration+saved", status_code=303,
+    )
 
 
 @router.post("/workflows/{workflow_id}/delete")

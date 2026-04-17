@@ -21,6 +21,9 @@ class WorkflowRunInput:
     # LiteLLM so per-user credential lookup works exactly as in chat.
     # Unset for cron / webhook triggers (worker-auth fallback kicks in).
     user_token: str | None = None
+    # Optional per-workflow runtime endpoint override. None → supervisor
+    # resolves to its configured default environment.
+    runtime_endpoint: str | None = None
 
 
 @dataclass

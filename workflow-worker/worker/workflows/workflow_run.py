@@ -113,7 +113,7 @@ async def _dispatch_node(node: PlanNode, inputs: dict, inp: WorkflowRunInput) ->
             run_agent_step_activity,
             args=[
                 inp.run_id, node.id, inp.owner_external_id, inp.user_token,
-                node.data, inp.trigger_data, inputs, single,
+                node.data, inp.trigger_data, inputs, single, inp.runtime_endpoint,
             ],
             start_to_close_timeout=_AGENT_STEP_TIMEOUT,
             heartbeat_timeout=timedelta(seconds=15),

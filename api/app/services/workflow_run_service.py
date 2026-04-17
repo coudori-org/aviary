@@ -72,6 +72,7 @@ async def create_run(
             definition_snapshot=definition_snapshot,
             trigger_data=body.trigger_data or {},
             user_token=user_token,
+            runtime_endpoint=workflow.runtime_endpoint,
         )
     )
     run.temporal_run_id = temporal_run_id

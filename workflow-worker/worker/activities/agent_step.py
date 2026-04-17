@@ -84,6 +84,7 @@ async def run_agent_step_activity(
     trigger_data: dict,
     inputs: dict,
     input_value,
+    runtime_endpoint: str | None = None,
 ) -> dict:
     # Claude CLI requires session_id to be a valid UUID. run_id already is
     # one, so reuse it directly — the workflow run and its sole Claude
@@ -100,7 +101,7 @@ async def run_agent_step_activity(
         "content_parts": [{"text": rendered_prompt}],
         "agent_config": {
             "agent_id": f"wf:{run_id}:{node_id}",
-            "runtime_endpoint": None,
+            "runtime_endpoint": runtime_endpoint,
             "model_config": data.get("model_config") or {},
             "instruction": data.get("instruction") or "",
             "tools": [],

@@ -38,6 +38,11 @@ class Workflow(Base):
         JSONB, nullable=False,
         server_default='{"nodes":[],"edges":[],"viewport":{"x":0,"y":0,"zoom":1}}',
     )
+
+    # Optional per-workflow runtime endpoint override. NULL → agent_step
+    # activities fall back to the supervisor's configured default env.
+    runtime_endpoint: Mapped[str | None] = mapped_column(String(512), nullable=True)
+
     status: Mapped[str] = mapped_column(String(20), default="draft", server_default="draft")
 
     created_at: Mapped[datetime] = mapped_column(

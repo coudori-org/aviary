@@ -1,5 +1,15 @@
 {% extends "base.html" %}
 {% block title %}{{ workflow.name }} — Aviary Admin{% endblock %}
+{% block flash %}
+{% if flash %}
+<div class="flash flash-{{ flash.type }}" onclick="this.remove()"
+  style="position: fixed; top: 72px; right: 12px; z-index: 1000; width: 360px; cursor: pointer; box-shadow: 0 4px 16px rgba(0,0,0,0.4);">
+  {{ flash.message }}
+  <span style="float: right; opacity: 0.5; margin-left: 12px;">✕</span>
+</div>
+<script>setTimeout(() => document.querySelector('.flash')?.remove(), 5000);</script>
+{% endif %}
+{% endblock %}
 {% block content %}
 <div class="breadcrumb">
   <a href="/workflows">Workflows</a>
@@ -14,12 +24,15 @@
   </div>
 </div>
 
+<!-- Status card -->
 <div class="form-row mb-4">
   <div class="card">
     <div class="card-header"><h3>Status</h3></div>
     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 13px;">
       <span class="text-muted">Workflow Status</span>
       <span class="badge badge-{{ workflow.status }}">{{ workflow.status }}</span>
+      <span class="text-muted">Runtime</span>
+      <span class="mono">{{ workflow.runtime_endpoint or 'default environment' }}</span>
       <span class="text-muted">Nodes</span>
       <span>{{ workflow.definition.nodes | length if workflow.definition and workflow.definition.nodes else 0 }}</span>
       <span class="text-muted">Created</span>
@@ -27,6 +40,32 @@
     </div>
   </div>
 </div>
+
+<!-- Workflow Config Form -->
+<form method="POST" action="/workflows/{{ workflow.id }}/update" onsubmit="return submitForm(this, 'Configuration saved')">
+  <div class="card">
+    <div class="card-header"><h2>Workflow Configuration</h2></div>
+    <div class="form-group">
+      <label>Name</label>
+      <input name="name" value="{{ workflow.name }}">
+    </div>
+    <div class="form-group">
+      <label>Description</label>
+      <input name="description" value="{{ workflow.description or '' }}">
+    </div>
+    <div class="form-group">
+      <label>Runtime Endpoint Override</label>
+      <input name="runtime_endpoint" value="{{ workflow.runtime_endpoint or '' }}"
+             placeholder="http://aviary-env-custom.agents.svc:3000">
+      <small class="text-muted">
+        Leave blank to use the default environment. Set this only when the
+        workflow's agent_step nodes need a dedicated runtime environment
+        (e.g. a Helm-provisioned custom env).
+      </small>
+    </div>
+    <button type="submit" class="btn btn-primary">Save Configuration</button>
+  </div>
+</form>
 
 <!-- Danger zone -->
 <div class="card" style="border-color: rgba(239,68,68,0.3);">
@@ -40,4 +79,44 @@
     </form>
   </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function showFlash(message, type, { autoDismiss = false } = {}) {
+  document.querySelector('.flash')?.remove();
+  const div = document.createElement('div');
+  div.className = `flash flash-${type}`;
+  div.style.cssText = 'position:fixed;top:72px;right:12px;z-index:1000;width:360px;cursor:pointer;box-shadow:0 4px 16px rgba(0,0,0,0.4);';
+  div.innerHTML = `${message}<span style="float:right;opacity:0.5;margin-left:12px;">✕</span>`;
+  div.onclick = () => div.remove();
+  document.body.appendChild(div);
+  if (autoDismiss) setTimeout(() => div.remove(), 5000);
+}
+
+function submitForm(form, successMsg) {
+  const btn = form.querySelector('button[type="submit"]');
+  const origText = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Saving...';
+  btn.style.opacity = '0.6';
+
+  fetch(form.action, { method: 'POST', body: new FormData(form), redirect: 'manual' })
+    .then(resp => {
+      if (resp.ok || resp.type === 'opaqueredirect' || resp.status === 303) {
+        showFlash(successMsg, 'success', { autoDismiss: true });
+      } else {
+        showFlash('Save failed', 'error');
+      }
+    })
+    .catch(e => showFlash('Save failed: ' + e.message, 'error'))
+    .finally(() => {
+      btn.disabled = false;
+      btn.textContent = origText;
+      btn.style.opacity = '';
+    });
+
+  return false;
+}
+</script>
 {% endblock %}

@@ -25,6 +25,7 @@ async def create_workflow(db: AsyncSession, user: User, data: WorkflowCreate) ->
         description=data.description,
         owner_id=user.id,
         model_config_json=data.model_config_data.model_dump(),
+        runtime_endpoint=data.runtime_endpoint or None,
     )
     db.add(workflow)
     await db.flush()
@@ -60,6 +61,10 @@ async def update_workflow(db: AsyncSession, workflow: Workflow, data: WorkflowUp
         workflow.definition = data.definition
     if data.model_config_data is not None:
         workflow.model_config_json = data.model_config_data.model_dump()
+    # Treat an explicitly-set empty string as a clear (NULL) so admin can
+    # revert a workflow back to the default environment.
+    if data.runtime_endpoint is not None:
+        workflow.runtime_endpoint = data.runtime_endpoint.strip() or None
     await db.flush()
     return workflow
 

@@ -10,6 +10,7 @@ class WorkflowCreate(BaseModel):
     slug: str = Field(..., min_length=1, max_length=255, pattern="^[a-z0-9][a-z0-9-]*[a-z0-9]$")
     description: str | None = None
     model_config_data: ModelConfig = Field(..., alias="model_config")
+    runtime_endpoint: str | None = Field(None, max_length=512)
 
     model_config = {"populate_by_name": True}
 
@@ -19,6 +20,7 @@ class WorkflowUpdate(BaseModel):
     description: str | None = None
     definition: dict | None = None
     model_config_data: ModelConfig | None = Field(None, alias="model_config")
+    runtime_endpoint: str | None = Field(None, max_length=512)
 
     model_config = {"populate_by_name": True}
 
@@ -33,6 +35,7 @@ class WorkflowResponse(BaseModel):
     owner_id: str
     definition: dict
     model_config_data: dict = Field(alias="model_config")
+    runtime_endpoint: str | None = None
     status: str
     current_version: int | None = None
     created_at: datetime
@@ -48,6 +51,7 @@ class WorkflowResponse(BaseModel):
             owner_id=str(workflow.owner_id),
             definition=workflow.definition,
             model_config=workflow.model_config_json or {},
+            runtime_endpoint=workflow.runtime_endpoint,
             status=workflow.status,
             current_version=current_version,
             created_at=workflow.created_at,
