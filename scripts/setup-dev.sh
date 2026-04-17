@@ -77,6 +77,11 @@ docker compose exec -T k8s kubectl -n agents rollout status deploy/aviary-env-cu
 echo " ready."
 
 echo "[6/6] Waiting for application services..."
+echo -n "  Temporal server..."
+until curl -sf http://localhost:8233 > /dev/null 2>&1; do
+  sleep 2
+done
+echo " ready."
 echo -n "  Agent supervisor..."
 until curl -sf http://localhost:9000/v1/health > /dev/null 2>&1; do
   sleep 2
@@ -111,6 +116,8 @@ echo "  Agent Supervisor:   http://localhost:9000"
 echo "  Supervisor metrics: http://localhost:9000/metrics"
 echo "  LiteLLM Gateway:    http://localhost:8090"
 echo "  MCP Gateway:        http://localhost:8100"
+echo "  Temporal UI:        http://localhost:8233"
+echo "  Temporal gRPC:      localhost:7233"
 echo ""
 echo "Runtime (K3s, Helm-managed):"
 echo "  Default environment (egress locked down, base image):  NodePort :30300"
