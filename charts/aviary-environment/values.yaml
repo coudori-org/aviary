@@ -19,8 +19,10 @@ image:
 
 runtime:
   port: 3000
-  inferenceRouterURL: "http://litellm.platform.svc:4000"
-  mcpGatewayURL: "http://mcp-gateway.platform.svc:8100"
+  # LiteLLM serves both inference (/v1/messages) and the aggregated MCP
+  # endpoint (/mcp). Per-user auth for MCP tool calls is handled by the
+  # `aviary_mcp_credentials` LiteLLM guardrail.
+  litellmURL: "http://litellm.platform.svc:4000"
   litellmAPIKey: "sk-aviary-dev"
   aviaryAPIURL: "http://host.k8s.internal:8000/api"
   internalAPIKey: "sk-aviary-internal"

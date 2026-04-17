@@ -118,10 +118,9 @@ aviary/
 ├── admin/                # Admin Console — operator-facing web UI (config + endpoint override)
 ├── web/                  # Web UI (Next.js)
 ├── runtime/              # Agent Runtime — agent-agnostic pool member
-├── shared/               # Shared package (OIDC, ACL, DB models)
-├── mcp-gateway/          # MCP tool catalog, ACL, and proxy
+├── shared/               # Shared package (OIDC, DB models)
 ├── agent-supervisor/     # Stateless SSE proxy + Redis publisher + /metrics
-├── mcp-servers/          # Platform-provided MCP server stubs
+├── mcp-servers/          # Platform-provided MCP server stubs (aggregated via LiteLLM /mcp)
 ├── charts/
 │   ├── aviary-platform/      # Namespaces, baseline egress, shared workspace PVC, image-warmer
 │   └── aviary-environment/   # One runtime environment (Deployment + Service + optional NP)

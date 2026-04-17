@@ -29,7 +29,7 @@ function requireEnv(name: string): string {
   return value;
 }
 
-const LITELLM_URL = requireEnv("INFERENCE_ROUTER_URL");
+const LITELLM_URL = requireEnv("LITELLM_URL");
 const LITELLM_API_KEY = requireEnv("LITELLM_API_KEY");
 
 // Force SDK to use our bwrap wrapper instead of its bundled binary.
@@ -75,11 +75,8 @@ interface AgentConfig {
   is_sub_agent?: boolean;
 }
 
-const MCP_GATEWAY_URL = process.env.MCP_GATEWAY_URL;
-
 function buildMcpServers(
   agentConfig: AgentConfig,
-  agentId: string,
 ): Record<string, any> | undefined {
   const servers: Record<string, any> = {};
 
@@ -88,13 +85,15 @@ function buildMcpServers(
     Object.assign(servers, agentConfig.mcp_servers);
   }
 
-  // MCP Gateway — single HTTP endpoint for all platform-managed tools.
-  // URL comes from runtime env var; auth token comes from API per-request;
-  // agent_id is the per-request agent identity.
-  if (MCP_GATEWAY_URL && agentConfig.user_token) {
+  // LiteLLM's aggregated MCP endpoint. Per-agent tool scoping is enforced
+  // via `allowedTools` (the API merges `mcp_agent_tool_bindings` into
+  // agent_config.tools); the `aviary_mcp_credentials` guardrail on LiteLLM
+  // validates the user JWT and injects per-user Vault secrets into the
+  // outbound `tools/call`.
+  if (agentConfig.user_token) {
     servers["gateway"] = {
       type: "http",
-      url: `${MCP_GATEWAY_URL}/mcp/v1/${agentId}`,
+      url: `${LITELLM_URL}/mcp`,
       headers: {
         Authorization: `Bearer ${agentConfig.user_token}`,
       },
@@ -261,7 +260,7 @@ export async function* processMessage(
   };
 
   // Build MCP servers (gateway + legacy)
-  const mcpServers: Record<string, any> = buildMcpServers(agentConfig, agentId) ?? {};
+  const mcpServers: Record<string, any> = buildMcpServers(agentConfig) ?? {};
 
   // A2A tools: start a local HTTP MCP server if accessible_agents is present and NOT a sub-agent.
   // Uses HTTP type (not SDK in-process type) so the CLI can reconnect on session resume.

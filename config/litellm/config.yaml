@@ -89,3 +89,33 @@ router_settings:
   enable_pre_call_checks: true
   default_litellm_params:
     max_tokens: 8000
+
+# --- MCP Aggregation ---
+# Backend MCP servers aggregated behind /mcp. Tool names are exposed as
+# `{alias}__{tool_name}` (separator forced via MCP_TOOL_PREFIX_SEPARATOR=__
+# on the litellm container) so Aviary's frontend and mcp_agent_tool_bindings
+# naming convention matches the wire format.
+mcp_servers:
+  jira:
+    transport: http
+    url: "http://mcp-jira:8000/mcp/"
+    description: "Jira project management — issues, sprints, transitions, search"
+    # Per-user access is enforced by the `aviary_mcp_credentials` hook
+    # (Keycloak JWT → Vault). LiteLLM's own virtual-key ACL is opened up
+    # (`allow_all_keys: true`) because callers arrive with raw IdP Bearer
+    # tokens, not LiteLLM virtual keys.
+    allow_all_keys: true
+  confluence:
+    transport: http
+    url: "http://mcp-confluence:8000/mcp/"
+    description: "Confluence wiki — pages, spaces, search, content management"
+    allow_all_keys: true
+
+# --- Guardrails ---
+# The MCP credential injection hook lives in
+# `config/litellm/patches/aviary_mcp_credentials.py` and is loaded via
+# the .pth file like `aviary_user_api_key.py`. The CustomLogger sees
+# `call_type=="call_mcp_tool"` requests, validates the caller's Keycloak
+# JWT, looks up per-user secrets in Vault, and fills them into the tool
+# arguments before the outbound `tools/call` leaves LiteLLM. Nothing to
+# declare here — registration happens on import.

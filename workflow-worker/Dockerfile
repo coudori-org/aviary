@@ -10,7 +10,6 @@ COPY shared/pyproject.toml ./shared/pyproject.toml
 COPY api/pyproject.toml ./api/pyproject.toml
 COPY admin/pyproject.toml ./admin/pyproject.toml
 COPY agent-supervisor/pyproject.toml ./agent-supervisor/pyproject.toml
-COPY mcp-gateway/pyproject.toml ./mcp-gateway/pyproject.toml
 COPY workflow-worker/pyproject.toml ./workflow-worker/pyproject.toml
 
 # Shared source needed for workspace install

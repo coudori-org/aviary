@@ -118,10 +118,9 @@ aviary/
 ├── admin/                # Admin 콘솔 — 운영자 대면 웹 UI (설정 + endpoint 오버라이드)
 ├── web/                  # Web UI (Next.js)
 ├── runtime/              # 에이전트 런타임 — agent-agnostic 풀 멤버
-├── shared/               # 공유 패키지 (OIDC, ACL, DB 모델)
-├── mcp-gateway/          # MCP 도구 카탈로그, ACL, 프록시
+├── shared/               # 공유 패키지 (OIDC, DB 모델)
 ├── agent-supervisor/     # Stateless SSE proxy + Redis publisher + /metrics
-├── mcp-servers/          # 플랫폼 제공 MCP 서버 스텁
+├── mcp-servers/          # 플랫폼 제공 MCP 서버 스텁 (LiteLLM /mcp로 집약)
 ├── charts/
 │   ├── aviary-platform/      # 네임스페이스, baseline egress, 공유 워크스페이스 PVC, image-warmer
 │   └── aviary-environment/   # 런타임 환경 1개 (Deployment + Service + 선택적 NP)

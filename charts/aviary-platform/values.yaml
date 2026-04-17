@@ -14,18 +14,14 @@ baselineEgress:
   enabled: true
   allowHostGatewayPorts:
     - 8000   # API
-    - 8090   # LiteLLM
-    - 8100   # MCP Gateway
+    - 8090   # LiteLLM (inference + aggregated MCP at /mcp)
     - 9000   # Agent Supervisor (A2A sub-agent invocations from runtime)
 
-# Dev-only: proxy docker-compose services (mcp-gateway, litellm, supervisor)
-# into the cluster via Service + Endpoints with the host gateway IP.
+# Dev-only: proxy docker-compose services (litellm, supervisor) into the
+# cluster via Service + Endpoints with the host gateway IP.
 externalServices:
   enabled: false
   services:
-    - name: mcp-gateway
-      clusterPort: 8100
-      hostPort: 8100
     - name: litellm
       clusterPort: 4000
       hostPort: 8090

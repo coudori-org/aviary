@@ -9,7 +9,7 @@ Multi-tenant AI agent platform. Users create/configure agents via Web UI; every 
 docker compose up -d      # Subsequent: just start services
 ```
 
-Services: Web (`:3000`), API (`:8000`), Admin (`:8001`), Keycloak (`:8080`, admin/admin), Vault (`:8200`), LiteLLM Gateway (`:8090`), MCP Gateway (`:8100`), Agent Supervisor (`:9000`), Prometheus (`:9090`), Grafana (`:3001`).
+Services: Web (`:3000`), API (`:8000`), Admin (`:8001`), Keycloak (`:8080`, admin/admin), Vault (`:8200`), LiteLLM Gateway (`:8090`, inference + aggregated MCP at `/mcp`), Agent Supervisor (`:9000`), Prometheus (`:9090`), Grafana (`:3001`).
 Test accounts: `user1@test.com`, `user2@test.com` (all `password`).
 
 ## Architecture
@@ -33,7 +33,7 @@ Browser → Next.js (:3000) → API rewrite proxy → FastAPI (:8000)
 Admin Console (:8001) → DB (no infra calls)
 
 Platform (docker compose — same deploy unit as api/admin):
-  Postgres, Redis, Keycloak, Vault, LiteLLM (:8090), MCP Gateway (:8100),
+  Postgres, Redis, Keycloak, Vault, LiteLLM (:8090 — inference + MCP),
   **Agent Supervisor (:9000)**, API, Admin, Web
 
 K8s cluster (Helm-managed; the only thing in K3s/EKS):
@@ -281,9 +281,9 @@ docker run --rm -v "$PWD/charts:/charts:ro" alpine/helm:3.14.4 template \
 
 | Variable | Purpose |
 |----------|---------|
-| `INFERENCE_ROUTER_URL` | LiteLLM gateway URL (`http://litellm.platform.svc:4000`) |
+| `LITELLM_URL` | LiteLLM gateway URL (`http://litellm.platform.svc:4000`) — serves inference + aggregated MCP at `/mcp` |
 | `LITELLM_API_KEY` | LiteLLM master key (`sk-aviary-dev`) |
-| `MCP_GATEWAY_URL` / `AVIARY_API_URL` / `AVIARY_INTERNAL_API_KEY` | Service URLs for runtime-side tools |
+| `AVIARY_API_URL` / `AVIARY_INTERNAL_API_KEY` | Service URLs for runtime-side tools |
 
 ## Key Environment Variables (Agent Supervisor)
 
@@ -301,39 +301,30 @@ docker run --rm -v "$PWD/charts:/charts:ro" alpine/helm:3.14.4 template \
 | Variable | Purpose |
 |----------|---------|
 | `LITELLM_MASTER_KEY` | LiteLLM proxy auth key (default: `sk-aviary-dev`) |
-| `VAULT_ADDR` / `VAULT_TOKEN` | Vault connection for per-user API key lookup |
-| `OIDC_ISSUER` | Public Keycloak URL (JWT `iss` validation) |
+| `VAULT_ADDR` / `VAULT_TOKEN` | Vault connection for per-user API key + MCP credential lookup |
+| `OIDC_ISSUER` | Public Keycloak URL (JWT `iss` validation for inference hook + MCP guardrail) |
 | `OIDC_INTERNAL_ISSUER` | Internal Keycloak URL (JWKS fetch) |
+| `MCP_TOOL_PREFIX_SEPARATOR` | Set to `__` so MCP tools are exposed as `{server}__{tool}` (matches `mcp_agent_tool_bindings` naming) |
+| `AVIARY_MCP_INJECTION_CONFIG` | Path to the per-server Vault-arg injection YAML (default `/app/aviary-mcp-secret-injection.yaml`) |
 
-## Key Environment Variables (MCP Gateway)
+### MCP Aggregation (via LiteLLM)
 
-| Variable | Purpose |
-|----------|---------|
-| `DATABASE_URL` | PostgreSQL async connection |
-| `MCP_GATEWAY_PORT` | Listen port (default: 8100) |
-| `OIDC_ISSUER` | Public Keycloak URL (token `iss` validation) |
-| `OIDC_INTERNAL_ISSUER` | Internal Keycloak URL (JWKS fetch) |
-| `OIDC_CLIENT_ID` | OIDC client ID (default: `aviary-web`) |
-
-### MCP Gateway
-
-**MCP Gateway** (docker compose, `:8100`): Centralized tool proxy for all agent MCP tool calls. Acts as a single MCP server (Streamable HTTP) from the claude-agent-sdk's perspective, internally proxying to multiple backend MCP servers.
+LiteLLM (`:8090`) exposes `/mcp` as an aggregated Streamable-HTTP MCP endpoint that fans out to every backend MCP server registered under `mcp_servers:` in [config/litellm/config.yaml](config/litellm/config.yaml). Per-user auth + secret injection is handled by the [aviary_mcp_credentials](config/litellm/patches/aviary_mcp_credentials.py) guardrail, loaded at Python startup through the `.pth` file alongside the per-user API-key hook.
 
 **Key features:**
-- **Tool catalog**: Admin registers backend MCP servers via Admin Console. Tools are auto-discovered via MCP `tools/list` protocol.
-- **ACL (default-deny)**: Admin grants server-level or tool-level access to users/teams.
-- **Agent tool bindings**: Users select tools from the catalog and bind them to their agents.
-- **OIDC auth**: User's Keycloak JWT is propagated from browser → API → stream_manager → runtime → MCP Gateway. Gateway validates directly via Keycloak JWKS.
-- **Tool namespacing**: Tools are exposed as `{server_name}__{tool_name}`.
+- **Tool catalog**: Admin registers backend MCP servers via Admin Console → DB (`mcp_servers`, `mcp_tools`). Tool auto-discovery still uses the MCP SDK client in the admin server. LiteLLM's own `mcp_servers:` config mirrors the DB-registered servers.
+- **Agent tool bindings**: Users select tools from the catalog and bind them to their agents (`mcp_agent_tool_bindings`). At message time the API merges bound tool names into `agent_config.tools` as `mcp__gateway__{server}__{tool}`; Claude Code's `allowedTools` enforces the per-agent scope.
+- **OIDC auth + Vault injection**: The user's Keycloak JWT is forwarded as `Authorization: Bearer` on the runtime's MCP connection. LiteLLM routes each `tools/call` through the `aviary_mcp_credentials` guardrail, which validates the JWT against Keycloak JWKS, looks up per-user secrets in Vault at `secret/aviary/credentials/{sub}/{vault_key}`, and injects them as `modified_arguments` on the outbound call. The user token is **not** forwarded to backend MCP servers.
+- **Tool namespacing**: `{server}__{tool}` (LiteLLM's prefixing with `MCP_TOOL_PREFIX_SEPARATOR=__`). Claude Code wraps that as `mcp__gateway__{server}__{tool}`.
+- **Schema stripping**: The guardrail monkey-patches `MCPServerManager._get_tools_from_server` so Vault-injected parameters (e.g. `jira_token`) are removed from the `inputSchema` the model sees.
 
 **Data flow:**
 1. Admin registers MCP server (Admin Console → DB) and triggers tool discovery.
-2. Admin creates ACL rules granting users/teams access.
-3. User browses tools (API → DB, ACL-filtered) and binds them to an agent.
-4. On chat message: API constructs `mcpServers` config with gateway URL + user JWT in headers.
-5. Runtime passes config to claude-agent-sdk; SDK connects to gateway as HTTP MCP server.
-6. Gateway validates JWT, checks ACL, returns filtered `tools/list`, proxies `tools/call` to backend.
+2. User binds tools from the catalog to an agent (`mcp_agent_tool_bindings`).
+3. On chat message: API builds `agent_config` with `tools` = built-in tools + `mcp__gateway__{server}__{tool}` for each binding.
+4. Runtime connects `mcpServers.gateway` to `${LITELLM_URL}/mcp` with `Authorization: Bearer <user JWT>`; Claude Code discovers tools via `tools/list` (filtered by `allowedTools`).
+5. On `tools/call`: LiteLLM invokes the guardrail → JWT validated → Vault secrets fetched → `modified_arguments` injected → outbound MCP `tools/call` to backend (e.g. `mcp-jira`).
 
-**DB tables:** `mcp_servers`, `mcp_tools`, `mcp_agent_tool_bindings`, `mcp_tool_acl`
+**DB tables:** `mcp_servers`, `mcp_tools`, `mcp_agent_tool_bindings`. (Owned by Aviary; LiteLLM never writes to them. Tool-level RBAC is pending the repo-wide RBAC redesign — today the agent binding plus Vault-backed credentials act as the effective scope.)
 
-**Architecture principle:** Agent ID is NOT used for ACL — the user's permission to use a tool (verified at both bind-time and call-time) is the access control. User token is NOT forwarded to backend MCP servers.
+**Architecture principle:** Agent ID is NOT used for ACL — the owner binding tools to their own agent plus the user's Vault-backed credentials are the access control. User token is NOT forwarded to backend MCP servers.

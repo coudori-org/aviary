@@ -19,9 +19,6 @@ class Settings(BaseSettings):
     oidc_client_id: str
     oidc_audience: str | None = None
 
-    # MCP Gateway
-    mcp_gateway_url: str
-
     # CORS
     cors_origins: list[str] = ["http://localhost:3000"]
 

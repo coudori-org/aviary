@@ -44,10 +44,8 @@ spec:
           ports:
             - containerPort: {{ .Values.runtime.port }}
           env:
-            - name: INFERENCE_ROUTER_URL
-              value: {{ .Values.runtime.inferenceRouterURL | quote }}
-            - name: MCP_GATEWAY_URL
-              value: {{ .Values.runtime.mcpGatewayURL | quote }}
+            - name: LITELLM_URL
+              value: {{ .Values.runtime.litellmURL | quote }}
             - name: LITELLM_API_KEY
               value: {{ .Values.runtime.litellmAPIKey | quote }}
             - name: AVIARY_API_URL

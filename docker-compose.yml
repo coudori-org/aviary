@@ -283,7 +283,9 @@ services:
     volumes:
       - ./config/litellm/config.yaml:/app/config.yaml
       - ./config/litellm/patches/aviary_user_api_key.py:/usr/lib/python3.13/site-packages/aviary_user_api_key.py
+      - ./config/litellm/patches/aviary_mcp_credentials.py:/usr/lib/python3.13/site-packages/aviary_mcp_credentials.py
       - ./config/litellm/patches/aviary_patches.pth:/usr/lib/python3.13/site-packages/aviary_patches.pth
+      - ./config/litellm/mcp-secret-injection.yaml:/app/aviary-mcp-secret-injection.yaml:ro
     environment:
       LITELLM_MASTER_KEY: "sk-aviary-dev"
       # DB-backed UI: keys, teams, spend, and model registry live in Postgres.
@@ -299,6 +301,9 @@ services:
       VAULT_TOKEN: "dev-root-token"
       OIDC_ISSUER: "http://localhost:8080/realms/aviary"
       OIDC_INTERNAL_ISSUER: "http://keycloak:8080/realms/aviary"
+      # Keep Aviary's `{server}__{tool}` naming so frontend bindings stay stable.
+      MCP_TOOL_PREFIX_SEPARATOR: "__"
+      AVIARY_MCP_INJECTION_CONFIG: "/app/aviary-mcp-secret-injection.yaml"
     depends_on:
       postgres:
         condition: service_healthy
@@ -306,8 +311,12 @@ services:
         condition: service_healthy
       keycloak:
         condition: service_healthy
+      mcp-jira:
+        condition: service_healthy
+      mcp-confluence:
+        condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:4000/health/liveliness || exit 1"]
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:4000/health/liveliness',timeout=3).status==200 else 1)\""]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -368,7 +377,6 @@ services:
       AGENT_SUPERVISOR_URL: http://supervisor:9000
       LITELLM_URL: http://litellm:4000
       LITELLM_API_KEY: "sk-aviary-dev"
-      MCP_GATEWAY_URL: http://mcp-gateway:8100
       INTERNAL_API_KEY: sk-aviary-internal
       CORS_ORIGINS: '["http://localhost:3000"]'
       TEMPORAL_HOST: temporal:7233
@@ -416,45 +424,6 @@ services:
     depends_on:
       api:
         condition: service_healthy
-
-  mcp-gateway:
-    build:
-      context: .
-      dockerfile: mcp-gateway/Dockerfile
-      args:
-        UV_INDEX_URL: ${UV_INDEX_URL:-}
-    ports:
-      - "8100:8100"
-    volumes:
-      - ./mcp-gateway:/workspace/mcp-gateway
-      - ./shared:/workspace/shared
-      - ./config/mcp-gateway/platform-servers.yaml:/app/config/platform-servers.yaml
-      - /workspace/.venv
-    environment:
-      DATABASE_URL: postgresql+asyncpg://aviary:aviary@postgres:5432/aviary
-      MCP_GATEWAY_PORT: "8100"
-      OIDC_ISSUER: http://localhost:8080/realms/aviary
-      OIDC_INTERNAL_ISSUER: http://keycloak:8080/realms/aviary
-      OIDC_CLIENT_ID: aviary-web
-      VAULT_ADDR: http://vault:8200
-      VAULT_TOKEN: dev-root-token
-    depends_on:
-      db-migrate:
-        condition: service_completed_successfully
-      vault:
-        condition: service_healthy
-      keycloak:
-        condition: service_healthy
-      mcp-jira:
-        condition: service_healthy
-      mcp-confluence:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:8100/health || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
 
   admin:
     build:

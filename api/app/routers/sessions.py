@@ -386,7 +386,7 @@ async def websocket_chat(websocket: WebSocket, session_id: uuid.UUID):
                         )
                     await db.commit()
 
-                    agent_config = agent_spec(agent)
+                    agent_config = await agent_spec(agent, db)
                     if accessible_agents:
                         agent_config["accessible_agents"] = accessible_agents
 
