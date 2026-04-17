@@ -9,13 +9,10 @@ LiteLLM view at bind time.
 
 from __future__ import annotations
 
-import os
 import uuid
 from typing import Iterable
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from mcp import ClientSession
-from mcp.client.streamable_http import streamablehttp_client
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -29,6 +26,7 @@ from app.schemas.mcp import (
     McpToolBindRequest,
     McpToolResponse,
 )
+from app.services import mcp_catalog
 
 router = APIRouter()
 
@@ -47,29 +45,7 @@ async def user_token(
     return session.access_token
 
 
-async def _litellm_tools_for(user_token: str) -> list[dict]:
-    """Fetch the caller's MCP tools/list from LiteLLM's ``/mcp`` endpoint.
-
-    All visibility + ACL decisions are LiteLLM's. The call just forwards
-    the user's Keycloak JWT as Bearer; LiteLLM's guardrails validate it,
-    apply ``allow_all_keys`` + (future) RBAC, and return the filtered
-    aggregate. If LiteLLM returns something, we trust it.
-    """
-    base = os.environ["LITELLM_URL"].rstrip("/")
-    async with streamablehttp_client(
-        f"{base}/mcp", headers={"Authorization": f"Bearer {user_token}"},
-    ) as (read_stream, write_stream, _):
-        async with ClientSession(read_stream, write_stream) as session:
-            await session.initialize()
-            result = await session.list_tools()
-    return [
-        {
-            "name": t.name,
-            "description": getattr(t, "description", None),
-            "inputSchema": getattr(t, "inputSchema", None) or {},
-        }
-        for t in result.tools
-    ]
+_litellm_tools_for = mcp_catalog.fetch_tools
 
 
 # ---------------------------------------------------------------------------
