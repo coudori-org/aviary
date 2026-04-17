@@ -43,12 +43,12 @@ def rebuild_blocks_from_chunks(chunks: list[dict]) -> tuple[str, list[dict]]:
         elif ct == "thinking":
             current_thinking += chunk.get("content", "")
         elif ct == "tool_use":
-            if current_thinking:
+            if current_thinking.strip():
                 blocks.append({"type": "thinking", "content": current_thinking})
-                current_thinking = ""
-            if current_text:
+            current_thinking = ""
+            if current_text.strip():
                 blocks.append({"type": "text", "content": current_text})
-                current_text = ""
+            current_text = ""
             tool_block: dict = {
                 "type": "tool_call",
                 "name": chunk.get("name"),
@@ -66,9 +66,9 @@ def rebuild_blocks_from_chunks(chunks: list[dict]) -> tuple[str, list[dict]]:
                     "is_error": chunk.get("is_error", False),
                 }
 
-    if current_thinking:
+    if current_thinking.strip():
         blocks.append({"type": "thinking", "content": current_thinking})
-    if current_text:
+    if current_text.strip():
         blocks.append({"type": "text", "content": current_text})
 
     attach_tool_results(blocks, tool_results)

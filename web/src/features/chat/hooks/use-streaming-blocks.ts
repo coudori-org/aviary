@@ -141,21 +141,22 @@ export function useStreamingBlocks() {
       .join("");
   }, []);
 
-  /** Serialize all blocks for saving in message metadata (flat, preserves order). */
   const getBlocksMeta = useCallback((): Record<string, unknown>[] => {
-    return blocksRef.current.map((b) => {
-      if (b.type === "text") return { type: "text", content: b.content };
-      if (b.type === "thinking") return { type: "thinking", content: b.content };
-      return {
-        type: "tool_call",
-        name: b.name,
-        input: b.input,
-        tool_use_id: b.id,
-        result: b.result,
-        ...(b.is_error ? { is_error: true } : {}),
-        ...(b.parent_tool_use_id ? { parent_tool_use_id: b.parent_tool_use_id } : {}),
-      };
-    });
+    return blocksRef.current
+      .filter((b) => !((b.type === "text" || b.type === "thinking") && b.content.trim() === ""))
+      .map((b) => {
+        if (b.type === "text") return { type: "text", content: b.content };
+        if (b.type === "thinking") return { type: "thinking", content: b.content };
+        return {
+          type: "tool_call",
+          name: b.name,
+          input: b.input,
+          tool_use_id: b.id,
+          result: b.result,
+          ...(b.is_error ? { is_error: true } : {}),
+          ...(b.parent_tool_use_id ? { parent_tool_use_id: b.parent_tool_use_id } : {}),
+        };
+      });
   }, []);
 
   return { blocks, todos, handleMessage, reset, flattenText, getBlocksMeta, finalize };

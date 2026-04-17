@@ -41,6 +41,7 @@ export const StreamingResponse = memo(function StreamingResponse({
           const block = item.block;
 
           if (block.type === "thinking") {
+            if (!block.content.trim()) return null;
             return (
               <ThinkingChip
                 key={block.id}
@@ -50,6 +51,7 @@ export const StreamingResponse = memo(function StreamingResponse({
             );
           }
           if (block.type === "text") {
+            if (!block.content.trim()) return null;
             return <TextBlockView key={block.id} content={block.content} />;
           }
           if (block.type === "tool_call") {
