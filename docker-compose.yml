@@ -212,6 +212,35 @@ services:
       temporal:
         condition: service_healthy
 
+  # Long-running Temporal worker. Hosts the WorkflowRun workflow and all
+  # node activities (agent_step, template, condition, …). Scales
+  # independently of api/admin.
+  workflow-worker:
+    build:
+      context: .
+      dockerfile: workflow-worker/Dockerfile
+      args:
+        UV_INDEX_URL: ${UV_INDEX_URL:-}
+    volumes:
+      - ./workflow-worker:/workspace/workflow-worker
+      - ./shared:/workspace/shared
+      - /workspace/.venv
+    environment:
+      TEMPORAL_HOST: temporal:7233
+      TEMPORAL_NAMESPACE: default
+      TEMPORAL_TASK_QUEUE: aviary-workflows
+      DATABASE_URL: postgresql+asyncpg://aviary:aviary@postgres:5432/aviary
+      REDIS_URL: redis://redis:6379/0
+      SUPERVISOR_URL: http://supervisor:9000
+      WORKER_SHARED_SECRET: ${WORKER_SHARED_SECRET:-dev-worker-secret-change-me}
+    depends_on:
+      temporal:
+        condition: service_healthy
+      db-migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+
   # ── Platform MCP Servers ────────────────────────────────────
 
   mcp-jira:
