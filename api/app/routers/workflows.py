@@ -1,13 +1,20 @@
-"""Workflow CRUD + deploy/edit/versions + run trigger/cancel/list."""
+"""Workflow CRUD + deploy/edit/versions + run trigger/cancel/list/WS."""
 
+import contextlib
+import json
+import logging
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import get_current_user, require_workflow_owner
+from app.auth.oidc import validate_token
+from app.auth.session_store import SESSION_COOKIE_NAME, get_fresh_session
+from app.config import settings
 from app.db.models import User, Workflow
-from app.db.session import get_db
+from app.db.session import async_session_factory, get_db
 from app.schemas.workflow import (
     WorkflowCreate,
     WorkflowListResponse,
@@ -18,7 +25,9 @@ from app.schemas.workflow import (
     WorkflowUpdate,
     WorkflowVersionResponse,
 )
-from app.services import workflow_run_service, workflow_service
+from app.services import redis_service, workflow_run_service, workflow_service
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -168,3 +177,121 @@ async def cancel_run(
         raise HTTPException(status_code=404, detail="Run not found")
     await workflow_run_service.cancel_run(run)
     return {"ok": True}
+
+
+# ── Run WebSocket ───────────────────────────────────────────────────────────
+
+_TERMINAL_RUN_STATUSES = {"completed", "failed", "cancelled"}
+
+
+def _node_status_event(nr) -> dict:
+    evt: dict = {
+        "type": "node_status",
+        "node_id": nr.node_id,
+        "node_type": nr.node_type,
+        "status": nr.status,
+    }
+    if nr.input_data is not None:
+        evt["input_data"] = nr.input_data
+    if nr.output_data is not None:
+        evt["output_data"] = nr.output_data
+    if nr.error:
+        evt["error"] = nr.error
+    return evt
+
+
+@router.websocket("/{workflow_id}/runs/{run_id}/ws")
+async def workflow_run_ws(websocket: WebSocket, workflow_id: uuid.UUID, run_id: uuid.UUID):
+    """Stream a run's events to a connected client. Flow:
+      1. Auth + owner check via cookie session.
+      2. Send the DB snapshot (run + node rows as they currently stand).
+      3. Flush the Redis replay buffer so we catch up to "now".
+      4. If the run is still live, subscribe to the channel and relay until
+         we see a terminal run_status event.
+    """
+    origin = websocket.headers.get("origin")
+    if not origin or origin not in settings.cors_origins:
+        await websocket.close(code=4001, reason="Invalid origin")
+        return
+
+    aviary_session_id = websocket.cookies.get(SESSION_COOKIE_NAME)
+    if not aviary_session_id:
+        await websocket.close(code=4001, reason="Missing session")
+        return
+    initial_session = await get_fresh_session(aviary_session_id)
+    if initial_session is None:
+        await websocket.close(code=4001, reason="Invalid or expired session")
+        return
+    try:
+        claims = await validate_token(initial_session.access_token)
+    except ValueError:
+        await websocket.close(code=4001, reason="Invalid token")
+        return
+
+    await websocket.accept()
+    run_id_str = str(run_id)
+    pubsub = None
+
+    try:
+        # Load + authorize, send initial snapshot. Owner check compares the
+        # run's parent workflow's owner to the authenticated user.
+        async with async_session_factory() as db:
+            user = (await db.execute(
+                select(User).where(User.external_id == claims.sub)
+            )).scalar_one_or_none()
+            if not user:
+                await websocket.send_json({"type": "error", "message": "User not found"})
+                return
+
+            run = await workflow_run_service.get_run(db, run_id, with_nodes=True)
+            if not run or run.workflow_id != workflow_id:
+                await websocket.send_json({"type": "error", "message": "Run not found"})
+                return
+
+            workflow = await workflow_service.get_workflow(db, workflow_id)
+            if not workflow or workflow.owner_id != user.id:
+                await websocket.send_json({"type": "error", "message": "Not authorized"})
+                return
+
+            snapshot_status = {"type": "run_status", "status": run.status}
+            if run.error:
+                snapshot_status["error"] = run.error
+            await websocket.send_json(snapshot_status)
+            for nr in run.node_runs or []:
+                await websocket.send_json(_node_status_event(nr))
+            terminal = run.status in _TERMINAL_RUN_STATUSES
+
+        for event in await redis_service.get_workflow_run_replay(run_id_str):
+            await websocket.send_json(event)
+
+        if terminal:
+            return
+
+        pubsub = await redis_service.subscribe_workflow_run(run_id_str)
+        if pubsub is None:
+            return
+
+        async for raw_msg in pubsub.listen():
+            if raw_msg["type"] != "message":
+                continue
+            try:
+                event = json.loads(raw_msg["data"])
+            except json.JSONDecodeError:
+                logger.warning("Non-JSON event on run=%s channel", run_id_str)
+                continue
+            await websocket.send_json(event)
+            if (
+                event.get("type") == "run_status"
+                and event.get("status") in _TERMINAL_RUN_STATUSES
+            ):
+                return
+
+    except WebSocketDisconnect:
+        pass
+    except Exception:
+        logger.exception("workflow run ws crashed for run=%s", run_id_str)
+    finally:
+        if pubsub:
+            with contextlib.suppress(Exception):
+                await pubsub.unsubscribe()
+                await pubsub.aclose()
