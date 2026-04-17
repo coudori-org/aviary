@@ -16,7 +16,6 @@ export interface WorkflowCreateData {
   slug: string;
   description?: string;
   model_config: { backend: string; model: string };
-  visibility?: string;
 }
 
 export interface WorkflowUpdateData {
@@ -24,7 +23,6 @@ export interface WorkflowUpdateData {
   description?: string;
   definition?: Record<string, unknown>;
   model_config?: { backend: string; model: string };
-  visibility?: string;
 }
 
 export interface WorkflowVersionData {
@@ -67,18 +65,23 @@ export const workflowsApi = {
     return http.get<WorkflowVersionData[]>(`/workflows/${id}/versions`);
   },
 
-  listRuns(id: string) {
-    return http.get<WorkflowRunListResponse>(`/workflows/${id}/runs`);
+  listRuns(id: string, opts: { includeDrafts?: boolean } = {}) {
+    const qs = opts.includeDrafts ? "?include_drafts=true" : "";
+    return http.get<WorkflowRunListResponse>(`/workflows/${id}/runs${qs}`);
   },
 
   getRun(id: string, runId: string) {
     return http.get<WorkflowRun>(`/workflows/${id}/runs/${runId}`);
   },
 
-  triggerRun(id: string, triggerData: Record<string, unknown> = {}) {
+  triggerRun(
+    id: string,
+    opts: { runType?: "draft" | "deployed"; triggerData?: Record<string, unknown> } = {},
+  ) {
     return http.post<WorkflowRun>(`/workflows/${id}/runs`, {
+      run_type: opts.runType ?? "draft",
       trigger_type: "manual",
-      trigger_data: triggerData,
+      trigger_data: opts.triggerData ?? {},
     });
   },
 

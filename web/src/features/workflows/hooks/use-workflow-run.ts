@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { workflowsApi } from "../api/workflows-api";
+import type { WorkflowRun, WorkflowNodeRun } from "@/types";
 
 export type NodeRunStatus = "pending" | "running" | "completed" | "failed" | "skipped";
 export type RunStatus = "idle" | "pending" | "running" | "completed" | "failed" | "cancelled";
@@ -21,6 +22,22 @@ export interface NodeRunData {
   error?: string;
 }
 
+const TERMINAL_RUN_STATUSES: ReadonlySet<RunStatus> = new Set([
+  "completed",
+  "failed",
+  "cancelled",
+]);
+
+function nodeRunToState(nr: WorkflowNodeRun): NodeRunData {
+  return {
+    status: nr.status as NodeRunStatus,
+    node_type: nr.node_type,
+    input_data: nr.input_data ?? null,
+    output_data: nr.output_data ?? null,
+    error: nr.error,
+  };
+}
+
 export function useWorkflowRun(workflowId: string) {
   const [runId, setRunId] = useState<string | null>(null);
   const [runStatus, setRunStatus] = useState<RunStatus>("idle");
@@ -29,6 +46,29 @@ export function useWorkflowRun(workflowId: string) {
   const [logs, setLogs] = useState<NodeLogEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
+
+  const reset = useCallback(() => {
+    setNodeStatuses({});
+    setNodeData({});
+    setLogs([]);
+    setError(null);
+  }, []);
+
+  const applyStaticRun = useCallback((run: WorkflowRun) => {
+    // Hydrate state from a completed run's static DB view — no WS involved.
+    const statuses: Record<string, NodeRunStatus> = {};
+    const data: Record<string, NodeRunData> = {};
+    for (const nr of run.node_runs ?? []) {
+      statuses[nr.node_id] = nr.status as NodeRunStatus;
+      data[nr.node_id] = nodeRunToState(nr);
+    }
+    setNodeStatuses(statuses);
+    setNodeData(data);
+    setLogs([]);
+    setError(run.error ?? null);
+    setRunStatus(run.status as RunStatus);
+    setRunId(run.id);
+  }, []);
 
   const connectWs = useCallback((wfId: string, rId: string) => {
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
@@ -58,7 +98,7 @@ export function useWorkflowRun(workflowId: string) {
       } else if (data.type === "run_status") {
         setRunStatus(data.status);
         if (data.error) setError(data.error);
-        if (["completed", "failed", "cancelled"].includes(data.status)) {
+        if (TERMINAL_RUN_STATUSES.has(data.status as RunStatus)) {
           ws.close();
         }
       }
@@ -68,27 +108,47 @@ export function useWorkflowRun(workflowId: string) {
     ws.onclose = () => { wsRef.current = null; };
   }, []);
 
-  const trigger = useCallback(async (triggerData?: Record<string, unknown>) => {
+  const trigger = useCallback(async (triggerData?: Record<string, unknown>, runType: "draft" | "deployed" = "draft") => {
     if (runStatus === "running" || runStatus === "pending") return;
 
     setRunStatus("pending");
-    setNodeStatuses({});
-    setNodeData({});
-    setLogs([]);
-    setError(null);
+    reset();
 
     try {
       const safe = triggerData && typeof triggerData === "object" && !("nativeEvent" in triggerData)
         ? triggerData : {};
-      const run = await workflowsApi.triggerRun(workflowId, safe);
+      const run = await workflowsApi.triggerRun(workflowId, { runType, triggerData: safe });
       setRunId(run.id);
-      setRunStatus("running");
-      connectWs(workflowId, run.id);
+      setRunStatus(run.status as RunStatus);
+      if (!TERMINAL_RUN_STATUSES.has(run.status as RunStatus)) {
+        connectWs(workflowId, run.id);
+      }
     } catch (err) {
       setRunStatus("failed");
       setError(err instanceof Error ? err.message : "Failed to start run");
     }
-  }, [workflowId, runStatus, connectWs]);
+  }, [workflowId, runStatus, connectWs, reset]);
+
+  const viewRun = useCallback(async (rId: string) => {
+    // Close any active WS before switching views.
+    if (wsRef.current) {
+      wsRef.current.close();
+      wsRef.current = null;
+    }
+    reset();
+    try {
+      const run = await workflowsApi.getRun(workflowId, rId);
+      if (TERMINAL_RUN_STATUSES.has(run.status as RunStatus)) {
+        applyStaticRun(run);
+      } else {
+        // Live run — hydrate from the DB snapshot, then tail the WS.
+        applyStaticRun(run);
+        connectWs(workflowId, rId);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load run");
+    }
+  }, [workflowId, reset, applyStaticRun, connectWs]);
 
   const cancel = useCallback(async () => {
     if (!runId || runStatus !== "running") return;
@@ -101,7 +161,7 @@ export function useWorkflowRun(workflowId: string) {
 
   return {
     runId, runStatus, nodeStatuses, nodeData, logs, error,
-    trigger, cancel,
+    trigger, viewRun, cancel,
     isRunning: runStatus === "running" || runStatus === "pending",
   };
 }

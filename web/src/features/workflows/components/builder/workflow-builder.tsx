@@ -21,6 +21,7 @@ import { SettingsPanel } from "./settings-panel";
 import { NodePalette } from "./node-palette";
 import { InspectorPanel } from "./inspector-panel";
 import { TestPanel } from "./test-panel";
+import { RunHistoryPanel } from "./run-history-panel";
 import { Toolbar } from "./toolbar";
 import { ManualTriggerNode, WebhookTriggerNode } from "./nodes/trigger-node";
 import { AgentStepNode } from "./nodes/agent-step-node";
@@ -187,9 +188,9 @@ const RIGHT_MIN = 320;
 const RIGHT_MAX = 640;
 const RIGHT_DEFAULT = 380;
 
-// --- Right Panel (Inspector + Test tabs) ---
-function RightPanel({ run }: { run: ReturnType<typeof useWorkflowRun> }) {
-  const [tab, setTab] = useState<"inspector" | "test">("inspector");
+// --- Right Panel (Inspector + Test + History tabs) ---
+function RightPanel({ workflowId, run }: { workflowId: string; run: ReturnType<typeof useWorkflowRun> }) {
+  const [tab, setTab] = useState<"inspector" | "test" | "history">("inspector");
   const [width, setWidth] = useState(RIGHT_DEFAULT);
 
   const handleResize = useCallback((delta: number) => {
@@ -205,12 +206,17 @@ function RightPanel({ run }: { run: ReturnType<typeof useWorkflowRun> }) {
       <div className="flex shrink-0 border-b border-white/[0.06]">
         <TabButton active={tab === "inspector"} onClick={() => setTab("inspector")}>Inspector</TabButton>
         <TabButton active={tab === "test"} onClick={() => setTab("test")}>Test</TabButton>
+        <TabButton active={tab === "history"} onClick={() => setTab("history")}>History</TabButton>
       </div>
       <div className="flex-1 overflow-hidden">
-        {tab === "inspector" ? (
-          <InspectorPanel />
-        ) : (
-          <TestPanel run={run} />
+        {tab === "inspector" && <InspectorPanel />}
+        {tab === "test" && <TestPanel run={run} />}
+        {tab === "history" && (
+          <RunHistoryPanel
+            workflowId={workflowId}
+            run={run}
+            onOpenRun={() => setTab("test")}
+          />
         )}
       </div>
     </div>
@@ -269,7 +275,7 @@ export function WorkflowBuilder({ onStatusChange }: WorkflowBuilderProps) {
           <ReactFlowProvider>
             <div className="flex flex-1 overflow-hidden">
               <Canvas />
-              <RightPanel run={run} />
+              <RightPanel workflowId={workflowId} run={run} />
             </div>
           </ReactFlowProvider>
         </div>
