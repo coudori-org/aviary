@@ -3,11 +3,13 @@
 Executes nodes in topological order, threading each node's output into a
 shared context so downstream nodes can reference upstream payloads. A
 failed condition propagates `skipped` to its descendants. A cancel signal
-stops scheduling new nodes; any in-flight activity is allowed to finish.
+aborts the in-flight node (agent steps abort their supervisor stream on
+the way out) and marks every later node as skipped.
 """
 
 from __future__ import annotations
 
+import asyncio
 from datetime import timedelta
 
 from temporalio import workflow
@@ -66,6 +68,10 @@ async def _dispatch_node(node: PlanNode, inputs: dict, inp: WorkflowRunInput) ->
         # refused, an API key was missing, or the backend returned an error.
         # Blindly retrying doubles cost without fixing anything, so we cap at
         # one attempt and let the workflow fail fast.
+        #
+        # `heartbeat_timeout` is what makes cancel actually reach the
+        # activity process — without it, Temporal has no path to deliver
+        # the cancel until the activity returns.
         return await workflow.execute_activity(
             run_agent_step_activity,
             args=[
@@ -73,6 +79,7 @@ async def _dispatch_node(node: PlanNode, inputs: dict, inp: WorkflowRunInput) ->
                 node.data, inp.trigger_data, inputs,
             ],
             start_to_close_timeout=_AGENT_STEP_TIMEOUT,
+            heartbeat_timeout=timedelta(seconds=15),
             retry_policy=RetryPolicy(maximum_attempts=1),
         )
     raise ValueError(f"Unknown node type: {node.type}")
@@ -82,10 +89,18 @@ async def _dispatch_node(node: PlanNode, inputs: dict, inp: WorkflowRunInput) ->
 class WorkflowRunWorkflow:
     def __init__(self) -> None:
         self._cancelled = False
+        self._current_task: asyncio.Task | None = None
 
     @workflow.signal
     def cancel(self) -> None:
+        """Set the cancel flag AND cancel the in-flight node task. The
+        task's coroutine is what Temporal uses to signal the running
+        activity, so cancelling it here is what actually aborts a
+        long-running agent_step mid-stream."""
         self._cancelled = True
+        current = self._current_task
+        if current is not None and not current.done():
+            current.cancel()
 
     @workflow.run
     async def run(self, inp: WorkflowRunInput) -> WorkflowRunResult:
@@ -124,8 +139,18 @@ class WorkflowRunWorkflow:
                 start_to_close_timeout=_ACT_TIMEOUT,
             )
 
+            self._current_task = asyncio.ensure_future(_dispatch_node(node, inputs, inp))
             try:
-                output = await _dispatch_node(node, inputs, inp)
+                output = await self._current_task
+            except asyncio.CancelledError:
+                # Activity was cancelled mid-flight (agent_step aborted its
+                # supervisor stream on the way out).
+                await workflow.execute_activity(
+                    set_node_status,
+                    args=[inp.run_id, node.id, node.type, "skipped", None, None, None],
+                    start_to_close_timeout=_ACT_TIMEOUT,
+                )
+                continue
             except ActivityError as e:
                 # Temporal wraps the real exception — unwrap so the UI sees
                 # "Claude Code process exited with code 1" rather than the
@@ -141,6 +166,8 @@ class WorkflowRunWorkflow:
                     start_to_close_timeout=_ACT_TIMEOUT,
                 )
                 return WorkflowRunResult(status="failed")
+            finally:
+                self._current_task = None
 
             context[node.id] = output
             await workflow.execute_activity(

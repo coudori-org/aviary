@@ -1,20 +1,20 @@
 """Agent step activity — drives one supervisor `/message` round.
 
-Two things happen in parallel inside this activity:
-  1. A background task subscribes to the supervisor's session channel
-     (`session:{wf:{run}}:events`) and republishes each chunk / thinking /
-     tool_use / tool_result event as a `node_log` on the workflow run
-     channel so the UI sees live LLM output under the right node.
-  2. A blocking HTTP POST to supervisor waits for the assembled response.
-
-The supervisor keeps writing to Redis regardless of who's listening, so
-the fan-in task is purely for surfacing live logs to the workflow WS —
-the final output always comes back via the HTTP response.
+Cancellation story:
+  * Workflow sends the cancel signal.
+  * Signal handler cancels the activity task; Temporal delivers the cancel
+    to the running activity via the next heartbeat.
+  * We capture `stream_id` from the supervisor's first `stream_started`
+    event (same one the frontend uses to enable the abort button), then on
+    CancelledError hit `/v1/streams/{stream_id}/abort`. Supervisor closes
+    its outbound TCP to the runtime pod → `res.on("close")` fires → SDK
+    aborts. Same path chat uses.
 """
 
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 
@@ -28,13 +28,18 @@ logger = logging.getLogger(__name__)
 
 _jinja = Environment(undefined=StrictUndefined, autoescape=False)
 
-# Supervisor event types we care about for per-node logs.
 _LOG_EVENT_TYPES = {"chunk", "thinking", "tool_use", "tool_result"}
 
+# How often the activity pokes Temporal so cancel requests get through.
+_HEARTBEAT_INTERVAL_SECONDS = 5.0
 
-async def _fan_in(run_id: str, node_id: str, wf_session_id: str) -> None:
-    """Rewrite supervisor session events as node_log events on the workflow
-    channel. Cancelled by the caller once the HTTP response lands."""
+
+async def _fan_in(
+    run_id: str, node_id: str, wf_session_id: str, stream_id_ref: dict
+) -> None:
+    """Rewrite supervisor session events as node_log on the workflow
+    channel. Captures the stream_id from `stream_started` so cancel can
+    abort it later."""
     ps = await subscribe_session(wf_session_id)
     try:
         async for msg in ps.listen():
@@ -45,6 +50,9 @@ async def _fan_in(run_id: str, node_id: str, wf_session_id: str) -> None:
             except json.JSONDecodeError:
                 continue
             etype = event.get("type")
+            if etype == "stream_started":
+                stream_id_ref["value"] = event.get("stream_id")
+                continue
             if etype not in _LOG_EVENT_TYPES:
                 continue
 
@@ -61,11 +69,9 @@ async def _fan_in(run_id: str, node_id: str, wf_session_id: str) -> None:
                 log["is_error"] = event.get("is_error", False)
             await publish_event(run_id, log)
     finally:
-        try:
+        with contextlib.suppress(Exception):
             await ps.unsubscribe()
             await ps.aclose()
-        except Exception:  # noqa: BLE001
-            pass
 
 
 @activity.defn
@@ -78,7 +84,6 @@ async def run_agent_step_activity(
     trigger_data: dict,
     inputs: dict,
 ) -> dict:
-    """Render prompt, call supervisor, relay live events, return assembly."""
     wf_session_id = f"wf:{run_id}"
 
     prompt_tpl = data.get("prompt_template") or ""
@@ -98,21 +103,41 @@ async def run_agent_step_activity(
             "mcp_servers": {},
         },
     }
-    # Worker-auth fallback only when there's no live user JWT to forward.
     if user_token is None:
         body["on_behalf_of_sub"] = owner_external_id
 
-    fan_in_task = asyncio.create_task(_fan_in(run_id, node_id, wf_session_id))
+    stream_id_ref: dict = {"value": None}
+    fan_in_task = asyncio.create_task(_fan_in(run_id, node_id, wf_session_id, stream_id_ref))
+    supervisor_task = asyncio.create_task(
+        supervisor_client.post_message(wf_session_id, body, user_token=user_token)
+    )
+
     try:
-        result = await supervisor_client.post_message(
-            wf_session_id, body, user_token=user_token,
-        )
+        # Heartbeat-pump until supervisor returns. shield() keeps the
+        # supervisor task alive even when wait_for times out.
+        while not supervisor_task.done():
+            activity.heartbeat()
+            try:
+                await asyncio.wait_for(
+                    asyncio.shield(supervisor_task),
+                    timeout=_HEARTBEAT_INTERVAL_SECONDS,
+                )
+            except asyncio.TimeoutError:
+                continue
+        result = supervisor_task.result()
+    except asyncio.CancelledError:
+        sid = stream_id_ref.get("value")
+        if sid:
+            logger.info("agent_step cancelled; aborting supervisor stream=%s", sid)
+            await supervisor_client.abort_stream(sid, user_token=user_token)
+        supervisor_task.cancel()
+        with contextlib.suppress(Exception):
+            await supervisor_task
+        raise
     finally:
         fan_in_task.cancel()
-        try:
+        with contextlib.suppress(asyncio.CancelledError):
             await fan_in_task
-        except asyncio.CancelledError:
-            pass
 
     if result.get("status") == "error":
         raise RuntimeError(result.get("message") or "agent step failed")

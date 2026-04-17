@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 
 from temporalio.client import Client
+from temporalio.service import RPCError, RPCStatusCode
 
 from app.config import settings
 from aviary_shared.workflow_types import WorkflowRunInput
@@ -54,8 +55,17 @@ async def start_workflow_run(inp: WorkflowRunInput) -> str:
 
 async def cancel_workflow_run(run_id: str) -> None:
     """Send a cooperative `cancel` signal. The worker's signal handler flips
-    an internal flag; in-flight activities see it at the next check and the
-    run ends with status=cancelled.
+    an internal flag AND cancels the in-flight activity task, so an
+    agent_step mid-stream gets its supervisor abort call on the way out.
+
+    Idempotent: signalling a workflow that already finished is a no-op
+    instead of an error.
     """
     handle = get_client().get_workflow_handle(run_id)
-    await handle.signal("cancel")
+    try:
+        await handle.signal("cancel")
+    except RPCError as e:
+        if e.status == RPCStatusCode.NOT_FOUND:
+            logger.info("cancel skipped — workflow %s already finished", run_id)
+            return
+        raise
