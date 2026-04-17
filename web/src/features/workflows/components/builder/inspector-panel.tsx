@@ -59,6 +59,55 @@ function NodeField({
   );
 }
 
+function NodeNumberField({
+  id, label, value, min, max, onCommit, hint,
+}: {
+  id: string;
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  onCommit: (value: number) => void;
+  hint?: string;
+}) {
+  const [local, setLocal] = useState(String(value));
+  const [focused, setFocused] = useState(false);
+
+  useEffect(() => {
+    if (!focused) setLocal(String(value));
+  }, [value, focused]);
+
+  const handleBlur = () => {
+    setFocused(false);
+    const parsed = parseInt(local, 10);
+    const next = Number.isFinite(parsed) ? Math.min(max, Math.max(min, parsed)) : value;
+    setLocal(String(next));
+    if (next !== value) onCommit(next);
+  };
+
+  return (
+    <div className="space-y-1.5">
+      <Label htmlFor={id} className="text-[11px] font-medium text-fg-disabled uppercase tracking-wider">
+        {label}
+      </Label>
+      <Input
+        id={id}
+        type="number"
+        min={min}
+        max={max}
+        value={local}
+        onChange={(e) => setLocal(e.target.value)}
+        onFocus={() => setFocused(true)}
+        onBlur={handleBlur}
+        className="text-[13px]"
+      />
+      {hint && <p className="text-[10px] text-fg-disabled">{hint}</p>}
+    </div>
+  );
+}
+
+const TRIGGER_NODE_TYPES = new Set(["manual_trigger", "webhook_trigger"]);
+
 export function InspectorPanel() {
   const { nodes, selectedNodeId, updateNodeData } = useWorkflowBuilder();
 
@@ -147,6 +196,21 @@ export function InspectorPanel() {
             multiline
             placeholder="Hello {{name}}"
           />
+        )}
+
+        {/* Execution — hidden for trigger nodes since they don't run an activity */}
+        {!TRIGGER_NODE_TYPES.has(node.type) && (
+          <div className="mt-2 space-y-3 border-t border-white/[0.06] pt-4">
+            <NodeNumberField
+              id="node-retry-count"
+              label="Retry count"
+              value={typeof d.retry_count === "number" ? d.retry_count : 1}
+              min={1}
+              max={10}
+              onCommit={(v) => updateNodeData(node.id, "retry_count", v)}
+              hint="Max attempts (1 = no retry). Default 1."
+            />
+          </div>
         )}
 
         {/* Meta */}
