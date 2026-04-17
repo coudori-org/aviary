@@ -211,23 +211,36 @@ export function WorkflowBuilderProvider({ workflow, children }: Props) {
     [nodes, edges, commit],
   );
 
+  const workflowBackend = workflow.model_config?.backend ?? "";
+  const workflowModel = workflow.model_config?.model ?? "";
+
   const addNode = useCallback(
     (type: NodeType, position: { x: number; y: number }) => {
       const def = NODE_REGISTRY.find((d) => d.type === type);
       if (!def) return;
 
+      // agent_step inherits the workflow's default backend/model so users
+      // don't have to set it every time. They can still override per-node.
+      const data: NodeData =
+        type === "agent_step" && workflowBackend && workflowModel
+          ? {
+              ...(def.defaultData as object),
+              model_config: { backend: workflowBackend, model: workflowModel },
+            } as NodeData
+          : ({ ...def.defaultData } as NodeData);
+
       const newNode: WorkflowNode = {
         id: `${type}_${Date.now()}`,
         type,
         position,
-        data: { ...def.defaultData } as NodeData,
+        data,
         selected: true,
       };
       // Deselect all existing nodes, select only the new one
       const deselected = nodes.map((n) => (n.selected ? { ...n, selected: false } : n));
       commit([...deselected, newNode], edges);
     },
-    [nodes, edges, commit],
+    [nodes, edges, commit, workflowBackend, workflowModel],
   );
 
   const deleteSelected = useCallback(() => {
@@ -287,8 +300,8 @@ export function WorkflowBuilderProvider({ workflow, children }: Props) {
         updateNodeData,
         deleteSelected,
         applyPlan,
-        workflowModelBackend: workflow.model_config?.backend ?? "",
-        workflowModelName: workflow.model_config?.model ?? "",
+        workflowModelBackend: workflowBackend,
+        workflowModelName: workflowModel,
         selectedNodeId,
         undo,
         redo,

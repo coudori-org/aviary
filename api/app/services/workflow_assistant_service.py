@@ -38,10 +38,11 @@ edit operations.
 - agent_step: {
     "label": string,
     "instruction": string,
-    "model_config": { "backend": string, "model": string, "max_output_tokens"?: number },
-    "mcp_tool_ids": string[],
-    "prompt_template": string   // use "{{input}}" for upstream data
+    "mcp_tool_ids": string[],     // leave empty []; user picks tools in the UI
+    "prompt_template": string     // use "{{input}}" for upstream data
   }
+  NOTE: DO NOT emit `model_config` for agent_step. The workflow's
+  default backend/model is injected automatically on the server.
 - condition: { "label": string, "expression": string }
 - merge: { "label": string }
 - payload_parser: { "label": string, "mapping": object }
@@ -79,9 +80,6 @@ Return a SINGLE JSON object with exactly two keys:
 9. Every workflow needs exactly one trigger node (manual_trigger or
    webhook_trigger) as the entry point unless the user is building
    pieces incrementally.
-10. For agent_step nodes, leave model_config.backend and model as empty
-    strings unless the user explicitly specified a model — the workflow
-    default will be used at runtime.
 """
 
 
@@ -202,7 +200,21 @@ async def ask(
             detail=f"LLM plan failed reference validation: {err}",
         )
 
+    _inject_workflow_defaults(plan, backend=backend, model=model)
+
     return WorkflowAssistantResponse(reply=reply, plan=plan)
+
+
+def _inject_workflow_defaults(plan: list[PlanOp], backend: str, model: str) -> None:
+    """Force agent_step nodes created by the assistant to use the
+    workflow's default backend/model. The LLM is instructed to omit
+    model_config entirely; we fill it in here so no step runs against
+    a stale/invalid model the user never chose.
+    """
+    default_cfg = {"backend": backend, "model": model}
+    for op in plan:
+        if op.op == "add_node" and op.type == "agent_step":
+            op.data["model_config"] = dict(default_cfg)
 
 
 def _extract_json_object(text: str) -> str:

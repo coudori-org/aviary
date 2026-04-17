@@ -1,12 +1,17 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Plus } from "@/components/icons";
 import { useWorkflowBuilder } from "@/features/workflows/providers/workflow-builder-provider";
 import { ModelSelect } from "./model-select";
+import { ToolSelector } from "@/features/agents/components/tool-selector/tool-selector";
+import { ToolDetailsSheet } from "@/features/agents/components/tool-selector/tool-details-sheet";
+import { ToolChip } from "@/features/agents/components/form/tool-chip";
 import type { WorkflowNode } from "@/features/workflows/lib/types";
+import type { McpToolInfo } from "@/types";
 
 function NodeField({
   id,
@@ -108,6 +113,68 @@ function NodeNumberField({
 
 const TRIGGER_NODE_TYPES = new Set(["manual_trigger", "webhook_trigger"]);
 
+function ToolsField({
+  toolIds,
+  onChange,
+}: {
+  toolIds: string[];
+  onChange: (next: string[]) => void;
+}) {
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [detailsTool, setDetailsTool] = useState<McpToolInfo | null>(null);
+  const [toolInfoMap, setToolInfoMap] = useState<Map<string, McpToolInfo>>(new Map());
+
+  const removeTool = useCallback(
+    (id: string) => onChange(toolIds.filter((t) => t !== id)),
+    [toolIds, onChange],
+  );
+
+  return (
+    <div className="space-y-2">
+      <Label className="text-[11px] font-medium text-fg-disabled uppercase tracking-wider">
+        Tools
+      </Label>
+
+      {toolIds.length > 0 ? (
+        <div className="flex flex-wrap gap-1.5">
+          {toolIds.map((id) => (
+            <ToolChip
+              key={id}
+              id={id}
+              info={toolInfoMap.get(id)}
+              onRemove={removeTool}
+              onShowDetails={setDetailsTool}
+            />
+          ))}
+        </div>
+      ) : (
+        <p className="text-[11px] text-fg-disabled">No tools connected.</p>
+      )}
+
+      <button
+        type="button"
+        onClick={() => setPickerOpen(true)}
+        className="inline-flex items-center gap-1 rounded-sm border border-white/[0.08] bg-transparent px-2 py-1 text-[11px] text-fg-muted hover:bg-white/[0.04] hover:text-fg-primary transition-colors"
+      >
+        <Plus size={11} strokeWidth={2.25} />
+        Add tools
+      </button>
+
+      <ToolSelector
+        selectedToolIds={toolIds}
+        onChange={(ids, map) => {
+          onChange(ids);
+          if (map) setToolInfoMap(map);
+        }}
+        open={pickerOpen}
+        onClose={() => setPickerOpen(false)}
+      />
+
+      <ToolDetailsSheet tool={detailsTool} onClose={() => setDetailsTool(null)} />
+    </div>
+  );
+}
+
 export function InspectorPanel() {
   const { nodes, selectedNodeId, updateNodeData } = useWorkflowBuilder();
 
@@ -163,6 +230,10 @@ export function InspectorPanel() {
               multiline
               placeholder="{{input}}"
               hint="Use {{input}} for upstream data"
+            />
+            <ToolsField
+              toolIds={(d.mcp_tool_ids as string[]) ?? []}
+              onChange={(next) => updateNodeData(node.id, "mcp_tool_ids", next)}
             />
           </>
         )}
