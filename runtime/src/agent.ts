@@ -314,6 +314,12 @@ export async function* processMessage(
     disallowedTools: ["WebSearch"],
     mcpServers: Object.keys(mcpServers).length > 0 ? mcpServers : undefined,
     env,
+    stderr: (data: string) => {
+      // Surface Claude CLI stderr to pod logs so exit-1 root causes are
+      // visible without needing DEBUG_CLAUDE_AGENT_SDK + tailing files.
+      const text = data.trim();
+      if (text) console.error(`[cli-stderr ${agentId}/${sessionId}] ${text}`);
+    },
     includePartialMessages: true,
     ...(canResume ? {} : { extraArgs: { "session-id": sessionId } }),
     ...(canResume ? { resume: sessionId } : {}),

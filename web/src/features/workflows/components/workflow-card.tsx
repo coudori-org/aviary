@@ -11,21 +11,14 @@ interface WorkflowCardProps {
   workflow: Workflow;
 }
 
-const VISIBILITY_VARIANTS: Record<Workflow["visibility"], "success" | "warning" | "muted"> = {
-  public: "success",
-  team: "warning",
-  private: "muted",
-};
-
-const VISIBILITY_LABELS: Record<Workflow["visibility"], string> = {
-  public: "Public",
-  team: "Team",
-  private: "Private",
-};
-
-const STATUS_LABELS: Record<string, string> = {
+const STATUS_LABELS: Record<Workflow["status"], string> = {
   draft: "Draft",
-  active: "Active",
+  deployed: "Deployed",
+};
+
+const STATUS_VARIANTS: Record<Workflow["status"], "success" | "muted"> = {
+  draft: "muted",
+  deployed: "success",
 };
 
 export function WorkflowCard({ workflow }: WorkflowCardProps) {
@@ -57,11 +50,11 @@ export function WorkflowCard({ workflow }: WorkflowCardProps) {
           </div>
 
           <div className="flex items-center gap-1.5">
-            {workflow.status === "draft" && (
-              <Badge variant="muted">{STATUS_LABELS[workflow.status]}</Badge>
-            )}
-            <Badge variant={VISIBILITY_VARIANTS[workflow.visibility]}>
-              {VISIBILITY_LABELS[workflow.visibility]}
+            <Badge variant={STATUS_VARIANTS[workflow.status]}>
+              {STATUS_LABELS[workflow.status]}
+              {workflow.status === "deployed" && workflow.current_version != null
+                ? ` v${workflow.current_version}`
+                : ""}
             </Badge>
           </div>
         </div>

@@ -6,7 +6,12 @@ from aviary_shared.db.models.agent import Agent
 from aviary_shared.db.models.session import Session, Message
 from aviary_shared.db.models.mcp import McpServer, McpTool, McpAgentToolBinding
 from aviary_shared.db.models.upload import FileUpload
-from aviary_shared.db.models.workflow import Workflow
+from aviary_shared.db.models.workflow import (
+    Workflow,
+    WorkflowVersion,
+    WorkflowRun,
+    WorkflowNodeRun,
+)
 
 __all__ = [
     "Base",
@@ -15,5 +20,5 @@ __all__ = [
     "Session", "Message",
     "McpServer", "McpTool", "McpAgentToolBinding",
     "FileUpload",
-    "Workflow",
+    "Workflow", "WorkflowVersion", "WorkflowRun", "WorkflowNodeRun",
 ]

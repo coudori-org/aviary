@@ -45,8 +45,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from app import assembly, metrics, redis_client
-from app.auth.dependencies import extract_bearer_token, get_current_user
-from app.auth.oidc import TokenClaims
+from app.auth.dependencies import resolve_identity
 from app.routing import resolve_runtime_base
 from app.services.vault_client import fetch_user_credentials
 
@@ -106,28 +105,30 @@ async def _watch_disconnect(request: Request) -> None:
         await asyncio.sleep(_DISCONNECT_POLL_SECONDS)
 
 
-async def _authorise_and_enrich(
-    body: dict, claims: TokenClaims, user_token: str,
-) -> None:
-    """Replace caller-supplied identity with the validated JWT + Vault creds.
-
-    Also lifts `runtime_endpoint` / `model_config` to where the runtime
-    consumes them; callers MUST put them inside `agent_config` now.
+async def _authorise_and_enrich(body: dict, sub: str, user_token: str | None) -> None:
+    """Overwrite caller-supplied identity fields with the server-authoritative
+    values. Worker callers pass `user_token=None` — we drop the field so the
+    runtime / LiteLLM falls back to its master key.
     """
     agent_config = body.get("agent_config") or {}
     if not agent_config.get("agent_id"):
         raise HTTPException(status_code=400, detail="agent_config.agent_id is required")
 
-    agent_config["user_token"] = user_token
-    agent_config["user_external_id"] = claims.sub
+    agent_config["user_external_id"] = sub
+    if user_token:
+        agent_config["user_token"] = user_token
+    else:
+        agent_config.pop("user_token", None)
 
-    credentials = await fetch_user_credentials(claims.sub)
+    credentials = await fetch_user_credentials(sub)
     if credentials:
         agent_config["credentials"] = credentials
     else:
         agent_config.pop("credentials", None)
 
     body["agent_config"] = agent_config
+    # Never forward the worker-auth field to the runtime.
+    body.pop("on_behalf_of_sub", None)
 
 
 # ── /message — the one path API calls ───────────────────────────────────────
@@ -233,14 +234,10 @@ async def _drive_stream(
 
 
 @router.post("/sessions/{session_id}/message")
-async def post_message(
-    session_id: str,
-    request: Request,
-    claims: TokenClaims = Depends(get_current_user),
-):
+async def post_message(session_id: str, request: Request):
     body = await request.json()
-    user_token = extract_bearer_token(request)
-    await _authorise_and_enrich(body, claims, user_token)
+    identity = await resolve_identity(request, body)
+    await _authorise_and_enrich(body, identity.sub, identity.user_token)
 
     # Supervisor owns stream_id allocation. Publishing `stream_started` here
     # is the frontend's signal that the request was accepted — it's the
@@ -314,18 +311,11 @@ class _A2ABody(BaseModel):
 
 
 @router.post("/sessions/{session_id}/a2a")
-async def a2a_stream(
-    session_id: str,
-    body: _A2ABody,
-    request: Request,
-    claims: TokenClaims = Depends(get_current_user),
-):
+async def a2a_stream(session_id: str, body: _A2ABody, request: Request):
     """Sub-agent stream. SSE is forwarded to the caller (parent runtime's A2A
     server), and `tool_use`/`tool_result` are also tagged with
     `parent_tool_use_id` and stashed in the parent session's Redis buffer so
     the parent's assembly splices them under the right tool card."""
-    user_token = extract_bearer_token(request)
-
     sub_agent_config = {**body.agent_config, "is_sub_agent": True}
     sub_agent_config.pop("accessible_agents", None)  # no recursive A2A
 
@@ -334,7 +324,8 @@ async def a2a_stream(
         "agent_config": sub_agent_config,
         "content_parts": body.content_parts,
     }
-    await _authorise_and_enrich(runtime_body, claims, user_token)
+    identity = await resolve_identity(request, body.model_dump())
+    await _authorise_and_enrich(runtime_body, identity.sub, identity.user_token)
 
     base = resolve_runtime_base(runtime_body["agent_config"].get("runtime_endpoint"))
     parent_tool_use_id = body.parent_tool_use_id

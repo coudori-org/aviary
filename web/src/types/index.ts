@@ -138,10 +138,10 @@ export interface Workflow {
   slug: string;
   description?: string;
   owner_id: string;
-  visibility: "public" | "team" | "private";
   definition: WorkflowDefinition;
   model_config: ModelConfig;
-  status: "draft" | "active" | "deleted";
+  status: "draft" | "deployed";
+  current_version?: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -171,14 +171,19 @@ export interface WorkflowEdge {
 export interface WorkflowRun {
   id: string;
   workflow_id: string;
+  version_id?: string | null;
+  run_type: "draft" | "deployed";
   triggered_by: string;
   trigger_type: string;
+  trigger_data?: Record<string, unknown>;
   status: "pending" | "running" | "completed" | "failed" | "cancelled";
   started_at?: string;
   completed_at?: string;
   error?: string;
   created_at: string;
-  node_runs: WorkflowNodeRun[];
+  // Only populated on `GET /workflows/{id}/runs/{runId}`; list endpoints
+  // return null to keep payloads small.
+  node_runs?: WorkflowNodeRun[] | null;
 }
 
 export interface WorkflowNodeRun {

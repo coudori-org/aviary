@@ -35,6 +35,11 @@ class Settings(BaseSettings):
     litellm_url: str
     litellm_api_key: str
 
+    # Temporal — workflow orchestration
+    temporal_host: str = "temporal:7233"
+    temporal_namespace: str = "default"
+    temporal_task_queue: str = "aviary-workflows"
+
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
     @property

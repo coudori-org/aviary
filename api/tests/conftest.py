@@ -40,7 +40,7 @@ async def _noop_lifespan(app: FastAPI):
 def _create_test_app() -> FastAPI:
     """Create a FastAPI instance with the same routes but no lifespan."""
     from app.config import settings
-    from app.routers import agents, auth, catalog, inference, sessions
+    from app.routers import agents, auth, catalog, inference, sessions, workflows
     from fastapi.middleware.cors import CORSMiddleware
 
     test_app = FastAPI(title="Aviary API Test", lifespan=_noop_lifespan)
@@ -56,6 +56,7 @@ def _create_test_app() -> FastAPI:
     test_app.include_router(catalog.router, prefix="/api/catalog", tags=["catalog"])
     test_app.include_router(inference.router, prefix="/api/inference", tags=["inference"])
     test_app.include_router(sessions.router, prefix="/api", tags=["sessions"])
+    test_app.include_router(workflows.router, prefix="/api/workflows", tags=["workflows"])
 
     @test_app.get("/api/health")
     async def health():
@@ -92,7 +93,11 @@ async def _ensure_test_db():
     _db_initialized = True
 
 
-_TABLES = ["messages", "sessions", "agents", "users"]
+_TABLES = [
+    "messages", "sessions", "agents",
+    "workflow_node_runs", "workflow_runs", "workflow_versions", "workflows",
+    "users",
+]
 
 
 @pytest.fixture(autouse=True)
@@ -120,6 +125,24 @@ def _mock_agent_supervisor():
     yield
     for p in patchers:
         p.stop()
+
+
+@pytest.fixture(autouse=True)
+def _mock_temporal_client():
+    """Stub out Temporal — tests never talk to a real Temporal server."""
+    p_start = patch(
+        "app.services.temporal_client.start_workflow_run",
+        new_callable=AsyncMock, return_value="temporal-run-id-stub",
+    )
+    p_cancel = patch(
+        "app.services.temporal_client.cancel_workflow_run",
+        new_callable=AsyncMock,
+    )
+    p_start.start()
+    p_cancel.start()
+    yield
+    p_start.stop()
+    p_cancel.stop()
 
 
 async def _override_get_db() -> AsyncGenerator[AsyncSession, None]:
@@ -166,8 +189,9 @@ _TOKEN_CLAIMS: dict[str, TokenClaims] = {}
 
 
 def _setup_auth_override():
-    """Install a single get_current_user override that dispatches by Bearer token."""
-    from app.auth.dependencies import get_current_user, _upsert_user
+    """Install auth overrides keyed off the Bearer token header."""
+    from app.auth.dependencies import get_current_user, get_session_data, _upsert_user
+    from app.auth.session_store import SessionData
     from fastapi import Depends
     from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
     from sqlalchemy import select
@@ -187,7 +211,21 @@ def _setup_auth_override():
             result = await session.execute(select(User).where(User.id == user.id))
             return result.scalar_one()
 
+    async def _mock_get_session_data(
+        credentials: HTTPAuthorizationCredentials = Depends(security),
+    ) -> SessionData:
+        token = credentials.credentials
+        claims = _TOKEN_CLAIMS.get(token)
+        return SessionData(
+            user_external_id=claims.sub if claims else "unknown",
+            access_token=token,
+            refresh_token="test-refresh",
+            id_token=None,
+            access_token_expires_at=0,
+        )
+
     app.dependency_overrides[get_current_user] = _mock_get_current_user
+    app.dependency_overrides[get_session_data] = _mock_get_session_data
 
 
 _setup_auth_override()

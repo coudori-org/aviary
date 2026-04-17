@@ -23,6 +23,12 @@ class Settings(BaseSettings):
     vault_addr: str
     vault_token: str
 
+    # Shared secret authenticating the Temporal workflow worker. When the
+    # request carries `X-Aviary-Worker-Key: <this>`, the supervisor trusts
+    # `on_behalf_of_sub` from the body as the user identity instead of
+    # validating a Bearer JWT. Unset in prod disables the worker path.
+    worker_shared_secret: str | None = None
+
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
 

@@ -183,6 +183,37 @@ async def get_latest_stream_id(session_id: str) -> str | None:
         return None
 
 
+def _workflow_run_channel(run_id: str) -> str:
+    return f"workflow:run:{run_id}:events"
+
+
+def _workflow_run_replay_key(run_id: str) -> str:
+    return f"workflow:run:{run_id}:replay"
+
+
+async def subscribe_workflow_run(run_id: str):
+    """Return a pubsub subscribed to the given run's event channel, or None
+    if Redis is unavailable. Worker publishes; API WS relays."""
+    if not _client:
+        return None
+    pubsub = _client.pubsub()
+    await pubsub.subscribe(_workflow_run_channel(run_id))
+    return pubsub
+
+
+async def get_workflow_run_replay(run_id: str) -> list[dict]:
+    """Return every event the worker has appended since the run started, so
+    a just-connected WS can backfill before joining the live subscription."""
+    if not _client:
+        return []
+    try:
+        raw = await _client.lrange(_workflow_run_replay_key(run_id), 0, -1)
+        return [json.loads(r) for r in raw]
+    except redis.RedisError:
+        logger.warning("replay read failed run=%s", run_id, exc_info=True)
+        return []
+
+
 async def delete_all_session_keys(session_id: str, user_ids: list[str]) -> None:
     """Best-effort cleanup on session delete."""
     if not _client:

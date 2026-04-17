@@ -142,6 +142,9 @@ services:
       # Vault — per-user GitHub token lookup keyed by the JWT's `sub`.
       VAULT_ADDR: http://vault:8200
       VAULT_TOKEN: dev-root-token
+      # Shared secret authenticating the workflow worker. Keep in sync with
+      # the `workflow-worker` service.
+      WORKER_SHARED_SECRET: ${WORKER_SHARED_SECRET:-dev-worker-secret-change-me}
     depends_on:
       redis:
         condition: service_healthy
@@ -165,6 +168,77 @@ services:
       DATABASE_URL: postgresql+asyncpg://aviary:aviary@postgres:5432/aviary
     depends_on:
       postgres:
+        condition: service_healthy
+
+  # Temporal server hosts workflow execution state. auto-setup applies its
+  # own schema migrations to the temporal + temporal_visibility databases on
+  # first boot and registers the `default` namespace.
+  temporal:
+    image: temporalio/auto-setup:1.25
+    ports:
+      - "7233:7233"
+    environment:
+      DB: postgres12
+      DB_PORT: "5432"
+      POSTGRES_USER: aviary
+      POSTGRES_PWD: aviary
+      POSTGRES_SEEDS: postgres
+      DBNAME: temporal
+      VISIBILITY_DBNAME: temporal_visibility
+      # Default namespace is auto-created; SKIP_DEFAULT_NAMESPACE_CREATION=false is default.
+      DEFAULT_NAMESPACE: default
+      DEFAULT_NAMESPACE_RETENTION: 7d
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      # The frontend binds to the container IP, not 127.0.0.1, so we address
+      # it by hostname. `temporal` CLI (not `tctl`) returns the correct exit
+      # code on failure; we also grep for SERVING to double-check the output.
+      test: ["CMD-SHELL", "temporal --address $(hostname):7233 operator cluster health | grep -q SERVING"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+
+  temporal-ui:
+    image: temporalio/ui:2.30.1
+    ports:
+      - "8233:8080"
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_CORS_ORIGINS: http://localhost:3000
+    depends_on:
+      temporal:
+        condition: service_healthy
+
+  # Long-running Temporal worker. Hosts the WorkflowRun workflow and all
+  # node activities (agent_step, template, condition, …). Scales
+  # independently of api/admin.
+  workflow-worker:
+    build:
+      context: .
+      dockerfile: workflow-worker/Dockerfile
+      args:
+        UV_INDEX_URL: ${UV_INDEX_URL:-}
+    volumes:
+      - ./workflow-worker:/workspace/workflow-worker
+      - ./shared:/workspace/shared
+      - /workspace/.venv
+    environment:
+      TEMPORAL_HOST: temporal:7233
+      TEMPORAL_NAMESPACE: default
+      TEMPORAL_TASK_QUEUE: aviary-workflows
+      DATABASE_URL: postgresql+asyncpg://aviary:aviary@postgres:5432/aviary
+      REDIS_URL: redis://redis:6379/0
+      SUPERVISOR_URL: http://supervisor:9000
+      WORKER_SHARED_SECRET: ${WORKER_SHARED_SECRET:-dev-worker-secret-change-me}
+    depends_on:
+      temporal:
+        condition: service_healthy
+      db-migrate:
+        condition: service_completed_successfully
+      redis:
         condition: service_healthy
 
   # ── Platform MCP Servers ────────────────────────────────────
@@ -297,12 +371,17 @@ services:
       MCP_GATEWAY_URL: http://mcp-gateway:8100
       INTERNAL_API_KEY: sk-aviary-internal
       CORS_ORIGINS: '["http://localhost:3000"]'
+      TEMPORAL_HOST: temporal:7233
+      TEMPORAL_NAMESPACE: default
+      TEMPORAL_TASK_QUEUE: aviary-workflows
     depends_on:
       db-migrate:
         condition: service_completed_successfully
       redis:
         condition: service_healthy
       keycloak:
+        condition: service_healthy
+      temporal:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8000/api/health || exit 1"]

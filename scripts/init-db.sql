@@ -7,5 +7,12 @@ GRANT ALL PRIVILEGES ON DATABASE keycloak TO aviary;
 CREATE DATABASE litellm;
 GRANT ALL PRIVILEGES ON DATABASE litellm TO aviary;
 
+-- Temporal server uses two separate databases (main history store + visibility
+-- index). The `auto-setup` image runs its own schema migrations on startup.
+CREATE DATABASE temporal;
+GRANT ALL PRIVILEGES ON DATABASE temporal TO aviary;
+CREATE DATABASE temporal_visibility;
+GRANT ALL PRIVILEGES ON DATABASE temporal_visibility TO aviary;
+
 -- Enable uuid extension for aviary database
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
