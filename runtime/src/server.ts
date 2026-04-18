@@ -40,11 +40,22 @@ interface AgentConfigBody {
   [key: string]: unknown;
 }
 
+interface StructuredOutputField {
+  name: string;
+  type: "str" | "list";
+  description?: string;
+}
+
+interface StructuredOutputFormat {
+  fields: StructuredOutputField[];
+}
+
 interface MessageRequestBody {
   content_parts: ContentPart[];
   session_id: string;
   agent_config: AgentConfigBody;
   output_format?: { type: "json_schema"; schema: Record<string, unknown> };
+  structured_output_format?: StructuredOutputFormat;
 }
 
 app.post("/message", async (req, res) => {
@@ -89,6 +100,7 @@ app.post("/message", async (req, res) => {
       body.agent_config as any,
       abortController,
       body.output_format,
+      body.structured_output_format,
     )) {
       if (res.writableEnded || abortController.signal.aborted) break;
       res.write(`data: ${JSON.stringify(chunk)}\n\n`);

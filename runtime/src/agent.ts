@@ -11,7 +11,8 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 
-import { query, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
+import { query, createSdkMcpServer, tool, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
+import { z } from "zod";
 import { startA2AServer, type AccessibleAgent, type A2AServer } from "./a2a-tools.js";
 import {
   SANDBOX_WORKSPACE,
@@ -139,8 +140,18 @@ function hasSessionHistory(claudeDir: string, sessionId: string): boolean {
   return false;
 }
 
+export interface StructuredOutputField {
+  name: string;
+  type: "str" | "list";
+  description?: string;
+}
+
+export interface StructuredOutputFormat {
+  fields: StructuredOutputField[];
+}
+
 export interface SSEChunk {
-  type: "chunk" | "tool_use" | "tool_result" | "tool_progress" | "result" | "thinking" | "query_started" | "error";
+  type: "chunk" | "tool_use" | "tool_result" | "tool_progress" | "result" | "thinking" | "query_started" | "error" | "structured_output";
   content?: string;
   name?: string;
   input?: unknown;
@@ -158,7 +169,61 @@ export interface SSEChunk {
   num_turns?: number;
   total_cost_usd?: number;
   usage?: Record<string, unknown>;
+  // structured_output payload — appears on type "structured_output" (emitted
+  // when the final-response SDK tool is called) and again on "result" so
+  // callers that only consume the terminal event still see it.
   structured_output?: unknown;
+}
+
+// Dynamic final-response tool — registered as an in-process SDK MCP server
+// when the request carries `structured_output_format`. The CLI sees it as
+// `mcp__<SERVER>__<TOOL>`; pinning both keeps the name deterministic so the
+// system prompt can reference it and the runtime can detect the tool call.
+const STRUCTURED_OUTPUT_MCP_SERVER = "aviary_output";
+const STRUCTURED_OUTPUT_TOOL = "emit_final_response";
+const STRUCTURED_OUTPUT_CLI_TOOL =
+  `mcp__${STRUCTURED_OUTPUT_MCP_SERVER}__${STRUCTURED_OUTPUT_TOOL}`;
+
+function buildStructuredFieldSchema(field: StructuredOutputField): z.ZodType {
+  const base: z.ZodType =
+    field.type === "list" ? z.array(z.string()) : z.string();
+  return field.description ? base.describe(field.description) : base;
+}
+
+function buildStructuredOutputServer(fmt: StructuredOutputFormat) {
+  const shape: Record<string, z.ZodType> = {};
+  for (const field of fmt.fields) {
+    shape[field.name] = buildStructuredFieldSchema(field);
+  }
+  return createSdkMcpServer({
+    name: STRUCTURED_OUTPUT_MCP_SERVER,
+    tools: [
+      tool(
+        STRUCTURED_OUTPUT_TOOL,
+        "Emit the final structured response. Call this exactly once as your last action to complete the task.",
+        shape,
+        async () => ({
+          content: [{ type: "text", text: "Final response recorded." }],
+        }),
+      ),
+    ],
+  });
+}
+
+function structuredOutputPromptSuffix(fmt: StructuredOutputFormat): string {
+  const lines = fmt.fields.map((f) => {
+    const t = f.type === "list" ? "array of strings" : "string";
+    const desc = f.description ? ` — ${f.description}` : "";
+    return `- \`${f.name}\` (${t})${desc}`;
+  });
+  return [
+    "",
+    "## Final Response",
+    `You MUST produce your final answer by calling the \`${STRUCTURED_OUTPUT_CLI_TOOL}\` tool exactly once, at the very end of the task. Do not summarize the result in a plain text reply — the tool call IS the response.`,
+    "",
+    "Fields:",
+    ...lines,
+  ].join("\n");
 }
 
 /**
@@ -224,6 +289,7 @@ export async function* processMessage(
   agentConfig: AgentConfig,
   abortController?: AbortController,
   outputFormat?: { type: "json_schema"; schema: Record<string, unknown> },
+  structuredOutputFormat?: StructuredOutputFormat,
 ): AsyncGenerator<SSEChunk> {
   const agentId = agentConfig.agent_id;
   const shared = sessionSharedDir(sessionId);
@@ -307,10 +373,24 @@ export async function* processMessage(
     systemPrompt += `\n\n## Available Sub-Agents\nYou can delegate tasks to these agents using the corresponding mcp__a2a__ask_{slug} tool:\n${agentList}`;
   }
 
-  // Merge allowed tools with A2A tool names
+  // Structured output — register an in-process SDK MCP server whose single
+  // tool matches the requested schema. Claude emits the final answer by
+  // calling this tool; we capture the args and surface them to the caller
+  // on a dedicated SSE event (plus the terminal `result` event).
+  const structuredToolNames: string[] = [];
+  if (structuredOutputFormat?.fields?.length) {
+    mcpServers[STRUCTURED_OUTPUT_MCP_SERVER] = buildStructuredOutputServer(
+      structuredOutputFormat,
+    );
+    structuredToolNames.push(STRUCTURED_OUTPUT_CLI_TOOL);
+    systemPrompt += structuredOutputPromptSuffix(structuredOutputFormat);
+  }
+
+  // Merge allowed tools with A2A tool names and the structured-output tool.
   const allowedTools = [
     ...(agentConfig.tools ?? []),
     ...a2aToolNames,
+    ...structuredToolNames,
   ];
 
   const options: Record<string, unknown> = {
@@ -372,6 +452,10 @@ export async function* processMessage(
   let emittedThinkingLen = 0;
   // Track tool_use IDs already emitted to avoid duplicates from partial messages
   const emittedToolIds = new Set<string>();
+  // Captured structured-output payload — set when Claude calls our
+  // final-response tool. Emitted both inline (as `structured_output` SSE)
+  // and on the terminal `result` event.
+  let structuredOutput: Record<string, unknown> | null = null;
   // Whether we've received any stream_event deltas. When true (Anthropic),
   // text/thinking are handled via stream_event and assistant snapshots are
   // only used for tool_use. When false (ollama/vllm), assistant snapshots
@@ -441,6 +525,10 @@ export async function* processMessage(
                 tool_use_id: block.id,
                 ...(parentId ? { parent_tool_use_id: parentId } : {}),
               };
+              if (block.name === STRUCTURED_OUTPUT_CLI_TOOL) {
+                structuredOutput = (block.input ?? {}) as Record<string, unknown>;
+                yield { type: "structured_output", input: structuredOutput };
+              }
             }
           }
         }
@@ -481,7 +569,11 @@ export async function* processMessage(
           fullResponse = msg.result;
           yield { type: "chunk", content: msg.result };
         }
-        // Emit result metadata (cost, usage, duration)
+        // Emit result metadata (cost, usage, duration). `structured_output`
+        // is our captured final-response-tool payload; fall back to the
+        // SDK's native `msg.structured_output` when our tool wasn't used.
+        const resultStructured =
+          structuredOutput ?? (msg.structured_output !== undefined ? msg.structured_output : undefined);
         yield {
           type: "result",
           session_id: msg.session_id,
@@ -489,7 +581,7 @@ export async function* processMessage(
           num_turns: msg.num_turns,
           total_cost_usd: msg.total_cost_usd,
           usage: msg.usage,
-          ...(msg.structured_output !== undefined ? { structured_output: msg.structured_output } : {}),
+          ...(resultStructured !== undefined ? { structured_output: resultStructured } : {}),
         };
       }
     }
