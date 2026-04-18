@@ -22,7 +22,7 @@ from sqlalchemy.orm import selectinload
 from app.db.models import User, Workflow, WorkflowNodeRun, WorkflowRun, WorkflowVersion
 from app.schemas.workflow import WorkflowRunCreate
 from app.services import redis_service, temporal_client
-from app.services.workflow_errors import WorkflowStateError
+from app.errors import StateError
 from aviary_shared.workflow_types import WorkflowRunInput
 
 logger = logging.getLogger(__name__)
@@ -75,7 +75,7 @@ def _validate_artifact_name_uniqueness(definition: dict) -> None:
         for src in sources:
             for name in produces.get(src, ()):  # type: ignore[union-attr]
                 if name in seen and seen[name] != src:
-                    raise WorkflowStateError(
+                    raise StateError(
                         f"Artifact name collision at node '{target}': both "
                         f"'{seen[name]}' and '{src}' declare artifact '{name}'",
                     )
@@ -90,7 +90,7 @@ async def create_run(
     if body.run_type == "deployed":
         version = await _latest_version(db, workflow.id)
         if version is None:
-            raise WorkflowStateError("Workflow has no deployed version yet")
+            raise StateError("Workflow has no deployed version yet")
         definition_snapshot = version.definition
         version_id = version.id
     else:
@@ -225,7 +225,7 @@ async def resume_run(
             select(WorkflowVersion).where(WorkflowVersion.id == source_run.version_id)
         )).scalar_one_or_none()
         if version is None:
-            raise WorkflowStateError("Source version no longer exists")
+            raise StateError("Source version no longer exists")
         definition_snapshot = version.definition
         new_version_id = version.id
     else:
@@ -250,7 +250,7 @@ async def resume_run(
     # the source finished. If every live node already has a completed
     # output carried forward, there's nothing to run.
     if live_node_ids and set(resume_context.keys()) >= live_node_ids:
-        raise WorkflowStateError(
+        raise StateError(
             "Nothing to resume — every node in the current workflow is already "
             "completed in this run",
         )

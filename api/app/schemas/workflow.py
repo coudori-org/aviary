@@ -1,25 +1,13 @@
-import uuid
 from datetime import datetime
-from typing import Annotated
 
-from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field
 
+from app.schemas._common import (
+    MODEL_CONFIG_ALIAS as _MODEL_CONFIG_KEY_ALIAS,
+    OptionalUuidStr,
+    UuidStr,
+)
 from app.schemas.agent import ModelConfig
-
-# Pydantic v2 reserves the ``model_`` prefix; workflow schemas need
-# ``model_config_json`` to match the ORM attribute, so every schema that
-# touches it turns the protection off.
-_MODEL_CONFIG_KEY_ALIAS = {"alias": "model_config"}
-
-
-def _to_str(v):
-    """Accept ORM uuid.UUID values and serialize them as strings —
-    wire-level ids stay ``str`` for frontend compatibility."""
-    return str(v) if isinstance(v, uuid.UUID) else v
-
-
-UuidStr = Annotated[str, BeforeValidator(_to_str)]
-OptionalUuidStr = Annotated[str | None, BeforeValidator(_to_str)]
 
 
 class WorkflowCreate(BaseModel):

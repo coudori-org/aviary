@@ -2,12 +2,12 @@ import asyncio
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 
 from app.auth.oidc import init_oidc
 from app.config import settings
+from app.errors import register_handlers as register_domain_handlers
 from app.routers import (
     agent_autocomplete,
     agents,
@@ -22,7 +22,6 @@ from app.routers import (
 )
 from app.services import agent_supervisor, temporal_client
 from app.services.redis_service import close_redis, get_client, init_redis
-from app.services.workflow_errors import WorkflowError
 
 logger = logging.getLogger(__name__)
 
@@ -57,10 +56,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
-@app.exception_handler(WorkflowError)
-async def _workflow_error_handler(_: Request, exc: WorkflowError) -> JSONResponse:
-    return JSONResponse(status_code=exc.http_status, content={"detail": str(exc)})
+register_domain_handlers(app)
 
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(agents.router, prefix="/api/agents", tags=["agents"])

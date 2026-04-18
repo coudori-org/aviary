@@ -1,7 +1,4 @@
-"""Agent CRUD — owner-only.
-
-Broader sharing/ACL will come back under the RBAC redesign.
-"""
+"""Agent CRUD — owner-only."""
 
 import logging
 import uuid
@@ -11,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Agent, Session, User
 from app.schemas.agent import AgentCreate, AgentUpdate
+from app.errors import ConflictError
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +16,7 @@ logger = logging.getLogger(__name__)
 async def create_agent(db: AsyncSession, user: User, data: AgentCreate) -> Agent:
     existing = await db.execute(select(Agent).where(Agent.slug == data.slug))
     if existing.scalar_one_or_none():
-        raise ValueError(f"Agent slug '{data.slug}' already exists")
+        raise ConflictError(f"Agent slug '{data.slug}' already exists")
 
     agent = Agent(
         name=data.name,
@@ -26,7 +24,7 @@ async def create_agent(db: AsyncSession, user: User, data: AgentCreate) -> Agent
         description=data.description,
         owner_id=user.id,
         instruction=data.instruction,
-        model_config_json=data.model_config_data.model_dump(),
+        model_config_json=data.model_config_json.model_dump(),
         tools=data.tools,
         mcp_servers=[s.model_dump() for s in data.mcp_servers],
         icon=data.icon,
@@ -86,8 +84,8 @@ async def update_agent(db: AsyncSession, agent: Agent, data: AgentUpdate) -> Age
         agent.description = data.description
     if data.instruction is not None:
         agent.instruction = data.instruction
-    if data.model_config_data is not None:
-        agent.model_config_json = data.model_config_data.model_dump()
+    if data.model_config_json is not None:
+        agent.model_config_json = data.model_config_json.model_dump()
     if data.tools is not None:
         agent.tools = data.tools
     if data.mcp_servers is not None:
@@ -96,6 +94,10 @@ async def update_agent(db: AsyncSession, agent: Agent, data: AgentUpdate) -> Age
         agent.icon = data.icon
 
     await db.flush()
+    # `updated_at` is server-updated via onupdate=func.now(); refresh so
+    # Pydantic from_attributes doesn't lazy-load it after the session
+    # commits on the way out.
+    await db.refresh(agent)
     return agent
 
 

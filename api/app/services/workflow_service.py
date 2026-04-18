@@ -15,7 +15,7 @@ from sqlalchemy.orm import selectinload
 from app.db.models import User, Workflow, WorkflowRun, WorkflowVersion
 from app.schemas.workflow import WorkflowCreate, WorkflowUpdate
 from app.services import agent_supervisor
-from app.services.workflow_errors import WorkflowConflictError, WorkflowStateError
+from app.errors import ConflictError, StateError
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 async def create_workflow(db: AsyncSession, user: User, data: WorkflowCreate) -> Workflow:
     existing = await db.execute(select(Workflow).where(Workflow.slug == data.slug))
     if existing.scalar_one_or_none():
-        raise WorkflowConflictError(f"Workflow slug '{data.slug}' already exists")
+        raise ConflictError(f"Workflow slug '{data.slug}' already exists")
 
     workflow = Workflow(
         name=data.name,
@@ -165,7 +165,7 @@ async def cancel_edit(db: AsyncSession, workflow: Workflow) -> Workflow:
     # `versions` is eager-loaded by get_workflow → ordered desc by version.
     latest_version = workflow.versions[0] if workflow.versions else None
     if latest_version is None:
-        raise WorkflowStateError("Workflow has no deployed version to revert to")
+        raise StateError("Workflow has no deployed version to revert to")
 
     workflow.definition = latest_version.definition
     workflow.model_config_json = latest_version.model_config_json or {}
