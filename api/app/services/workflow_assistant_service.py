@@ -1,11 +1,12 @@
-"""Workflow Builder AI Assistant — three LLM calls against the workflow's
-default model, no fallback, no retries.
+"""Workflow Builder AI Assistant — 3-stage LLM flow over LiteLLM `/v1/messages`.
 
-1. Shortlist — compact signatures only, model returns candidate ids.
-2. Narrow — descriptions included, model picks the actual set.
-3. Plan — narrowed catalog fed into the plan-generation system prompt.
+Stage 1: shortlist candidate MCP tools from bare ids.
+Stage 2: narrow the shortlist using full descriptions.
+Stage 3: emit a `{reply, plan}` payload. Plan ops are Pydantic-validated.
 
-All three calls share the same token budget; that's the only knob.
+`tool_choice` is left at `auto` because forced single-field tool calls are
+unreliable on non-Anthropic backends (they emit the inner value without the
+object wrapper). The system prompt names the tool the model should call.
 """
 
 from __future__ import annotations
@@ -33,6 +34,7 @@ _plan_adapter: TypeAdapter[list[PlanOp]] = TypeAdapter(list[PlanOp])
 _HISTORY_CAP = 10
 _DESCRIPTION_CAP = 400
 _MAX_TOKENS = 16384
+_LITELLM_TIMEOUT = 300.0
 
 
 # ---------------------------------------------------------------------------
@@ -84,93 +86,57 @@ async def ask(
 
 
 # ---------------------------------------------------------------------------
-# LiteLLM JSON call
-# ---------------------------------------------------------------------------
-
-
-async def _litellm_json(
-    *,
-    model_name: str,
-    user_token: str,
-    messages: list[dict],
-) -> dict:
-    headers = {
-        "Authorization": f"Bearer {settings.litellm_api_key}",
-        "X-Aviary-User-Token": user_token,
-    }
-    payload = {
-        "model": model_name,
-        "messages": messages,
-        "response_format": {"type": "json_object"},
-        "max_tokens": _MAX_TOKENS,
-    }
-
-    async with httpx.AsyncClient(timeout=300) as client:
-        resp = await client.post(
-            f"{settings.litellm_url}/chat/completions",
-            headers=headers, json=payload,
-        )
-
-    if resp.status_code >= 400:
-        logger.warning("LiteLLM %s: %s", resp.status_code, resp.text[:500])
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"LLM gateway error ({resp.status_code})",
-        )
-
-    raw = resp.json()["choices"][0]["message"]["content"]
-    if not isinstance(raw, str) or not raw.strip():
-        logger.warning("LLM empty content (model=%s): %r", model_name, resp.json().get("choices"))
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="LLM returned empty content",
-        )
-    try:
-        return json.loads(_extract_json_object(raw))
-    except json.JSONDecodeError as e:
-        logger.warning("LLM non-JSON (model=%s): %r", model_name, raw[:500])
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"LLM returned non-JSON: {e}",
-        ) from e
-
-
-# ---------------------------------------------------------------------------
 # Stages 1 + 2: tool shortlisting
 # ---------------------------------------------------------------------------
 
 
 _STAGE1_SYSTEM = """\
-You are picking MCP tools that MIGHT be relevant to a user's workflow request.
+You pick MCP tools that MIGHT be relevant to the user's workflow request.
 
 You will see:
 - The user's request (+ prior conversation)
 - The current workflow state
 - A list of tool identifiers in the form "{server}__{tool}" — NO descriptions
 
-Return EXACTLY this JSON shape (no markdown fences, no extra keys):
-{"candidate_tool_ids": ["server1__tool1", "server2__tool2"]}
+Err on the side of inclusion (up to ~20 candidates). A later stage re-verifies
+with full descriptions. Only pick ids that appear in the list — do NOT invent
+identifiers. If nothing applies, return an empty array.
 
-Err on the side of inclusion (up to ~20 candidates). If nothing applies,
-return {"candidate_tool_ids": []}. Do NOT invent identifiers — only
-pick from the list.
+Call the `shortlist_tools` tool exactly once with your result.
 """
 
 _STAGE2_SYSTEM = """\
-You are narrowing a shortlist of MCP tools to the ones actually needed for
-the user's workflow request.
+You narrow a shortlist of MCP tools to the ones actually needed for the
+user's workflow request.
 
 You will see:
 - The user's request (+ prior conversation)
 - The current workflow state
 - A shortlist of tools with their full descriptions
 
-Return EXACTLY this JSON shape (no markdown fences, no extra keys):
-{"selected_tool_ids": ["server1__tool1", "server2__tool2"]}
+Pick only what's clearly useful. Only return ids from the shortlist — do NOT
+invent identifiers. If nothing applies, return an empty array.
 
-Pick only what's clearly useful. If nothing applies, return
-{"selected_tool_ids": []}. Do NOT invent identifiers.
+Call the `narrow_tools` tool exactly once with your final subset.
 """
+
+_SHORTLIST_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["candidate_tool_ids"],
+    "properties": {
+        "candidate_tool_ids": {"type": "array", "items": {"type": "string"}},
+    },
+}
+
+_NARROW_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["selected_tool_ids"],
+    "properties": {
+        "selected_tool_ids": {"type": "array", "items": {"type": "string"}},
+    },
+}
 
 
 async def _select_relevant_tools(
@@ -185,56 +151,44 @@ async def _select_relevant_tools(
     if not catalog:
         return []
 
-    # Stage 1: signatures only.
-    stage1 = await _litellm_json(
+    stage1 = await _litellm_tool_call(
         model_name=model_name,
         user_token=user_token,
-        messages=_build_history_messages(
-            system=(
-                _STAGE1_SYSTEM
-                + _format_context_block(current_definition)
-                + "\n## Available tool ids\n"
-                + "\n".join(f"- {t['name']}" for t in catalog)
-            ),
-            history=history,
-            user_message=user_message,
+        system=(
+            _STAGE1_SYSTEM
+            + _format_context_block(current_definition)
+            + "\n## Available tool ids\n"
+            + "\n".join(f"- {t['name']}" for t in catalog)
         ),
+        history=history,
+        user_message=user_message,
+        tool_name="shortlist_tools",
+        schema=_SHORTLIST_SCHEMA,
     )
-    if not isinstance(stage1, dict):
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Stage-1 expected JSON object, got {type(stage1).__name__}",
-        )
     valid = {t["name"] for t in catalog}
     candidates = [c for c in stage1.get("candidate_tool_ids", []) if c in valid]
     if not candidates:
         return []
 
-    # Stage 2: descriptions included.
     by_name = {t["name"]: t for t in catalog}
     detailed_block = "\n".join(
         f"- {name}: {(by_name[name].get('description') or '(no description)')[:_DESCRIPTION_CAP]}"
         for name in candidates
     )
-    stage2 = await _litellm_json(
+    stage2 = await _litellm_tool_call(
         model_name=model_name,
         user_token=user_token,
-        messages=_build_history_messages(
-            system=(
-                _STAGE2_SYSTEM
-                + _format_context_block(current_definition)
-                + "\n## Candidate tools\n"
-                + detailed_block
-            ),
-            history=history,
-            user_message=user_message,
+        system=(
+            _STAGE2_SYSTEM
+            + _format_context_block(current_definition)
+            + "\n## Candidate tools\n"
+            + detailed_block
         ),
+        history=history,
+        user_message=user_message,
+        tool_name="narrow_tools",
+        schema=_NARROW_SCHEMA,
     )
-    if not isinstance(stage2, dict):
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Stage-2 expected JSON object, got {type(stage2).__name__}",
-        )
     candidate_set = set(candidates)
     selected = [s for s in stage2.get("selected_tool_ids", []) if s in candidate_set]
     return [by_name[name] for name in selected]
@@ -247,7 +201,7 @@ async def _select_relevant_tools(
 
 _PLAN_SYSTEM = """\
 You are the Aviary Workflow Builder assistant. You help a user modify a
-visual workflow (a DAG of nodes and edges) by returning a JSON plan of
+visual workflow (a DAG of nodes and edges) by proposing a JSON plan of
 edit operations.
 
 ## Node types and required `data` fields
@@ -266,12 +220,7 @@ edit operations.
 - payload_parser: { "label": string, "mapping": object }
 - template: { "label": string, "template": string }
 
-## Output format
-Return a SINGLE JSON object with exactly two keys:
-- "reply": short natural-language message shown to the user
-- "plan": ordered array of edit operations
-
-## Operation vocabulary
+## Operation vocabulary (items of the `plan` array)
 { "op": "add_node", "id": "<new_unique_id>", "type": "<node_type>",
   "position": { "x": <number>, "y": <number> }, "data": { ... } }
 { "op": "update_node", "id": "<existing_id>", "data_patch": { ... } }
@@ -289,14 +238,26 @@ Return a SINGLE JSON object with exactly two keys:
 4. DO NOT re-emit nodes the user did not ask to change — emit only deltas.
 5. Place new nodes at readable positions (~200px spacing from related
    existing nodes, growing left-to-right or top-to-bottom).
-6. For a pure question, return "plan": [] and put the answer in "reply".
-7. For an ambiguous request, ask a clarifying question and return empty plan.
-8. Output raw JSON only. No markdown fences, no prose outside the JSON.
-9. Every workflow needs exactly one trigger node unless the user is
+6. For a pure question, return plan=[] and put the answer in `reply`.
+7. For an ambiguous request, ask a clarifying question and return plan=[].
+8. Every workflow needs exactly one trigger node unless the user is
    building pieces incrementally.
-10. On agent_step, only bind tools from the "Available MCP tools" list
-    below. If no tools are listed, leave "mcp_tool_ids": [].
+9. On agent_step, only bind tools from the "Available MCP tools" list
+   below. If no tools are listed, leave `mcp_tool_ids: []`.
+
+Call the `propose_plan` tool exactly once with `reply` (the short
+natural-language message) and `plan` (the ordered edit operations).
 """
+
+_PLAN_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["reply", "plan"],
+    "properties": {
+        "reply": {"type": "string"},
+        "plan": {"type": "array", "items": {"type": "object"}},
+    },
+}
 
 
 async def _generate_plan(
@@ -308,17 +269,18 @@ async def _generate_plan(
     model_name: str,
     user_token: str,
 ) -> tuple[list[PlanOp], str]:
-    system = (
-        _PLAN_SYSTEM
-        + _format_context_block(current_definition)
-        + _format_tools_block(selected_tools)
-    )
-    parsed = await _litellm_json(
+    parsed = await _litellm_tool_call(
         model_name=model_name,
         user_token=user_token,
-        messages=_build_history_messages(
-            system=system, history=history, user_message=user_message,
+        system=(
+            _PLAN_SYSTEM
+            + _format_context_block(current_definition)
+            + _format_tools_block(selected_tools)
         ),
+        history=history,
+        user_message=user_message,
+        tool_name="propose_plan",
+        schema=_PLAN_SCHEMA,
     )
 
     reply = parsed.get("reply", "")
@@ -331,7 +293,6 @@ async def _generate_plan(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="LLM plan must be a list",
         )
-
     try:
         plan = _plan_adapter.validate_python(plan_raw)
     except ValidationError as e:
@@ -344,18 +305,78 @@ async def _generate_plan(
 
 
 # ---------------------------------------------------------------------------
-# Formatting helpers
+# LiteLLM call
 # ---------------------------------------------------------------------------
 
 
-def _build_history_messages(
-    *, system: str, history, user_message: str,
-) -> list[dict]:
-    msgs: list[dict] = [{"role": "system", "content": system}]
+async def _litellm_tool_call(
+    *,
+    model_name: str,
+    user_token: str,
+    system: str,
+    history,
+    user_message: str,
+    tool_name: str,
+    schema: dict,
+) -> dict:
+    messages: list[dict] = []
     for turn in history[-_HISTORY_CAP:]:
-        msgs.append({"role": turn.role, "content": turn.content})
-    msgs.append({"role": "user", "content": user_message})
-    return msgs
+        messages.append({"role": turn.role, "content": turn.content})
+    messages.append({"role": "user", "content": user_message})
+
+    payload = {
+        "model": model_name,
+        "max_tokens": _MAX_TOKENS,
+        "system": system,
+        "messages": messages,
+        "tools": [
+            {
+                "name": tool_name,
+                "description": f"Return the {tool_name} result.",
+                "input_schema": schema,
+            }
+        ],
+    }
+    headers = {
+        "Authorization": f"Bearer {settings.litellm_api_key}",
+        "X-Aviary-User-Token": user_token,
+        "anthropic-version": "2023-06-01",
+    }
+
+    async with httpx.AsyncClient(timeout=_LITELLM_TIMEOUT) as client:
+        resp = await client.post(
+            f"{settings.litellm_url.rstrip('/')}/v1/messages",
+            headers=headers, json=payload,
+        )
+
+    if resp.status_code >= 400:
+        logger.warning("LiteLLM %s: %s", resp.status_code, resp.text[:500])
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"LLM gateway error ({resp.status_code})",
+        )
+
+    body = resp.json()
+    for block in body.get("content") or []:
+        if block.get("type") == "tool_use" and block.get("name") == tool_name:
+            arguments = block.get("input")
+            if isinstance(arguments, dict):
+                return arguments
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"{tool_name} input is not a dict: {type(arguments).__name__}",
+            )
+
+    logger.warning("No tool_use for %s (model=%s): %r", tool_name, model_name, body)
+    raise HTTPException(
+        status_code=status.HTTP_502_BAD_GATEWAY,
+        detail=f"LLM did not call {tool_name}",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Formatting helpers
+# ---------------------------------------------------------------------------
 
 
 def _format_context_block(current_definition: dict) -> str:
@@ -385,61 +406,10 @@ def _format_tools_block(selected_tools: list[dict]) -> str:
 
 
 def _inject_workflow_defaults(plan: list[PlanOp], backend: str, model: str) -> None:
-    """Every assistant-created agent_step runs with the workflow's default
-    backend/model.
-    """
     default_cfg = {"backend": backend, "model": model}
     for op in plan:
         if op.op == "add_node" and op.type == "agent_step":
             op.data["model_config"] = dict(default_cfg)
-
-
-# ---------------------------------------------------------------------------
-# JSON extraction + reference validation
-# ---------------------------------------------------------------------------
-
-
-def _extract_json_object(text: str) -> str:
-    """Pull the first top-level {...} out of LLM output, stripping markdown
-    fences and surrounding commentary.
-    """
-    s = text.strip()
-
-    if s.startswith("```"):
-        newline = s.find("\n")
-        if newline != -1:
-            s = s[newline + 1:]
-        if s.endswith("```"):
-            s = s[:-3]
-        s = s.strip()
-
-    start = s.find("{")
-    if start < 0:
-        return s
-
-    depth = 0
-    in_string = False
-    escape = False
-    for i in range(start, len(s)):
-        c = s[i]
-        if escape:
-            escape = False
-            continue
-        if c == "\\":
-            escape = True
-            continue
-        if c == '"':
-            in_string = not in_string
-            continue
-        if in_string:
-            continue
-        if c == "{":
-            depth += 1
-        elif c == "}":
-            depth -= 1
-            if depth == 0:
-                return s[start:i + 1]
-    return s[start:]
 
 
 def _validate_plan_references(plan: list[PlanOp], definition: dict) -> str | None:
