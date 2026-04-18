@@ -1,34 +1,19 @@
-"""Session-centric API.
+"""Session-centric supervisor routes.
 
 Endpoints:
-  POST /v1/sessions/{sid}/message   — drive one turn: stream SSE from the
-                                      runtime, publish events to Redis, assemble
-                                      final text + blocks, return them.
-  POST /v1/sessions/{sid}/a2a       — parent runtime's A2A MCP server calls
-                                      this with the sub-agent's full config.
-  POST /v1/streams/{sid}/abort      — cancel an in-flight stream by stream_id.
-  DELETE /v1/sessions/{sid}         — ask the runtime to drop its (agent,
-                                      session) workspace.
+  POST   /v1/sessions/{sid}/message  — drive one turn: stream SSE from the
+                                       runtime, publish to Redis, assemble,
+                                       return the final text + blocks.
+  POST   /v1/sessions/{sid}/a2a      — parent runtime's A2A MCP server
+                                       streams a sub-agent turn.
+  POST   /v1/streams/{sid}/abort     — cancel by stream_id (local or fanned
+                                       out across replicas).
+  DELETE /v1/sessions/{sid}          — ask runtime to drop workspace.
+  DELETE /v1/workflows/{root_run_id}/artifacts — drop a run chain's tree.
 
-Request body on /message and /a2a:
-
-    {
-      "session_id": "...",
-      "content_parts": [...],
-      "agent_config": {                  # self-contained runtime spec
-        "agent_id": "...", "slug": "...", "name": "...", "description": "...",
-        "runtime_endpoint": "string | null",
-        "model_config": { ... },
-        "instruction": "...",
-        "tools": [...],
-        "mcp_servers": { ... },
-        "accessible_agents": [ ...same shape, recursion blocked at the runtime... ]
-      }
-    }
-
-Auth: `Authorization: Bearer <user JWT>` on both /message and /a2a. The
-supervisor injects `agent_config.user_token`, `user_external_id`, and
-`credentials` from Vault — callers MUST NOT send those fields.
+Auth: Bearer JWT on /message and /a2a (the supervisor injects
+``user_token``/``user_external_id``/``credentials`` server-side — callers
+MUST NOT send those fields).
 """
 
 from __future__ import annotations
@@ -41,13 +26,15 @@ import time
 import uuid
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Request
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from app import assembly, metrics, redis_client
+from app import metrics, redis_client
 from app.auth.dependencies import resolve_identity
 from app.routing import resolve_runtime_base
-from app.services.vault_client import fetch_user_credentials
+from app.services.identity import enrich_agent_config
+from app.services.stream_service import drive_stream
 
 logger = logging.getLogger(__name__)
 
@@ -105,136 +92,14 @@ async def _watch_disconnect(request: Request) -> None:
         await asyncio.sleep(_DISCONNECT_POLL_SECONDS)
 
 
-async def _authorise_and_enrich(body: dict, sub: str, user_token: str | None) -> None:
-    """Overwrite caller-supplied identity fields with the server-authoritative
-    values. Worker callers pass `user_token=None` — we drop the field so the
-    runtime / LiteLLM falls back to its master key.
-    """
-    agent_config = body.get("agent_config") or {}
-    if not agent_config.get("agent_id"):
-        raise HTTPException(status_code=400, detail="agent_config.agent_id is required")
-
-    agent_config["user_external_id"] = sub
-    if user_token:
-        agent_config["user_token"] = user_token
-    else:
-        agent_config.pop("user_token", None)
-
-    credentials = await fetch_user_credentials(sub)
-    if credentials:
-        agent_config["credentials"] = credentials
-    else:
-        agent_config.pop("credentials", None)
-
-    body["agent_config"] = agent_config
-    # Never forward the worker-auth field to the runtime.
-    body.pop("on_behalf_of_sub", None)
-
-
-# ── /message — the one path API calls ───────────────────────────────────────
-
-async def _drive_stream(
-    session_id: str, stream_id: str, body: dict,
-) -> dict:
-    """Stream runtime SSE → Redis → assembled text/blocks."""
-    agent_config = body["agent_config"]
-    base = resolve_runtime_base(agent_config.get("runtime_endpoint"))
-    reached_runtime = False
-    error_message: str | None = None
-    aborted = False
-    started = time.monotonic()
-
-    await redis_client.set_stream_status(stream_id, "streaming")
-    await redis_client.set_session_status(session_id, "streaming")
-    await redis_client.set_session_latest_stream(session_id, stream_id)
-
-    metrics.active_streams.inc()
-    try:
-        async with httpx.AsyncClient() as client:
-            async with client.stream(
-                "POST", f"{base}/message", json=body, timeout=None,
-            ) as resp:
-                if resp.status_code != 200:
-                    metrics.runtime_http_errors_total.labels(
-                        status_code=str(resp.status_code)
-                    ).inc()
-                    err = (await resp.aread()).decode(errors="replace")[:500]
-                    logger.error("Runtime stream %d: %s", resp.status_code, err)
-                    error_message = f"Agent runtime error ({resp.status_code}): {err}"
-                else:
-                    async for line in resp.aiter_lines():
-                        if not line.startswith("data: "):
-                            continue
-                        event = json.loads(line[6:])
-                        event["stream_id"] = stream_id
-                        etype = event.get("type")
-                        metrics.sse_events_total.labels(event_type=etype or "unknown").inc()
-                        if etype == "query_started":
-                            reached_runtime = True
-                            metrics.time_to_query_started_seconds.observe(
-                                time.monotonic() - started
-                            )
-                            continue
-                        if etype == "error":
-                            # API is the sole publisher of terminal error events
-                            # (it owns DB-consistent events). Returning the
-                            # message in the response is enough.
-                            error_message = event.get("message", "Agent runtime error")
-                            break
-                        await redis_client.append_stream_chunk(stream_id, event)
-                        await redis_client.publish_event(session_id, event)
-    except asyncio.CancelledError:
-        aborted = True
-    except httpx.HTTPError as e:
-        logger.exception("SSE proxy error for stream %s", stream_id)
-        error_message = f"Agent runtime connection failed: {e}"
-    finally:
-        metrics.active_streams.dec()
-
-    metrics.publish_duration_seconds.observe(time.monotonic() - started)
-    await redis_client.set_session_status(session_id, "idle")
-
-    # Always assemble — abort and error paths both need the partial so the
-    # DB stays in sync with Claude Code's JSONL history on the PVC.
-    chunks = await redis_client.get_stream_chunks(stream_id)
-    assembled_text, assembled_blocks = assembly.rebuild_blocks_from_chunks(chunks)
-    await assembly.merge_a2a_events(session_id, assembled_blocks)
-
-    base_return = {
-        "stream_id": stream_id,
-        "reached_runtime": reached_runtime,
-        "assembled_text": assembled_text,
-        "assembled_blocks": assembled_blocks,
-    }
-
-    if error_message:
-        assembled_blocks.append({"type": "error", "message": error_message})
-        await redis_client.set_stream_status(stream_id, "error")
-        metrics.publish_requests_total.labels(status="error").inc()
-        return {"status": "error", "message": error_message, **base_return}
-
-    # Terminal state (done / cancelled) is signalled by the API after it
-    # saves the message to the DB — supervisor doesn't know the DB id, so
-    # it only sets the stream's Redis status + metrics and returns.
-    if aborted:
-        await redis_client.set_stream_status(stream_id, "aborted")
-        metrics.publish_requests_total.labels(status="aborted").inc()
-        return {"status": "aborted", **base_return}
-
-    await redis_client.set_stream_status(stream_id, "complete")
-    metrics.publish_requests_total.labels(status="complete").inc()
-    return {"status": "complete", **base_return}
-
-
 @router.post("/sessions/{session_id}/message")
 async def post_message(session_id: str, request: Request):
     body = await request.json()
     identity = await resolve_identity(request, body)
-    await _authorise_and_enrich(body, identity.sub, identity.user_token)
+    await enrich_agent_config(body, identity)
 
-    # Supervisor owns stream_id allocation. Publishing `stream_started` here
-    # is the frontend's signal that the request was accepted — it's the
-    # confirmation point for enabling the abort button client-side.
+    # `stream_started` is the frontend's signal that the request was
+    # accepted — confirmation point for enabling the abort button client-side.
     stream_id = str(uuid.uuid4())
     await redis_client.publish_event(
         session_id,
@@ -245,7 +110,7 @@ async def post_message(session_id: str, request: Request):
         },
     )
 
-    publish_task = asyncio.create_task(_drive_stream(session_id, stream_id, body))
+    publish_task = asyncio.create_task(drive_stream(session_id, stream_id, body))
     disconnect_task = asyncio.create_task(_watch_disconnect(request))
     _active[stream_id] = publish_task
 
@@ -278,14 +143,12 @@ async def post_message(session_id: str, request: Request):
         _active.pop(stream_id, None)
 
 
-# ── /abort ──────────────────────────────────────────────────────────────────
-
 @router.post("/streams/{stream_id}/abort")
 async def abort_stream(stream_id: str):
-    """Cancel an in-flight stream. If this replica holds it, fast-path; else
-    fan out via `supervisor:abort` so whichever replica holds the task
-    cancels it. Cancelling closes the supervisor→runtime TCP connection,
-    which fires `req.on('close')` on the runtime pod and aborts the SDK."""
+    """Cancel an in-flight stream. Local fast-path when this replica holds
+    the task; otherwise fan out via ``supervisor:abort`` so whichever
+    replica holds it cancels. Cancelling closes the supervisor→runtime
+    TCP, which fires ``res.on('close')`` on the runtime pod."""
     if _cancel_local(stream_id):
         metrics.abort_requests_total.labels(via="local").inc()
         return {"ok": True, "via": "local"}
@@ -305,10 +168,10 @@ class _A2ABody(BaseModel):
 
 @router.post("/sessions/{session_id}/a2a")
 async def a2a_stream(session_id: str, body: _A2ABody, request: Request):
-    """Sub-agent stream. SSE is forwarded to the caller (parent runtime's A2A
-    server), and `tool_use`/`tool_result` are also tagged with
-    `parent_tool_use_id` and stashed in the parent session's Redis buffer so
-    the parent's assembly splices them under the right tool card."""
+    """Sub-agent stream. SSE forwards to the caller (parent runtime's A2A
+    server); ``tool_use`` / ``tool_result`` are also tagged with
+    ``parent_tool_use_id`` and stashed in the parent session's Redis
+    buffer so the parent's assembly splices them under the right card."""
     sub_agent_config = {**body.agent_config, "is_sub_agent": True}
     sub_agent_config.pop("accessible_agents", None)  # no recursive A2A
 
@@ -318,12 +181,10 @@ async def a2a_stream(session_id: str, body: _A2ABody, request: Request):
         "content_parts": body.content_parts,
     }
     identity = await resolve_identity(request, body.model_dump())
-    await _authorise_and_enrich(runtime_body, identity.sub, identity.user_token)
+    await enrich_agent_config(runtime_body, identity)
 
     base = resolve_runtime_base(runtime_body["agent_config"].get("runtime_endpoint"))
     parent_tool_use_id = body.parent_tool_use_id
-
-    from fastapi.responses import StreamingResponse
 
     async def generate():
         started = time.monotonic()
@@ -375,7 +236,7 @@ async def a2a_stream(session_id: str, body: _A2ABody, request: Request):
     )
 
 
-# ── /sessions/{sid} cleanup ─────────────────────────────────────────────────
+# ── Cleanup endpoints ───────────────────────────────────────────────────────
 
 class _CleanupBody(BaseModel):
     runtime_endpoint: str | None = None
@@ -398,8 +259,6 @@ async def cleanup_session(session_id: str, body: _CleanupBody):
         logger.warning("Cleanup failed for session %s", session_id, exc_info=True)
         return {"ok": False}
 
-
-# ── /workflows/{root_run_id}/artifacts cleanup ──────────────────────────────
 
 class _WorkflowArtifactsCleanupBody(BaseModel):
     runtime_endpoint: str | None = None

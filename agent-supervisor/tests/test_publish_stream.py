@@ -72,7 +72,7 @@ def _patch_auth_and_vault(credentials: dict[str, str] | None = None):
     return (
         patch("app.auth.dependencies.validate_token", AsyncMock(return_value=_CLAIMS)),
         patch(
-            "app.routers.agents.fetch_user_credentials",
+            "app.services.identity.fetch_user_credentials",
             AsyncMock(return_value=credentials or {}),
         ),
     )
@@ -112,12 +112,12 @@ async def test_message_streams_events_and_injects_credentials(client):
     auth_p, vault_p = _patch_auth_and_vault({"github_token": "ghp_xyz"})
     captured: dict = {}
     with _patch_runtime_stream(lines, captured=captured), auth_p, vault_p, \
-         patch("app.routers.agents.redis_client.append_stream_chunk", new_callable=AsyncMock) as append, \
-         patch("app.routers.agents.redis_client.publish_event", new_callable=AsyncMock) as publish, \
-         patch("app.routers.agents.redis_client.set_stream_status", new_callable=AsyncMock), \
-         patch("app.routers.agents.redis_client.set_session_status", new_callable=AsyncMock), \
-         patch("app.routers.agents.redis_client.set_session_latest_stream", new_callable=AsyncMock), \
-         patch("app.routers.agents.redis_client.get_stream_chunks", new_callable=AsyncMock, return_value=[
+         patch("app.redis_client.append_stream_chunk", new_callable=AsyncMock) as append, \
+         patch("app.redis_client.publish_event", new_callable=AsyncMock) as publish, \
+         patch("app.redis_client.set_stream_status", new_callable=AsyncMock), \
+         patch("app.redis_client.set_session_status", new_callable=AsyncMock), \
+         patch("app.redis_client.set_session_latest_stream", new_callable=AsyncMock), \
+         patch("app.redis_client.get_stream_chunks", new_callable=AsyncMock, return_value=[
              {"type": "chunk", "content": "hello"},
              {"type": "chunk", "content": " world"},
          ]):
@@ -148,12 +148,12 @@ async def test_message_omits_credentials_when_vault_empty(client):
     body = _body()
     body["agent_config"]["credentials"] = {"github_token": "stale"}
     with _patch_runtime_stream(lines, captured=captured), auth_p, vault_p, \
-         patch("app.routers.agents.redis_client.append_stream_chunk", new_callable=AsyncMock), \
-         patch("app.routers.agents.redis_client.publish_event", new_callable=AsyncMock), \
-         patch("app.routers.agents.redis_client.set_stream_status", new_callable=AsyncMock), \
-         patch("app.routers.agents.redis_client.set_session_status", new_callable=AsyncMock), \
-         patch("app.routers.agents.redis_client.set_session_latest_stream", new_callable=AsyncMock), \
-         patch("app.routers.agents.redis_client.get_stream_chunks", new_callable=AsyncMock, return_value=[]):
+         patch("app.redis_client.append_stream_chunk", new_callable=AsyncMock), \
+         patch("app.redis_client.publish_event", new_callable=AsyncMock), \
+         patch("app.redis_client.set_stream_status", new_callable=AsyncMock), \
+         patch("app.redis_client.set_session_status", new_callable=AsyncMock), \
+         patch("app.redis_client.set_session_latest_stream", new_callable=AsyncMock), \
+         patch("app.redis_client.get_stream_chunks", new_callable=AsyncMock, return_value=[]):
         client.post("/v1/sessions/s1/message", headers=_AUTH, json=body)
 
     forwarded = captured["json"]["agent_config"]
@@ -173,12 +173,12 @@ async def test_message_reports_runtime_error_event(client):
         {"type": "tool_use", "name": "Read", "input": {"file_path": "/x"}, "tool_use_id": "t1"},
     ]
     with _patch_runtime_stream(lines), auth_p, vault_p, \
-         patch("app.routers.agents.redis_client.append_stream_chunk", new_callable=AsyncMock), \
-         patch("app.routers.agents.redis_client.publish_event", new_callable=AsyncMock), \
-         patch("app.routers.agents.redis_client.get_stream_chunks", new_callable=AsyncMock, return_value=buffered_chunks), \
-         patch("app.routers.agents.redis_client.set_stream_status", new_callable=AsyncMock) as set_status, \
-         patch("app.routers.agents.redis_client.set_session_status", new_callable=AsyncMock), \
-         patch("app.routers.agents.redis_client.set_session_latest_stream", new_callable=AsyncMock):
+         patch("app.redis_client.append_stream_chunk", new_callable=AsyncMock), \
+         patch("app.redis_client.publish_event", new_callable=AsyncMock), \
+         patch("app.redis_client.get_stream_chunks", new_callable=AsyncMock, return_value=buffered_chunks), \
+         patch("app.redis_client.set_stream_status", new_callable=AsyncMock) as set_status, \
+         patch("app.redis_client.set_session_status", new_callable=AsyncMock), \
+         patch("app.redis_client.set_session_latest_stream", new_callable=AsyncMock):
         resp = client.post("/v1/sessions/s1/message", headers=_AUTH, json=_body())
 
     data = resp.json()
@@ -201,11 +201,11 @@ async def test_message_reports_http_error_before_runtime(client):
     resp_obj = _FakeSSEResponse(["error body"], status_code=500)
     auth_p, vault_p = _patch_auth_and_vault()
     with patch("httpx.AsyncClient", return_value=_FakeClient(resp_obj)), auth_p, vault_p, \
-         patch("app.routers.agents.redis_client.append_stream_chunk", new_callable=AsyncMock), \
-         patch("app.routers.agents.redis_client.publish_event", new_callable=AsyncMock), \
-         patch("app.routers.agents.redis_client.set_stream_status", new_callable=AsyncMock), \
-         patch("app.routers.agents.redis_client.set_session_status", new_callable=AsyncMock), \
-         patch("app.routers.agents.redis_client.set_session_latest_stream", new_callable=AsyncMock):
+         patch("app.redis_client.append_stream_chunk", new_callable=AsyncMock), \
+         patch("app.redis_client.publish_event", new_callable=AsyncMock), \
+         patch("app.redis_client.set_stream_status", new_callable=AsyncMock), \
+         patch("app.redis_client.set_session_status", new_callable=AsyncMock), \
+         patch("app.redis_client.set_session_latest_stream", new_callable=AsyncMock):
         resp = client.post("/v1/sessions/s1/message", headers=_AUTH, json=_body())
 
     data = resp.json()
@@ -216,7 +216,7 @@ async def test_message_reports_http_error_before_runtime(client):
 @pytest.mark.asyncio
 async def test_abort_unknown_stream_broadcasts(client):
     with patch(
-        "app.routers.agents.redis_client.publish_abort", new_callable=AsyncMock
+        "app.redis_client.publish_abort", new_callable=AsyncMock
     ) as pub:
         resp = client.post("/v1/streams/unknown/abort")
 

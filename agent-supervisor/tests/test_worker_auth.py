@@ -89,13 +89,13 @@ def _body(**extra):
 
 def _redis_patches():
     return [
-        patch("app.routers.agents.redis_client.append_stream_chunk", new_callable=AsyncMock),
-        patch("app.routers.agents.redis_client.publish_event", new_callable=AsyncMock),
-        patch("app.routers.agents.redis_client.set_stream_status", new_callable=AsyncMock),
-        patch("app.routers.agents.redis_client.set_session_status", new_callable=AsyncMock),
-        patch("app.routers.agents.redis_client.set_session_latest_stream", new_callable=AsyncMock),
+        patch("app.redis_client.append_stream_chunk", new_callable=AsyncMock),
+        patch("app.redis_client.publish_event", new_callable=AsyncMock),
+        patch("app.redis_client.set_stream_status", new_callable=AsyncMock),
+        patch("app.redis_client.set_session_status", new_callable=AsyncMock),
+        patch("app.redis_client.set_session_latest_stream", new_callable=AsyncMock),
         patch(
-            "app.routers.agents.redis_client.get_stream_chunks",
+            "app.redis_client.get_stream_chunks",
             new_callable=AsyncMock, return_value=[],
         ),
     ]
@@ -130,7 +130,7 @@ def test_worker_path_injects_sub_and_credentials_without_user_token(client):
         "httpx.AsyncClient",
         return_value=_FakeClient(_FakeSSEResponse(lines), captured=captured),
     ), patch(
-        "app.routers.agents.fetch_user_credentials",
+        "app.services.identity.fetch_user_credentials",
         AsyncMock(return_value={"github_token": "ghp_owner"}),
     ):
         with _redis_patches()[0], _redis_patches()[1], _redis_patches()[2], \
@@ -167,7 +167,7 @@ def test_jwt_path_ignores_on_behalf_of_sub_in_body(client):
         "httpx.AsyncClient",
         return_value=_FakeClient(_FakeSSEResponse(lines), captured=captured),
     ), patch(
-        "app.routers.agents.fetch_user_credentials",
+        "app.services.identity.fetch_user_credentials",
         AsyncMock(return_value={}),
     ):
         with _redis_patches()[0], _redis_patches()[1], _redis_patches()[2], \
