@@ -635,6 +635,25 @@ def _split_qualified_name(qualified: str) -> tuple[str | None, str]:
     return None, qualified
 
 
+def _install_auth_noise_filter() -> None:
+    """Silence LiteLLM's virtual-key assertion for JWT bearers.
+
+    `/mcp` ingress auth accepts JWTs via the OAuth2-passthrough branch, but
+    LiteLLM's outer `user_api_key_auth` still asserts `sk-*` first and logs
+    the resulting AssertionError before the fallback runs. Our JWT gate
+    (`_install_mcp_request_auth_gate`) is the real validator, so this
+    outer noise is spurious — drop the record.
+    """
+    import logging as _logging
+
+    class _VirtualKeyAssertFilter(_logging.Filter):
+        def filter(self, record: _logging.LogRecord) -> bool:
+            msg = record.getMessage()
+            return "LiteLLM Virtual Key expected" not in msg
+
+    _logging.getLogger("LiteLLM Proxy").addFilter(_VirtualKeyAssertFilter())
+
+
 def _register() -> None:
     if CustomLogger is None:
         logger.warning("LiteLLM CustomLogger not available — skipping MCP credentials hook")
@@ -737,6 +756,7 @@ if OIDC_ISSUER:
         _install_server_name_forwarder()
         _install_tools_list_stripper()
         _install_tools_call_gate()
+        _install_auth_noise_filter()
         _register()
     except Exception:
         logger.warning("Failed to register MCP credential injection hook", exc_info=True)
