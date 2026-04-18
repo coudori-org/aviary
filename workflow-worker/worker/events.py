@@ -1,11 +1,12 @@
-"""Redis pub/sub + replay buffer for workflow run events.
+"""Redis pub/sub for workflow + session events.
 
-Channel layout mirrors the session events channel used by the supervisor,
-but scoped per workflow run:
-
-  channel  workflow:run:{run_id}:events   — live fan-out (pub/sub)
-  list     workflow:run:{run_id}:replay   — bounded replay buffer so a
-                                             reconnecting WS can catch up
+Two channels, different consumers:
+  workflow:run:{run_id}:events — node/run status, subscribed by the UI
+                                   graph; backed by a bounded replay list
+                                   so a reconnecting WS can catch up.
+  session:{sid}:events         — chat-style events (user_message,
+                                   done / cancelled / error); the agent_step
+                                   transcript subscribes directly.
 """
 
 from __future__ import annotations
@@ -21,10 +22,10 @@ logger = logging.getLogger(__name__)
 
 _client: redis.Redis | None = None
 
-# TTL is reset on every publish, so a running workflow never loses its
+# TTL refreshes on every publish, so a running workflow never loses its
 # buffer. The window only matters after the run finishes: it just needs to
-# cover "user refreshes right after the run ends" — static post-mortem
-# viewing goes through GET /runs/{id} instead. 10 minutes is plenty.
+# cover "user refreshes right after the run ends" — post-mortem viewing
+# goes through GET /runs/{id}.
 REPLAY_TTL_SECONDS = 600
 
 
@@ -35,41 +36,85 @@ async def _get_client() -> redis.Redis:
     return _client
 
 
-def _channel(run_id: str) -> str:
-    return f"workflow:run:{run_id}:events"
+class WorkflowPublisher:
+    """One-stop publisher for every event the worker emits. Callers pass
+    domain fields (run_id / node_id / status / …) and the publisher owns
+    channel names, payload shape, and the replay buffer."""
+
+    async def node_status(
+        self,
+        run_id: str,
+        node_id: str,
+        node_type: str,
+        status: str,
+        *,
+        input_data: dict | None = None,
+        output_data: dict | None = None,
+        error: str | None = None,
+        session_id: str | None = None,
+    ) -> None:
+        event: dict = {
+            "type": "node_status",
+            "node_id": node_id,
+            "node_type": node_type,
+            "status": status,
+        }
+        if input_data is not None:
+            event["input_data"] = input_data
+        if output_data is not None:
+            event["output_data"] = output_data
+        if error:
+            event["error"] = error
+        if session_id:
+            event["session_id"] = session_id
+        await self._publish_run(run_id, event)
+
+    async def run_status(self, run_id: str, status: str, *, error: str | None = None) -> None:
+        event: dict = {"type": "run_status", "status": status}
+        if error:
+            event["error"] = error
+        await self._publish_run(run_id, event)
+
+    async def session_user_message(
+        self, session_id: str, *, message_id: str, sender_id: str | None, content: str,
+    ) -> None:
+        await self._publish_session(session_id, {
+            "type": "user_message",
+            "messageId": message_id,
+            "sender_id": sender_id,
+            "content": content,
+        })
+
+    async def session_terminal(
+        self, session_id: str, *, message_id: str, status: str, error: str | None = None,
+    ) -> None:
+        event: dict = {"type": status, "messageId": message_id}
+        if status == "error" and error:
+            event["message"] = error
+        await self._publish_session(session_id, event)
+
+    async def _publish_run(self, run_id: str, event: dict) -> None:
+        cli = await _get_client()
+        payload = json.dumps(event)
+        channel = f"workflow:run:{run_id}:events"
+        replay = f"workflow:run:{run_id}:replay"
+        async with cli.pipeline(transaction=False) as pipe:
+            pipe.publish(channel, payload)
+            pipe.rpush(replay, payload)
+            pipe.expire(replay, REPLAY_TTL_SECONDS)
+            await pipe.execute()
+
+    async def _publish_session(self, session_id: str, event: dict) -> None:
+        cli = await _get_client()
+        await cli.publish(f"session:{session_id}:events", json.dumps(event))
 
 
-def _replay_key(run_id: str) -> str:
-    return f"workflow:run:{run_id}:replay"
-
-
-async def publish_event(run_id: str, event: dict) -> None:
-    """Broadcast one event + append to replay buffer atomically."""
-    cli = await _get_client()
-    payload = json.dumps(event)
-    async with cli.pipeline(transaction=False) as pipe:
-        pipe.publish(_channel(run_id), payload)
-        pipe.rpush(_replay_key(run_id), payload)
-        pipe.expire(_replay_key(run_id), REPLAY_TTL_SECONDS)
-        await pipe.execute()
-
-
-async def publish_session_event(session_id: str, event: dict) -> None:
-    """Publish a DB-consistent terminal event (done / cancelled / error) on
-    the same ``session:{sid}:events`` channel the supervisor used for the
-    live stream. Chat's API does this after persisting the assistant
-    message; the workflow worker does the same so a ChatTranscript
-    subscribed to a workflow agent_step session sees the same terminal
-    signal and transitions out of the streaming state."""
-    cli = await _get_client()
-    await cli.publish(f"session:{session_id}:events", json.dumps(event))
+publisher = WorkflowPublisher()
 
 
 async def subscribe_session(session_id: str):
-    """Subscribe to the supervisor's session event channel. Agent Step
-    activity listens for ``stream_started`` so it can capture the stream
-    id for abort; the transcript itself is rendered by subscribing to this
-    channel directly from the chat WebSocket — no re-broadcast."""
+    """Subscribe to the supervisor's session event channel. The agent_step
+    activity uses this to capture ``stream_started`` for abort routing."""
     cli = await _get_client()
     ps = cli.pubsub()
     await ps.subscribe(f"session:{session_id}:events")

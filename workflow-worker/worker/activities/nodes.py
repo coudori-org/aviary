@@ -1,31 +1,25 @@
-"""Side-effect-ful per-node activities.
-
-All templating/expression evaluation uses a single sandboxed Jinja env —
-`StrictUndefined` is on so referencing a missing context key fails loud
-rather than rendering an empty string, and `autoescape=False` keeps
-payloads verbatim (we're not producing HTML).
-"""
+"""Side-effect-ful per-node activities — template rendering, condition
+evaluation, payload parsing, and merge."""
 
 from __future__ import annotations
 
 from typing import Any
 
-from jinja2 import Environment, StrictUndefined
 from temporalio import activity
 
-_jinja = Environment(undefined=StrictUndefined, autoescape=False)
+from worker.template import jinja_env
 
 
 @activity.defn
 async def render_template_activity(template: str, context: dict) -> dict:
-    return {"text": _jinja.from_string(template or "").render(**context)}
+    return {"text": jinja_env.from_string(template or "").render(**context)}
 
 
 @activity.defn
 async def evaluate_condition_activity(expression: str, context: dict) -> dict:
     """Render `expression` as a Jinja template and coerce the trimmed result
     to a bool. Empty/whitespace-only evaluates to False."""
-    rendered = _jinja.from_string(expression or "").render(**context).strip()
+    rendered = jinja_env.from_string(expression or "").render(**context).strip()
     truthy = rendered.lower() in ("true", "1", "yes", "on")
     return {"result": truthy, "rendered": rendered}
 
