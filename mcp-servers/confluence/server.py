@@ -164,7 +164,7 @@ async def _resolve_space_id(space_key: str, *, email: str, token: str) -> str:
 async def get_page(
     confluence_token: str,
     confluence_email: str,
-    page_id: str | None = None,
+    page_id: str | int | None = None,
     space_key: str | None = None,
     title: str | None = None,
 ) -> str:
@@ -174,6 +174,8 @@ async def get_page(
     `space_key` → space-id and looks up the page by exact title within that
     space. The body is returned in storage format.
     """
+    if page_id is not None:
+        page_id = str(page_id)
     if page_id:
         result = await _request(
             "GET",
@@ -247,7 +249,7 @@ async def create_page(
 async def update_page(
     confluence_token: str,
     confluence_email: str,
-    page_id: str,
+    page_id: str | int,
     body: str,
     title: str | None = None,
     version_comment: str | None = None,
@@ -258,6 +260,7 @@ async def update_page(
     fetch the current page first to read its version. If `title` isn't given,
     we reuse the current title (v2 PUT requires a title).
     """
+    page_id = str(page_id)
     current = await _request(
         "GET",
         f"/wiki/api/v2/pages/{page_id}",
@@ -290,10 +293,11 @@ async def update_page(
 async def delete_page(
     confluence_token: str,
     confluence_email: str,
-    page_id: str,
+    page_id: str | int,
     purge: bool = False,
 ) -> str:
     """Delete (trash) a Confluence page. Pass `purge=true` to permanently delete."""
+    page_id = str(page_id)
     params = {"purge": "true"} if purge else None
     result = await _request(
         "DELETE",
@@ -333,10 +337,11 @@ async def search(
 async def get_child_pages(
     confluence_token: str,
     confluence_email: str,
-    page_id: str,
+    page_id: str | int,
     limit: int = 25,
 ) -> str:
     """List the direct child pages of a Confluence page."""
+    page_id = str(page_id)
     result = await _request(
         "GET",
         f"/wiki/api/v2/pages/{page_id}/children",
@@ -394,7 +399,7 @@ async def get_space(
 async def add_label(
     confluence_token: str,
     confluence_email: str,
-    page_id: str,
+    page_id: str | int,
     label: str,
 ) -> str:
     """Add a label to a Confluence page.
@@ -402,6 +407,7 @@ async def add_label(
     Uses the v1 endpoint /wiki/rest/api/content/{id}/label — Confluence v2
     labels are read-only.
     """
+    page_id = str(page_id)
     result = await _request(
         "POST",
         f"/wiki/rest/api/content/{page_id}/label",
@@ -418,10 +424,11 @@ async def add_label(
 async def get_page_history(
     confluence_token: str,
     confluence_email: str,
-    page_id: str,
+    page_id: str | int,
     limit: int = 10,
 ) -> str:
     """Get version history of a Confluence page."""
+    page_id = str(page_id)
     result = await _request(
         "GET",
         f"/wiki/api/v2/pages/{page_id}/versions",
@@ -436,10 +443,11 @@ async def get_page_history(
 async def add_comment(
     confluence_token: str,
     confluence_email: str,
-    page_id: str,
+    page_id: str | int,
     body: str,
 ) -> str:
     """Add a footer comment to a Confluence page. `body` is markdown."""
+    page_id = str(page_id)
     payload = {
         "pageId": page_id,
         "body": {"representation": "storage", "value": _md_to_storage(body)},
