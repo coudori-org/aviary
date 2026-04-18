@@ -74,6 +74,10 @@ export function useChatMessages(
   const [restoreDraft, setRestoreDraft] = useState<{ content: string; attachments?: FileRef[]; error?: string } | null>(null);
   const [loadingEarlier, setLoadingEarlier] = useState(false);
   const blockState = useStreamingBlocks();
+  // `reset` is useCallback'd with an empty dep array, so capturing it
+  // into a stable local alias here keeps it usable in other effects'
+  // dep arrays without retriggering them on every render.
+  const resetBlocks = blockState.reset;
 
   // Guards against stacked loadEarlier calls if the sentinel briefly
   // re-intersects before React commits the prepended state.
@@ -94,6 +98,15 @@ export function useChatMessages(
     setLoading(true);
     setMessages([]);
     setHasMore(false);
+    // Drop any streaming state carried over from a prior sessionId —
+    // ChatTranscript keys on sessionId so this is mostly defensive, but
+    // it also covers a fringe race where the previous session's WS
+    // closed (live→false) before the terminal `done` event could reset
+    // the blocks: without this, those blocks would persist into the
+    // next render.
+    resetBlocks();
+    setIsStreaming(false);
+    setStreamId(null);
     http
       .get<SessionDetail>(`/sessions/${sessionId}`)
       .then((data) => {
@@ -108,7 +121,7 @@ export function useChatMessages(
     return () => {
       cancelled = true;
     };
-  }, [sessionId]);
+  }, [sessionId, resetBlocks]);
 
   const loadEarlier = useCallback(async () => {
     if (loadingEarlierRef.current) return;

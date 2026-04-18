@@ -32,9 +32,16 @@ import { LoadingState } from "@/components/feedback/loading-state";
 export function ChatTranscript({
   sessionId, live = true,
 }: { sessionId: string; live?: boolean }) {
+  // Keying on sessionId forces a clean remount when the caller switches
+  // which session we're showing — critical inside the workflow inspector,
+  // where clicking from node A's card to node B's card hands us a new
+  // sessionId on the SAME component position. Without the key, React
+  // reconciles in place and keeps internal hook state (streaming blocks,
+  // isStreaming flag, subscription refs), so B's live chunks pile on top
+  // of A's leftovers and the user sees both runs' events at once.
   return (
     <ChatWidthProvider>
-      <ChatTranscriptInner sessionId={sessionId} live={live} />
+      <ChatTranscriptInner key={sessionId} sessionId={sessionId} live={live} />
     </ChatWidthProvider>
   );
 }
