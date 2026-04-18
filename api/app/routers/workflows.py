@@ -43,6 +43,45 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+def _run_response(r, *, include_node_runs: bool = False) -> WorkflowRunResponse:
+    """Build a run response, narrowing the eager-loaded ``node_runs`` to
+    the list endpoint's shape (None) or the detail endpoint's (full list)."""
+    return WorkflowRunResponse.model_validate({
+        "id": str(r.id),
+        "workflow_id": str(r.workflow_id),
+        "version_id": str(r.version_id) if r.version_id else None,
+        "run_type": r.run_type,
+        "trigger_type": r.trigger_type,
+        "trigger_data": r.trigger_data or {},
+        "triggered_by": str(r.triggered_by),
+        "status": r.status,
+        "error": r.error,
+        "started_at": r.started_at,
+        "completed_at": r.completed_at,
+        "created_at": r.created_at,
+        "node_runs": (
+            [_node_run_response(nr) for nr in r.node_runs] if include_node_runs else None
+        ),
+    })
+
+
+def _node_run_response(nr) -> dict:
+    return {
+        "id": str(nr.id),
+        "node_id": nr.node_id,
+        "node_type": nr.node_type,
+        "status": nr.status,
+        "input_data": nr.input_data,
+        "output_data": nr.output_data,
+        "error": nr.error,
+        "started_at": nr.started_at,
+        "completed_at": nr.completed_at,
+        # Derived property on the ORM model; safe to read because get_run
+        # eager-loaded the parent run via back-reference.
+        "session_id": nr.session_id,
+    }
+
+
 @router.get("", response_model=WorkflowListResponse)
 async def list_workflows(
     offset: int = Query(0, ge=0),
@@ -51,11 +90,10 @@ async def list_workflows(
     db: AsyncSession = Depends(get_db),
 ):
     workflows, total = await workflow_service.list_workflows_for_user(db, user, offset, limit)
-    items = []
-    for w in workflows:
-        cv = await workflow_service.current_version_number(db, w.id)
-        items.append(WorkflowResponse.from_orm_workflow(w, current_version=cv))
-    return WorkflowListResponse(items=items, total=total)
+    return WorkflowListResponse(
+        items=[WorkflowResponse.model_validate(w) for w in workflows],
+        total=total,
+    )
 
 
 @router.post("", response_model=WorkflowResponse, status_code=status.HTTP_201_CREATED)
@@ -64,20 +102,15 @@ async def create_workflow(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    try:
-        workflow = await workflow_service.create_workflow(db, user, body)
-    except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
-    return WorkflowResponse.from_orm_workflow(workflow)
+    workflow = await workflow_service.create_workflow(db, user, body)
+    return WorkflowResponse.model_validate(workflow)
 
 
 @router.get("/{workflow_id}", response_model=WorkflowResponse)
 async def get_workflow(
     workflow: Workflow = Depends(require_workflow_owner()),
-    db: AsyncSession = Depends(get_db),
 ):
-    cv = await workflow_service.current_version_number(db, workflow.id)
-    return WorkflowResponse.from_orm_workflow(workflow, current_version=cv)
+    return WorkflowResponse.model_validate(workflow)
 
 
 @router.put("/{workflow_id}", response_model=WorkflowResponse)
@@ -87,9 +120,7 @@ async def update_workflow(
     db: AsyncSession = Depends(get_db),
 ):
     workflow = await workflow_service.update_workflow(db, workflow, body)
-    await db.refresh(workflow)
-    cv = await workflow_service.current_version_number(db, workflow.id)
-    return WorkflowResponse.from_orm_workflow(workflow, current_version=cv)
+    return WorkflowResponse.model_validate(workflow)
 
 
 @router.delete("/{workflow_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -108,8 +139,7 @@ async def deploy_workflow(
     db: AsyncSession = Depends(get_db),
 ):
     version = await workflow_service.deploy_workflow(db, workflow, user)
-    await db.refresh(version)
-    return WorkflowVersionResponse.from_orm_version(version)
+    return WorkflowVersionResponse.model_validate(version)
 
 
 @router.post("/{workflow_id}/edit", response_model=WorkflowResponse)
@@ -118,9 +148,7 @@ async def edit_workflow(
     db: AsyncSession = Depends(get_db),
 ):
     workflow = await workflow_service.mark_workflow_draft(db, workflow)
-    await db.refresh(workflow)
-    cv = await workflow_service.current_version_number(db, workflow.id)
-    return WorkflowResponse.from_orm_workflow(workflow, current_version=cv)
+    return WorkflowResponse.model_validate(workflow)
 
 
 @router.post("/{workflow_id}/cancel-edit", response_model=WorkflowResponse)
@@ -128,27 +156,16 @@ async def cancel_edit_workflow(
     workflow: Workflow = Depends(require_workflow_owner()),
     db: AsyncSession = Depends(get_db),
 ):
-    """Abandon the current draft and snap back to the latest deployed
-    version — inverse of `POST /edit`. Fails 400 if the workflow has
-    never been deployed (nothing to revert to)."""
-    try:
-        workflow = await workflow_service.cancel_edit(db, workflow)
-    except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e),
-        ) from e
-    await db.refresh(workflow)
-    cv = await workflow_service.current_version_number(db, workflow.id)
-    return WorkflowResponse.from_orm_workflow(workflow, current_version=cv)
+    workflow = await workflow_service.cancel_edit(db, workflow)
+    return WorkflowResponse.model_validate(workflow)
 
 
 @router.get("/{workflow_id}/versions", response_model=list[WorkflowVersionResponse])
 async def list_workflow_versions(
     workflow: Workflow = Depends(require_workflow_owner()),
-    db: AsyncSession = Depends(get_db),
 ):
-    versions = await workflow_service.list_workflow_versions(db, workflow.id)
-    return [WorkflowVersionResponse.from_orm_version(v) for v in versions]
+    versions = workflow_service.list_workflow_versions(workflow)
+    return [WorkflowVersionResponse.model_validate(v) for v in versions]
 
 
 # ── AI Assistant ────────────────────────────────────────────────────────────
@@ -165,10 +182,10 @@ async def workflow_assistant_stream(
 ):
     """SSE stream of the assistant's turn.
 
-    Pre-subscribes to the supervisor's `session:{sid}:events` channel so
-    we catch every `chunk`/`thinking`/`tool_use`/`tool_result` from the
-    moment the runtime starts emitting. Terminates with a synthetic
-    `assistant_done` event carrying the parsed plan (if any), or `error`.
+    Pre-subscribes to the supervisor's ``session:{sid}:events`` channel so
+    every chunk/thinking/tool_use/tool_result is captured from the moment
+    the runtime starts emitting. Terminates with a synthetic
+    ``assistant_done`` carrying the parsed plan (if any) or ``error``.
     """
     session_id = str(uuid.uuid4())
     pubsub = await redis_service.subscribe(session_id)
@@ -187,9 +204,6 @@ async def workflow_assistant_stream(
             ),
         )
         try:
-            # Forward supervisor events until the service call finishes,
-            # then drain any events still in flight before emitting the
-            # terminal frame.
             while not task.done():
                 msg = await pubsub.get_message(
                     ignore_subscribe_messages=True,
@@ -254,13 +268,10 @@ async def trigger_run(
     session_data: SessionData = Depends(get_session_data),
     db: AsyncSession = Depends(get_db),
 ):
-    try:
-        run = await workflow_run_service.create_run(
-            db, workflow, user, body, user_token=session_data.access_token,
-        )
-    except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
-    return WorkflowRunResponse.from_orm_run(run)
+    run = await workflow_run_service.create_run(
+        db, workflow, user, body, user_token=session_data.access_token,
+    )
+    return _run_response(run)
 
 
 @router.get("/{workflow_id}/runs", response_model=WorkflowRunListResponse)
@@ -280,7 +291,7 @@ async def list_runs(
         version_id=version_id, offset=offset, limit=limit,
     )
     return WorkflowRunListResponse(
-        items=[WorkflowRunResponse.from_orm_run(r) for r in runs],
+        items=[_run_response(r) for r in runs],
         total=total,
     )
 
@@ -294,7 +305,7 @@ async def get_run(
     run = await workflow_run_service.get_run(db, run_id, with_nodes=True)
     if run is None or run.workflow_id != workflow.id:
         raise HTTPException(status_code=404, detail="Run not found")
-    return WorkflowRunResponse.from_orm_run(run, include_node_runs=True)
+    return _run_response(run, include_node_runs=True)
 
 
 @router.post("/{workflow_id}/runs/{run_id}/cancel", status_code=status.HTTP_202_ACCEPTED)
@@ -306,7 +317,7 @@ async def cancel_run(
     run = await workflow_run_service.get_run(db, run_id)
     if run is None or run.workflow_id != workflow.id:
         raise HTTPException(status_code=404, detail="Run not found")
-    await workflow_run_service.cancel_run(run)
+    await workflow_run_service.cancel_run(db, run)
     return {"ok": True}
 
 
@@ -325,13 +336,10 @@ async def resume_run(
     source = await workflow_run_service.get_run(db, run_id)
     if source is None or source.workflow_id != workflow.id:
         raise HTTPException(status_code=404, detail="Run not found")
-    try:
-        new_run = await workflow_run_service.resume_run(
-            db, workflow, source, user, user_token=session_data.access_token,
-        )
-    except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
-    return WorkflowRunResponse.from_orm_run(new_run)
+    new_run = await workflow_run_service.resume_run(
+        db, workflow, source, user, user_token=session_data.access_token,
+    )
+    return _run_response(new_run)
 
 
 # ── Run WebSocket ───────────────────────────────────────────────────────────
@@ -341,12 +349,11 @@ _TERMINAL_RUN_STATUSES = {"completed", "failed", "cancelled"}
 
 @router.websocket("/{workflow_id}/runs/{run_id}/ws")
 async def workflow_run_ws(websocket: WebSocket, workflow_id: uuid.UUID, run_id: uuid.UUID):
-    """Stream a live run's events to a connected client.
+    """Live run events stream.
 
-    Completed runs have nothing to stream — the client should read the
-    final state via `GET /workflows/{id}/runs/{run_id}` instead. If a
-    completed run is still opened here we send one terminal `run_status`
-    and close, so the client isn't left hanging waiting for more.
+    Completed runs have nothing to stream — the client should read via
+    GET /runs/{id} instead. If one is opened here we send a single
+    terminal run_status and close, so the client isn't left hanging.
     """
     origin = websocket.headers.get("origin")
     if not origin or origin not in settings.cors_origins:
@@ -397,9 +404,8 @@ async def workflow_run_ws(websocket: WebSocket, workflow_id: uuid.UUID, run_id: 
                 await websocket.send_json(terminal)
                 return
 
-        # Replay anything the worker has already published for this run so a
-        # client that connects mid-stream catches up. Subscribe first so no
-        # event slips between the LRANGE and the listen loop.
+        # Subscribe first, then replay, so no event slips between the LRANGE
+        # and the listen loop.
         pubsub = await redis_service.subscribe_workflow_run(run_id_str)
         if pubsub is None:
             return

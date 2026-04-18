@@ -21,7 +21,7 @@ async def list_agents(
 ):
     agents, total = await agent_service.list_agents_for_user(db, user, offset, limit)
     return AgentListResponse(
-        items=[AgentResponse.from_orm_agent(a) for a in agents],
+        items=[AgentResponse.model_validate(a) for a in agents],
         total=total,
     )
 
@@ -32,16 +32,13 @@ async def create_agent(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    try:
-        agent = await agent_service.create_agent(db, user, body)
-    except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
-    return AgentResponse.from_orm_agent(agent)
+    agent = await agent_service.create_agent(db, user, body)
+    return AgentResponse.model_validate(agent)
 
 
 @router.get("/{agent_id}", response_model=AgentResponse)
 async def get_agent(agent: Agent = Depends(require_agent_owner(include_deleted=True))):
-    return AgentResponse.from_orm_agent(agent)
+    return AgentResponse.model_validate(agent)
 
 
 @router.put("/{agent_id}", response_model=AgentResponse)
@@ -51,8 +48,7 @@ async def update_agent(
     db: AsyncSession = Depends(get_db),
 ):
     agent = await agent_service.update_agent(db, agent, body)
-    await db.refresh(agent)
-    return AgentResponse.from_orm_agent(agent)
+    return AgentResponse.model_validate(agent)
 
 
 @router.delete("/{agent_id}", status_code=status.HTTP_204_NO_CONTENT)

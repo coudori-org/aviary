@@ -6,12 +6,12 @@ instruction, tools, mcp_servers).
 """
 
 import re
+from collections import defaultdict
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import User
-from app.services import agent_service
+from app.db.models import Agent, User
 from aviary_shared.db.models.mcp import McpAgentToolBinding
 
 _MENTION_RE = re.compile(r"@([a-z0-9][a-z0-9-]*[a-z0-9])")
@@ -59,29 +59,11 @@ async def _bound_mcp_tool_names(db: AsyncSession, agent_id) -> list[str]:
 
 async def agent_spec(agent, db: AsyncSession) -> dict:
     """Shape a DB Agent row as the on-the-wire `agent_config` payload (minus
-    the fields the supervisor injects: user_token, user_external_id,
-    credentials, accessible_agents).
-
-    MCP tool bindings are merged into ``tools`` so Claude Code's allowedTools
-    filter keeps each agent restricted to the tools its owner selected —
-    LiteLLM's aggregated ``/mcp`` endpoint hides the rest via the
-    ``X-Aviary-Allowed-Tools`` header the runtime forwards.
-    """
-    base_tools = list(agent.tools or [])
-    mcp_tools = await _bound_mcp_tool_names(db, agent.id)
-    merged_tools = list(dict.fromkeys(base_tools + mcp_tools))
-
-    return {
-        "agent_id": str(agent.id),
-        "slug": agent.slug,
-        "name": agent.name,
-        "description": agent.description,
-        "runtime_endpoint": agent.runtime_endpoint,
-        "model_config": agent.model_config_json,
-        "instruction": agent.instruction,
-        "tools": merged_tools,
-        "mcp_servers": build_mcp_config(agent.mcp_servers),
-    }
+    fields the supervisor injects: user_token, user_external_id, credentials,
+    accessible_agents). MCP bindings are merged into ``tools`` so Claude
+    Code's allowedTools filter keeps each agent restricted to its owner's
+    selection."""
+    return _build_spec(agent, await _bound_mcp_tool_names(db, agent.id))
 
 
 async def resolve_mentioned_agents(
@@ -91,15 +73,56 @@ async def resolve_mentioned_agents(
     exclude_agent_id: str | None = None,
 ) -> list[dict]:
     """Return full agent specs for mentioned slugs the user owns (and isn't
-    the current agent)."""
-    result: list[dict] = []
-    for slug in slugs:
-        agent = await agent_service.get_agent_by_slug(db, slug)
-        if agent is None or agent.status != "active":
-            continue
-        if exclude_agent_id and str(agent.id) == exclude_agent_id:
-            continue
-        if agent.owner_id != user.id:
-            continue
-        result.append(await agent_spec(agent, db))
-    return result
+    the current agent). Batched: one SELECT for the agents, one for every
+    matched agent's MCP bindings."""
+    if not slugs:
+        return []
+
+    agents = (await db.execute(
+        select(Agent).where(
+            Agent.slug.in_(slugs),
+            Agent.owner_id == user.id,
+            Agent.status == "active",
+        )
+    )).scalars().all()
+
+    filtered = [
+        a for a in agents
+        if not (exclude_agent_id and str(a.id) == exclude_agent_id)
+    ]
+    if not filtered:
+        return []
+
+    bindings: dict = defaultdict(list)
+    rows = (await db.execute(
+        select(
+            McpAgentToolBinding.agent_id,
+            McpAgentToolBinding.server_name,
+            McpAgentToolBinding.tool_name,
+        )
+        .where(McpAgentToolBinding.agent_id.in_([a.id for a in filtered]))
+        .order_by(McpAgentToolBinding.server_name, McpAgentToolBinding.tool_name)
+    )).all()
+    for agent_id, server_name, tool_name in rows:
+        bindings[agent_id].append(
+            f"{_MCP_PREFIX}{server_name}{_MCP_TOOL_SEPARATOR}{tool_name}"
+        )
+
+    by_slug = {a.slug: a for a in filtered}
+    ordered = [by_slug[s] for s in slugs if s in by_slug]
+    return [_build_spec(a, bindings[a.id]) for a in ordered]
+
+
+def _build_spec(agent, mcp_tool_names: list[str]) -> dict:
+    merged = list(dict.fromkeys(list(agent.tools or []) + mcp_tool_names))
+    return {
+        "agent_id": str(agent.id),
+        "slug": agent.slug,
+        "name": agent.name,
+        "description": agent.description,
+        "runtime_endpoint": agent.runtime_endpoint,
+        "model_config": agent.model_config_json,
+        "instruction": agent.instruction,
+        "tools": merged,
+        "mcp_servers": build_mcp_config(agent.mcp_servers),
+    }

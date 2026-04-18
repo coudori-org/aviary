@@ -1,39 +1,26 @@
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
+
+from app.schemas._common import OptionalUuidStr, UuidStr
 
 
 class SessionCreate(BaseModel):
-    """Empty for now — participants/teams are being re-introduced with RBAC."""
     pass
 
 
 class SessionResponse(BaseModel):
-    id: str
-    agent_id: str | None = None
-    created_by: str
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UuidStr
+    agent_id: OptionalUuidStr = None
+    created_by: UuidStr
     title: str | None = None
     status: str
     last_message_at: datetime | None = None
     created_at: datetime
-    workflow_run_id: str | None = None
+    workflow_run_id: OptionalUuidStr = None
     node_id: str | None = None
-
-    model_config = {"from_attributes": True}
-
-    @classmethod
-    def from_orm_session(cls, session) -> "SessionResponse":
-        return cls(
-            id=str(session.id),
-            agent_id=str(session.agent_id) if session.agent_id else None,
-            created_by=str(session.created_by),
-            title=session.title,
-            status=session.status,
-            last_message_at=session.last_message_at,
-            created_at=session.created_at,
-            workflow_run_id=str(session.workflow_run_id) if session.workflow_run_id else None,
-            node_id=session.node_id,
-        )
 
 
 class SessionListResponse(BaseModel):
@@ -41,27 +28,17 @@ class SessionListResponse(BaseModel):
 
 
 class MessageResponse(BaseModel):
-    id: str
-    session_id: str
+    # ORM column is ``metadata_json`` (``metadata`` is a reserved name on
+    # SQLAlchemy's Base). Wire contract keeps the shorter ``metadata``.
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+    id: UuidStr
+    session_id: UuidStr
     sender_type: str
-    sender_id: str | None = None
+    sender_id: OptionalUuidStr = None
     content: str
-    metadata: dict = {}
+    metadata: dict = Field(default_factory=dict, validation_alias="metadata_json")
     created_at: datetime
-
-    model_config = {"from_attributes": True}
-
-    @classmethod
-    def from_orm_message(cls, msg) -> "MessageResponse":
-        return cls(
-            id=str(msg.id),
-            session_id=str(msg.session_id),
-            sender_type=msg.sender_type,
-            sender_id=str(msg.sender_id) if msg.sender_id else None,
-            content=msg.content,
-            metadata=msg.metadata_json,
-            created_at=msg.created_at,
-        )
 
 
 class SessionDetailResponse(BaseModel):

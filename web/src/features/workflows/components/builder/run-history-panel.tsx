@@ -2,20 +2,14 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { workflowsApi } from "../../api/workflows-api";
+import { useWorkflowBuilder } from "../../providers/workflow-builder-provider";
+import { useVersionSelection } from "../../providers/version-selection-provider";
 import type { WorkflowRun } from "@/types";
 import type { useWorkflowRun } from "../../hooks/use-workflow-run";
 
 interface Props {
-  workflowId: string;
   run: ReturnType<typeof useWorkflowRun>;
   onOpenRun: () => void;
-  /** Always filter by the selection's run_type — draft view lists
-   *  only drafts, a deployed-version view lists only deployed runs
-   *  (narrowed further by versionId). There's no "show everything"
-   *  mode from the inspector anymore. */
-  runType: "draft" | "deployed";
-  /** When set, narrow deployed runs to this WorkflowVersion. */
-  versionId?: string;
 }
 
 const STATUS_TONE: Record<string, string> = {
@@ -30,9 +24,12 @@ function fmt(ts?: string) {
   return ts ? new Date(ts).toLocaleString() : "—";
 }
 
-export function RunHistoryPanel({
-  workflowId, run, onOpenRun, runType, versionId,
-}: Props) {
+export function RunHistoryPanel({ run, onOpenRun }: Props) {
+  const { workflowId } = useWorkflowBuilder();
+  const { isDraft, selected } = useVersionSelection();
+  const runType: "draft" | "deployed" = isDraft ? "draft" : "deployed";
+  const versionId = isDraft ? undefined : selected;
+
   const [runs, setRuns] = useState<WorkflowRun[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -48,8 +45,8 @@ export function RunHistoryPanel({
 
   useEffect(() => { refresh(); }, [refresh]);
 
-  // Auto-refresh when the currently-watched run reaches a terminal state so
-  // the listing reflects the latest completion without a manual click.
+  // Reload when the actively-watched run reaches a terminal state so the
+  // listing shows the latest completion without a manual click.
   useEffect(() => {
     if (["completed", "failed", "cancelled"].includes(run.runStatus)) {
       refresh();

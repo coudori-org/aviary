@@ -16,7 +16,7 @@ export function SidebarBrand() {
   return (
     <div className="flex h-14 shrink-0 items-center justify-between border-b border-white/[0.06] px-4">
       {!collapsed && (
-        <Link href={routes.agents} aria-label="Aviary home" className="flex items-center">
+        <Link href={routes.home} aria-label="Aviary home" className="flex items-center">
           <AviaryLogoMark size={28} />
         </Link>
       )}

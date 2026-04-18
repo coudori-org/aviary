@@ -88,25 +88,3 @@ export const modelsApi = {
   },
 };
 
-// --- ACL ---
-
-export interface ACLEntry {
-  id: string;
-  agent_id: string;
-  user_id: string | null;
-  team_id: string | null;
-  role: string;
-  created_at: string;
-}
-
-export const aclApi = {
-  list(agentId: string) {
-    return http.get<{ items: ACLEntry[] }>(`/agents/${agentId}/acl`);
-  },
-  add(agentId: string, body: { user_id: string; role: string }) {
-    return http.post<ACLEntry>(`/agents/${agentId}/acl`, body);
-  },
-  remove(agentId: string, aclId: string) {
-    return http.delete(`/agents/${agentId}/acl/${aclId}`);
-  },
-};

@@ -1,4 +1,4 @@
-import { useCallback, useRef } from "react";
+import { useCallback, useRef, useState } from "react";
 
 interface Snapshot {
   nodes: unknown[];
@@ -8,18 +8,21 @@ interface Snapshot {
 const MAX_HISTORY = 50;
 
 /**
- * Standalone undo/redo stack. Does NOT own React state — the caller
- * (provider) owns nodes/edges via useNodesState/useEdgesState and
- * calls push/undo/redo imperatively.
+ * Standalone undo/redo stack. Callers own nodes/edges state and call
+ * push/undo/redo imperatively; the hook triggers its own re-render on
+ * every mutation so `canUndo`/`canRedo` stay fresh without a manual bump.
  */
 export function useWorkflowHistory() {
   const pastRef = useRef<Snapshot[]>([]);
   const futureRef = useRef<Snapshot[]>([]);
+  const [, setVersion] = useState(0);
+  const bump = useCallback(() => setVersion((v) => v + 1), []);
 
   const push = useCallback((snapshot: Snapshot) => {
     pastRef.current = [...pastRef.current.slice(-(MAX_HISTORY - 1)), snapshot];
     futureRef.current = [];
-  }, []);
+    bump();
+  }, [bump]);
 
   const undo = useCallback(
     (current: Snapshot, apply: (s: Snapshot) => void) => {
@@ -28,8 +31,9 @@ export function useWorkflowHistory() {
       pastRef.current = pastRef.current.slice(0, -1);
       futureRef.current = [...futureRef.current, current];
       apply(previous);
+      bump();
     },
-    [],
+    [bump],
   );
 
   const redo = useCallback(
@@ -39,12 +43,16 @@ export function useWorkflowHistory() {
       futureRef.current = futureRef.current.slice(0, -1);
       pastRef.current = [...pastRef.current, current];
       apply(next);
+      bump();
     },
-    [],
+    [bump],
   );
 
-  const canUndo = () => pastRef.current.length > 0;
-  const canRedo = () => futureRef.current.length > 0;
-
-  return { push, undo, redo, canUndo, canRedo };
+  return {
+    push,
+    undo,
+    redo,
+    canUndo: pastRef.current.length > 0,
+    canRedo: futureRef.current.length > 0,
+  };
 }

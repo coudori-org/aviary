@@ -10,7 +10,7 @@ import { routes } from "@/lib/constants/routes";
 
 /**
  * AuthCallback — processes the OIDC redirect with code+state, exchanges
- * for tokens, refreshes the auth context, then routes to /agents.
+ * for tokens, refreshes the auth context, then routes to the landing page.
  *
  * Uses a ref guard against React Strict Mode double-mount.
  */
@@ -43,7 +43,7 @@ export function AuthCallback() {
     handleCallback(code, state)
       .then(async () => {
         await refreshUser();
-        router.replace(routes.agents);
+        router.replace(routes.home);
       })
       .catch((err: Error) => {
         setError(err.message);

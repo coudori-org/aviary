@@ -89,11 +89,15 @@ async def subscribe(session_id: str):
 async def publish_message(session_id: str, event: dict) -> None:
     """Broadcast a DB-consistent event to every WS watching this session."""
     if not _client:
+        # Redis unavailable at startup — skipped silently; init_redis already
+        # logged a warning. No per-event spam.
         return
     try:
         await _client.publish(_session_channel(session_id), json.dumps(event))
     except redis.RedisError:
-        logger.warning("publish_message failed for session %s", session_id, exc_info=True)
+        # Connected-then-failed: every session watching this message just
+        # lost the update. Operators need to see this.
+        logger.error("publish_message failed for session %s", session_id, exc_info=True)
 
 
 def _unread_key(session_id: str, user_id: str) -> str:

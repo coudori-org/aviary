@@ -10,10 +10,12 @@ import uuid
 
 from sqlalchemy import delete, distinct, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.db.models import User, Workflow, WorkflowRun, WorkflowVersion
 from app.schemas.workflow import WorkflowCreate, WorkflowUpdate
 from app.services import agent_supervisor
+from app.errors import ConflictError, StateError
 
 logger = logging.getLogger(__name__)
 
@@ -21,24 +23,29 @@ logger = logging.getLogger(__name__)
 async def create_workflow(db: AsyncSession, user: User, data: WorkflowCreate) -> Workflow:
     existing = await db.execute(select(Workflow).where(Workflow.slug == data.slug))
     if existing.scalar_one_or_none():
-        raise ValueError(f"Workflow slug '{data.slug}' already exists")
+        raise ConflictError(f"Workflow slug '{data.slug}' already exists")
 
     workflow = Workflow(
         name=data.name,
         slug=data.slug,
         description=data.description,
         owner_id=user.id,
-        model_config_json=data.model_config_data.model_dump(),
+        model_config_json=data.model_config_json.model_dump(),
         runtime_endpoint=data.runtime_endpoint or None,
     )
     db.add(workflow)
     await db.flush()
+    # Load `versions` (empty) so WorkflowResponse can read
+    # `current_version` without lazy-loading under an async session.
+    await db.refresh(workflow, attribute_names=["versions"])
     return workflow
 
 
 async def get_workflow(db: AsyncSession, workflow_id: uuid.UUID) -> Workflow | None:
     result = await db.execute(
-        select(Workflow).where(Workflow.id == workflow_id, Workflow.status != "deleted")
+        select(Workflow)
+        .options(selectinload(Workflow.versions))
+        .where(Workflow.id == workflow_id, Workflow.status != "deleted")
     )
     return result.scalar_one_or_none()
 
@@ -51,7 +58,8 @@ async def list_workflows_for_user(
     )
     total = (await db.execute(select(func.count()).select_from(base_query.subquery()))).scalar() or 0
     result = await db.execute(
-        base_query.order_by(Workflow.created_at.desc()).offset(offset).limit(limit)
+        base_query.options(selectinload(Workflow.versions))
+        .order_by(Workflow.created_at.desc()).offset(offset).limit(limit)
     )
     return list(result.scalars().all()), total
 
@@ -63,13 +71,14 @@ async def update_workflow(db: AsyncSession, workflow: Workflow, data: WorkflowUp
         workflow.description = data.description
     if data.definition is not None:
         workflow.definition = data.definition
-    if data.model_config_data is not None:
-        workflow.model_config_json = data.model_config_data.model_dump()
+    if data.model_config_json is not None:
+        workflow.model_config_json = data.model_config_json.model_dump()
     # Treat an explicitly-set empty string as a clear (NULL) so admin can
     # revert a workflow back to the default environment.
     if data.runtime_endpoint is not None:
         workflow.runtime_endpoint = data.runtime_endpoint.strip() or None
     await db.flush()
+    await db.refresh(workflow)
     return workflow
 
 
@@ -94,15 +103,6 @@ async def delete_workflow(db: AsyncSession, workflow: Workflow) -> None:
     await db.flush()
 
 
-async def current_version_number(db: AsyncSession, workflow_id: uuid.UUID) -> int | None:
-    result = await db.execute(
-        select(func.max(WorkflowVersion.version)).where(
-            WorkflowVersion.workflow_id == workflow_id
-        )
-    )
-    return result.scalar_one_or_none()
-
-
 async def _cleanup_terminal_drafts(
     db: AsyncSession, workflow_id: uuid.UUID,
 ) -> None:
@@ -117,22 +117,18 @@ async def _cleanup_terminal_drafts(
     await db.execute(
         delete(WorkflowRun).where(
             WorkflowRun.workflow_id == workflow_id,
-            WorkflowRun.run_type == "draft",
+            WorkflowRun.version_id.is_(None),
             WorkflowRun.status.in_(("completed", "failed", "cancelled")),
         )
     )
 
 
 async def deploy_workflow(db: AsyncSession, workflow: Workflow, user: User) -> WorkflowVersion:
-    """Snapshot the current definition as a new immutable version.
-
-    Each deploy always creates a new version — even if the definition is
-    unchanged. The user action itself is what we're recording. Terminal
-    draft runs accumulated during the previous edit cycle are cleaned up
-    here: deploy is the natural "commit" boundary.
-    """
-    latest = await current_version_number(db, workflow.id)
-    next_version = (latest or 0) + 1
+    """Snapshot the current definition as a new immutable version. Each
+    deploy always creates a new version — the user action itself is what
+    we're recording — and terminal draft runs from the previous edit
+    cycle are cleaned up here (the natural "commit" boundary)."""
+    next_version = (workflow.current_version or 0) + 1
 
     version = WorkflowVersion(
         workflow_id=workflow.id,
@@ -146,34 +142,30 @@ async def deploy_workflow(db: AsyncSession, workflow: Workflow, user: User) -> W
 
     await _cleanup_terminal_drafts(db, workflow.id)
     await db.flush()
+    # Eager-attach so WorkflowResponse.current_version stays correct after
+    # this action (the relationship is cached on the instance).
+    await db.refresh(workflow, attribute_names=["versions"])
     return version
 
 
 async def mark_workflow_draft(db: AsyncSession, workflow: Workflow) -> Workflow:
     workflow.status = "draft"
     await db.flush()
+    # `updated_at` uses `onupdate=func.now()`; refresh so Pydantic's
+    # from_attributes serialization doesn't trigger a lazy load.
+    await db.refresh(workflow)
     return workflow
 
 
 async def cancel_edit(db: AsyncSession, workflow: Workflow) -> Workflow:
-    """Discard in-progress draft edits and restore the latest deployed
-    version. The inverse of ``mark_workflow_draft`` after an Edit click:
-    the user decided not to keep their changes, so we reset
-    ``definition`` / ``model_config_json`` from the most recent
-    WorkflowVersion snapshot and flip status back to "deployed".
-
-    Requires at least one deployed version — there's nothing to revert
-    to otherwise. Draft runs accumulated during the abandoned edit
-    cycle are cleaned up, same as deploy.
-    """
-    latest_version = (await db.execute(
-        select(WorkflowVersion)
-        .where(WorkflowVersion.workflow_id == workflow.id)
-        .order_by(WorkflowVersion.version.desc())
-        .limit(1)
-    )).scalar_one_or_none()
+    """Discard draft edits and restore the latest deployed version —
+    inverse of ``mark_workflow_draft``. Fails when no prior deploy
+    exists; terminal draft runs from the abandoned cycle are cleaned
+    up alongside the reset."""
+    # `versions` is eager-loaded by get_workflow → ordered desc by version.
+    latest_version = workflow.versions[0] if workflow.versions else None
     if latest_version is None:
-        raise ValueError("Workflow has no deployed version to revert to")
+        raise StateError("Workflow has no deployed version to revert to")
 
     workflow.definition = latest_version.definition
     workflow.model_config_json = latest_version.model_config_json or {}
@@ -181,15 +173,10 @@ async def cancel_edit(db: AsyncSession, workflow: Workflow) -> Workflow:
 
     await _cleanup_terminal_drafts(db, workflow.id)
     await db.flush()
+    await db.refresh(workflow)
     return workflow
 
 
-async def list_workflow_versions(
-    db: AsyncSession, workflow_id: uuid.UUID
-) -> list[WorkflowVersion]:
-    result = await db.execute(
-        select(WorkflowVersion)
-        .where(WorkflowVersion.workflow_id == workflow_id)
-        .order_by(WorkflowVersion.version.desc())
-    )
-    return list(result.scalars().all())
+def list_workflow_versions(workflow: Workflow) -> list[WorkflowVersion]:
+    """Eager-loaded ``versions`` relationship is already ordered desc."""
+    return list(workflow.versions)

@@ -18,7 +18,7 @@ export function LoginCard() {
 
   useEffect(() => {
     if (status === "authenticated" && user) {
-      router.replace(routes.agents);
+      router.replace(routes.home);
     }
   }, [status, user, router]);
 

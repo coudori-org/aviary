@@ -13,7 +13,7 @@ from app.auth.dependencies import get_current_user
 from app.auth.oidc import validate_token
 from app.auth.session_store import SESSION_COOKIE_NAME, get_fresh_session
 from app.config import settings
-from app.db.models import Agent, User
+from app.db.models import Agent, Session, User
 from app.db.session import async_session_factory, get_db
 from app.schemas.session import (
     MessagePageResponse,
@@ -45,7 +45,7 @@ async def list_sessions(
 ):
     sessions = await session_service.list_sessions_for_agent(db, user, agent_id)
     return SessionListResponse(
-        items=[SessionResponse.from_orm_session(s) for s in sessions]
+        items=[SessionResponse.model_validate(s) for s in sessions]
     )
 
 
@@ -69,7 +69,7 @@ async def create_session(
         raise HTTPException(status_code=403, detail="Not the owner of this agent")
 
     session = await session_service.create_session(db, user, agent)
-    return SessionResponse.from_orm_session(session)
+    return SessionResponse.model_validate(session)
 
 
 @router.get("/sessions/status")
@@ -109,8 +109,8 @@ async def get_session(
     session = await _require_session_owner(db, session_id, user)
     messages, has_more = await session_service.get_session_messages(db, session_id)
     return SessionDetailResponse(
-        session=SessionResponse.from_orm_session(session),
-        messages=[MessageResponse.from_orm_message(m) for m in messages],
+        session=SessionResponse.model_validate(session),
+        messages=[MessageResponse.model_validate(m) for m in messages],
         has_more=has_more,
     )
 
@@ -128,7 +128,7 @@ async def get_session_messages_page(
         db, session_id, limit=limit, before=before
     )
     return MessagePageResponse(
-        messages=[MessageResponse.from_orm_message(m) for m in messages],
+        messages=[MessageResponse.model_validate(m) for m in messages],
         has_more=has_more,
     )
 
@@ -238,33 +238,179 @@ async def update_session_title(
 ):
     await _require_session_owner(db, session_id, user)
     session = await session_service.update_session_title(db, session_id, body.title)
-    return SessionResponse.from_orm_session(session)
+    return SessionResponse.model_validate(session)
 
 
 # -- WebSocket Chat ------------------------------------------------
 
-@router.websocket("/sessions/{session_id}/ws")
-async def websocket_chat(websocket: WebSocket, session_id: uuid.UUID):
+async def _handshake_ws(websocket: WebSocket) -> tuple[str, object] | None:
+    """Origin + cookie + token checks. Closes the socket on failure."""
     origin = websocket.headers.get("origin")
     if not origin or origin not in settings.cors_origins:
         await websocket.close(code=4001, reason="Invalid origin")
-        return
+        return None
 
     aviary_session_id = websocket.cookies.get(SESSION_COOKIE_NAME)
     if not aviary_session_id:
         await websocket.close(code=4001, reason="Missing session")
-        return
+        return None
 
     initial_session = await get_fresh_session(aviary_session_id)
     if initial_session is None:
         await websocket.close(code=4001, reason="Invalid or expired session")
-        return
+        return None
 
     try:
         claims = await validate_token(initial_session.access_token)
     except ValueError:
         await websocket.close(code=4001, reason="Invalid token")
+        return None
+
+    return aviary_session_id, claims
+
+
+async def _authorize_ws_session(
+    websocket: WebSocket, session_id: uuid.UUID, claims,
+) -> tuple[Session, Agent | None, User] | None:
+    """Resolve the session + owning user + optional agent. Sends error to the
+    client and returns None on any failure (workflow-origin sessions have
+    ``agent_id IS NULL`` and return agent=None — they're transcript-only)."""
+    async with async_session_factory() as db:
+        session = await session_service.get_session(db, session_id)
+        if not session or session.status != "active":
+            await websocket.send_json({"type": "error", "message": "Session not found or inactive"})
+            return None
+
+        user = (await db.execute(
+            select(User).where(User.external_id == claims.sub)
+        )).scalar_one_or_none()
+        if not user:
+            await websocket.send_json({"type": "error", "message": "User not found"})
+            return None
+        if session.created_by != user.id:
+            await websocket.send_json({"type": "error", "message": "Not the owner of this session"})
+            return None
+
+        agent: Agent | None = None
+        if session.agent_id is not None:
+            agent = (await db.execute(
+                select(Agent).where(Agent.id == session.agent_id)
+            )).scalar_one_or_none()
+            if not agent:
+                await websocket.send_json({"type": "error", "message": "Agent not found"})
+                return None
+        await db.commit()
+
+    return session, agent, user
+
+
+async def _relay_redis_events(
+    websocket: WebSocket, pubsub, session_id_str: str, user_id_str: str,
+) -> None:
+    """Forward Redis pub/sub events to the client. Terminal events clear the
+    unread badge because an active WS means the user is watching."""
+    try:
+        async for raw_msg in pubsub.listen():
+            if raw_msg["type"] != "message":
+                continue
+            try:
+                event = json.loads(raw_msg["data"])
+                await websocket.send_json(event)
+                if event.get("type") in ("done", "cancelled", "error"):
+                    await redis_service.clear_unread(session_id_str, user_id_str)
+            except WebSocketDisconnect:
+                return
+            except Exception as exc:
+                # Routine on WS teardown — keep quiet; the outer handler logs
+                # real errors with full traceback.
+                logger.debug("Relay send failed for session %s: %s", session_id_str, exc)
+                return
+    except asyncio.CancelledError:
+        pass
+
+
+async def _handle_chat_message(
+    websocket: WebSocket,
+    data: dict,
+    session_id: uuid.UUID,
+    session: Session,
+    agent: Agent | None,
+    user: User,
+    aviary_session_id: str,
+    user_id_str: str,
+) -> bool:
+    """Process one inbound chat message. Returns False to close the socket,
+    True to keep it open."""
+    if agent is None:
+        await websocket.send_json({"type": "error", "message": "This session is read-only"})
+        return True
+
+    content = (data.get("content") or "").strip()
+    attachments = data.get("attachments")
+    if not content and not attachments:
+        return True
+
+    fresh = await get_fresh_session(aviary_session_id)
+    if fresh is None:
+        await websocket.send_json({
+            "type": "error", "message": "Session expired, please sign in again",
+        })
+        await websocket.close(code=4001, reason="Session expired")
+        return False
+
+    metadata = {"attachments": attachments} if attachments else None
+    async with async_session_factory() as db:
+        user_msg = await session_service.save_message(
+            db, session_id, "user", content, sender_id=user.id, metadata=metadata,
+        )
+        user_message_id = user_msg.id
+
+        agent = (await db.execute(
+            select(Agent).where(Agent.id == session.agent_id)
+        )).scalar_one()
+
+        mentioned_slugs = list(dict.fromkeys(
+            extract_mentions(agent.instruction or "") + extract_mentions(content)
+        ))
+        accessible_agents: list[dict] = []
+        if mentioned_slugs:
+            accessible_agents = await resolve_mentioned_agents(
+                db, user, mentioned_slugs, exclude_agent_id=str(agent.id),
+            )
+        await db.commit()
+
+        agent_config = await agent_spec(agent, db)
+        if accessible_agents:
+            agent_config["accessible_agents"] = accessible_agents
+
+    session_id_str = str(session_id)
+    user_event: dict = {
+        "type": "user_message",
+        "messageId": str(user_message_id),
+        "sender_id": user_id_str,
+        "content": content,
+    }
+    if attachments:
+        user_event["attachments"] = attachments
+    await redis_service.publish_message(session_id_str, user_event)
+
+    await stream_manager.start_stream(
+        session_id=session_id_str,
+        agent_config=agent_config,
+        content=content,
+        user_message_id=user_message_id,
+        user_token=fresh.access_token,
+        attachments=attachments,
+    )
+    return True
+
+
+@router.websocket("/sessions/{session_id}/ws")
+async def websocket_chat(websocket: WebSocket, session_id: uuid.UUID):
+    handshake = await _handshake_ws(websocket)
+    if handshake is None:
         return
+    aviary_session_id, claims = handshake
 
     await websocket.accept()
 
@@ -272,155 +418,44 @@ async def websocket_chat(websocket: WebSocket, session_id: uuid.UUID):
     pubsub = None
 
     try:
-        async with async_session_factory() as db:
-            session = await session_service.get_session(db, session_id)
-            if not session or session.status != "active":
-                await websocket.send_json({"type": "error", "message": "Session not found or inactive"})
-                return
-
-            user = (await db.execute(
-                select(User).where(User.external_id == claims.sub)
-            )).scalar_one_or_none()
-            if not user:
-                await websocket.send_json({"type": "error", "message": "User not found"})
-                return
-            if session.created_by != user.id:
-                await websocket.send_json({"type": "error", "message": "Not the owner of this session"})
-                return
-
-            # Workflow-origin sessions (agent_id IS NULL) are transcript-
-            # only: the inspector subscribes read-only, never sends. We
-            # still accept the subscription; outbound message handling is
-            # gated below on agent_id being set.
-            agent = None
-            if session.agent_id is not None:
-                agent = (await db.execute(
-                    select(Agent).where(Agent.id == session.agent_id)
-                )).scalar_one_or_none()
-                if not agent:
-                    await websocket.send_json({"type": "error", "message": "Agent not found"})
-                    return
-            await db.commit()
+        authorized = await _authorize_ws_session(websocket, session_id, claims)
+        if authorized is None:
+            return
+        session, agent, user = authorized
 
         await websocket.send_json({"type": "status", "status": "ready"})
 
-        # User is actively viewing — clear their unread for this session.
         user_id_str = str(user.id)
         await redis_service.clear_unread(session_id_str, user_id_str)
-
         await _replay_stream_if_needed(websocket, session_id_str)
 
         pubsub = await redis_service.subscribe(session_id_str)
-
-        async def _relay_from_redis():
-            if not pubsub:
-                return
-            try:
-                async for raw_msg in pubsub.listen():
-                    if raw_msg["type"] != "message":
-                        continue
-                    try:
-                        event = json.loads(raw_msg["data"])
-                        await websocket.send_json(event)
-                        # Any terminal event delivered to a live WS means the
-                        # watching user can drop the badge on this session.
-                        if event.get("type") in ("done", "cancelled", "error"):
-                            await redis_service.clear_unread(session_id_str, user_id_str)
-                    except WebSocketDisconnect:
-                        return
-                    except Exception:
-                        logger.debug("Relay send failed for session %s", session_id_str, exc_info=True)
-                        return
-            except asyncio.CancelledError:
-                pass
-
-        relay_task = asyncio.create_task(_relay_from_redis())
+        relay_task = asyncio.create_task(
+            _relay_redis_events(websocket, pubsub, session_id_str, user_id_str)
+        )
 
         try:
             while True:
                 data = await websocket.receive_json()
+                msg_type = data.get("type")
 
-                if data.get("type") == "cancel":
-                    # Client targets a specific stream_id — it learned the id
-                    # from the `stream_started` event the supervisor publishes
-                    # when it picks up the request.
+                if msg_type == "cancel":
+                    # Client targets a specific stream_id learned from the
+                    # supervisor's `stream_started` event.
                     stream_id = data.get("stream_id")
                     if stream_id:
                         await agent_supervisor.abort_stream(stream_id)
                     continue
 
-                if data.get("type") != "message":
+                if msg_type != "message":
                     continue
 
-                if agent is None:
-                    await websocket.send_json({
-                        "type": "error",
-                        "message": "This session is read-only",
-                    })
-                    continue
-
-                content = (data.get("content") or "").strip()
-                attachments = data.get("attachments")
-                if not content and not attachments:
-                    continue
-
-                fresh = await get_fresh_session(aviary_session_id)
-                if fresh is None:
-                    await websocket.send_json({
-                        "type": "error",
-                        "message": "Session expired, please sign in again",
-                    })
-                    await websocket.close(code=4001, reason="Session expired")
-                    return
-
-                # Persist the user message first so every watcher (and future
-                # multi-participant WSes) receives it with the DB id already
-                # assigned.
-                metadata = {"attachments": attachments} if attachments else None
-                async with async_session_factory() as db:
-                    user_msg = await session_service.save_message(
-                        db, session_id, "user", content, sender_id=user.id,
-                        metadata=metadata,
-                    )
-                    user_message_id = user_msg.id
-
-                    agent = (await db.execute(
-                        select(Agent).where(Agent.id == session.agent_id)
-                    )).scalar_one()
-
-                    mentioned_slugs = list(dict.fromkeys(
-                        extract_mentions(agent.instruction or "")
-                        + extract_mentions(content)
-                    ))
-                    accessible_agents: list[dict] = []
-                    if mentioned_slugs:
-                        accessible_agents = await resolve_mentioned_agents(
-                            db, user, mentioned_slugs, exclude_agent_id=str(agent.id),
-                        )
-                    await db.commit()
-
-                    agent_config = await agent_spec(agent, db)
-                    if accessible_agents:
-                        agent_config["accessible_agents"] = accessible_agents
-
-                user_event: dict = {
-                    "type": "user_message",
-                    "messageId": str(user_message_id),
-                    "sender_id": user_id_str,
-                    "content": content,
-                }
-                if attachments:
-                    user_event["attachments"] = attachments
-                await redis_service.publish_message(session_id_str, user_event)
-
-                await stream_manager.start_stream(
-                    session_id=session_id_str,
-                    agent_config=agent_config,
-                    content=content,
-                    user_message_id=user_message_id,
-                    user_token=fresh.access_token,
-                    attachments=attachments,
+                keep_open = await _handle_chat_message(
+                    websocket, data, session_id, session, agent, user,
+                    aviary_session_id, user_id_str,
                 )
+                if not keep_open:
+                    return
         finally:
             relay_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
@@ -439,8 +474,7 @@ async def websocket_chat(websocket: WebSocket, session_id: uuid.UUID):
 
 
 async def _replay_stream_if_needed(websocket: WebSocket, session_id: str) -> None:
-    """If a stream is in-flight or just completed for this session, replay its
-    buffered events to the reconnecting client."""
+    """If a stream is in-flight, replay buffered events to the reconnecting client."""
     stream_id = await redis_service.get_latest_stream_id(session_id)
     if not stream_id:
         return

@@ -2,9 +2,11 @@
 
 import logging
 import uuid
+from datetime import datetime
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,42 +18,37 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-class AgentResponse(BaseModel):
-    model_config = {"from_attributes": True}
+# Admin runs in its own container without the API package on the import path,
+# so we keep a small local copy of the agent schema. Shape matches the API
+# version exactly so the shared JS/TS clients can consume both interchangeably.
 
-    id: str
+def _to_str(v):
+    return str(v) if isinstance(v, uuid.UUID) else v
+
+
+_UuidStr = Annotated[str, BeforeValidator(_to_str)]
+_MODEL_CONFIG_ALIAS = {"alias": "model_config"}
+
+
+class AgentResponse(BaseModel):
+    model_config = ConfigDict(
+        from_attributes=True, populate_by_name=True, protected_namespaces=(),
+    )
+
+    id: _UuidStr
     name: str
     slug: str
     description: str | None = None
-    owner_id: str
+    owner_id: _UuidStr
     instruction: str
-    model_config_data: dict
+    model_config_json: dict = Field(**_MODEL_CONFIG_ALIAS)
     tools: list
     mcp_servers: list
     icon: str | None = None
     runtime_endpoint: str | None = None
     status: str
-    created_at: str
-    updated_at: str
-
-    @classmethod
-    def from_agent(cls, agent: Agent) -> "AgentResponse":
-        return cls(
-            id=str(agent.id),
-            name=agent.name,
-            slug=agent.slug,
-            description=agent.description,
-            owner_id=str(agent.owner_id),
-            instruction=agent.instruction,
-            model_config_data=agent.model_config_json,
-            tools=agent.tools,
-            mcp_servers=agent.mcp_servers,
-            icon=agent.icon,
-            runtime_endpoint=agent.runtime_endpoint,
-            status=agent.status,
-            created_at=agent.created_at.isoformat(),
-            updated_at=agent.updated_at.isoformat(),
-        )
+    created_at: datetime
+    updated_at: datetime
 
 
 class AgentListResponse(BaseModel):
@@ -60,12 +57,12 @@ class AgentListResponse(BaseModel):
 
 
 class AgentUpdateRequest(BaseModel):
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True, protected_namespaces=())
 
     name: str | None = None
     description: str | None = None
     instruction: str | None = None
-    model_config_data: dict | None = Field(None, alias="model_config")
+    model_config_json: dict | None = Field(None, **_MODEL_CONFIG_ALIAS)
     tools: list[str] | None = None
     mcp_servers: list | None = None
     icon: str | None = None
@@ -85,7 +82,7 @@ async def list_agents(
         select(Agent).order_by(Agent.created_at.desc()).offset(offset).limit(limit)
     )).scalars().all()
     return AgentListResponse(
-        items=[AgentResponse.from_agent(a) for a in agents], total=total,
+        items=[AgentResponse.model_validate(a) for a in agents], total=total,
     )
 
 
@@ -94,7 +91,7 @@ async def get_agent(agent_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
     agent = (await db.execute(select(Agent).where(Agent.id == agent_id))).scalar_one_or_none()
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
-    return AgentResponse.from_agent(agent)
+    return AgentResponse.model_validate(agent)
 
 
 @router.put("/{agent_id}", response_model=AgentResponse)
@@ -107,15 +104,17 @@ async def update_agent(
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
 
-    field_map = {"model_config_data": "model_config_json"}
+    # Schema field names match ORM attribute names now — no translation map.
+    # Explicit empty-string runtime_endpoint means "clear it" so admin can
+    # revert to the default runtime.
     for field, value in body.model_dump(exclude_unset=True).items():
         if field == "runtime_endpoint" and value == "":
             value = None
-        setattr(agent, field_map.get(field, field), value)
+        setattr(agent, field, value)
 
     await db.flush()
     await db.refresh(agent)
-    return AgentResponse.from_agent(agent)
+    return AgentResponse.model_validate(agent)
 
 
 @router.delete("/{agent_id}", status_code=204)

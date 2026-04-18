@@ -1,11 +1,12 @@
-"""Baseline schema — all tables derived from current ORM models + default SA seed.
+"""Baseline schema — all tables derived from current ORM models.
 
-This is the consolidated starting point. Prior incremental migrations were
-squashed away. Future schema changes add new revisions with `down_revision = "001"`.
+Consolidated from 001-008 on 2026-04-19. Uses ``Base.metadata.create_all`` so
+the baseline always matches the ORM — the moment the models evolve past a
+point an incremental migration can resolve, squash back into this file.
 
 Revision ID: 001
 Revises:
-Create Date: 2026-04-15
+Create Date: 2026-04-19
 """
 from typing import Sequence, Union
 

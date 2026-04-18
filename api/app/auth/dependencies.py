@@ -84,13 +84,19 @@ def require_agent_owner(include_deleted: bool = False):
 
 
 def require_workflow_owner():
+    # Eager-load versions so response serialization can read
+    # `Workflow.current_version` without a second query per request.
+    from sqlalchemy.orm import selectinload
+
     async def dependency(
         workflow_id: uuid.UUID,
         user: User = Depends(get_current_user),
         db: AsyncSession = Depends(get_db),
     ) -> Workflow:
         workflow = (await db.execute(
-            select(Workflow).where(Workflow.id == workflow_id)
+            select(Workflow)
+            .options(selectinload(Workflow.versions))
+            .where(Workflow.id == workflow_id)
         )).scalar_one_or_none()
         if not workflow:
             raise HTTPException(status_code=404, detail="Workflow not found")

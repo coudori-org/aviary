@@ -176,26 +176,9 @@ export interface StructuredOutputConfig {
   fields: StructuredOutputField[];
 }
 
-export interface SSEChunk {
-  type: "chunk" | "tool_use" | "tool_result" | "tool_progress" | "result" | "thinking" | "query_started" | "error";
-  content?: string;
-  name?: string;
-  input?: unknown;
-  tool_use_id?: string;
-  is_error?: boolean;
-  parent_tool_use_id?: string | null;
-  // tool_progress fields
-  tool_name?: string;
-  elapsed_time_seconds?: number;
-  // Error message (only on type: "error")
-  message?: string;
-  // Result metadata (only on type: "result")
-  session_id?: string;
-  duration_ms?: number;
-  num_turns?: number;
-  total_cost_usd?: number;
-  usage?: Record<string, unknown>;
-}
+import { StreamingAccumulator } from "./streaming-accumulator.js";
+import type { SSEChunk } from "./types/sse-chunk.js";
+export type { SSEChunk };
 
 // Dynamically-registered tools ride under this single SDK MCP server so the
 // CLI-visible name is deterministic: `mcp__aviary_output__{entry.name}`.
@@ -621,17 +604,7 @@ export async function* processMessage(
     };
   }
 
-  let fullResponse = "";
-  // Track cumulative lengths to extract deltas from partial snapshots.
-  let emittedTextLen = 0;
-  let emittedThinkingLen = 0;
-  // Track tool_use IDs already emitted to avoid duplicates from partial messages
-  const emittedToolIds = new Set<string>();
-  // Whether we've received any stream_event deltas. When true (Anthropic),
-  // text/thinking are handled via stream_event and assistant snapshots are
-  // only used for tool_use. When false (ollama/vllm), assistant snapshots
-  // are the sole source for all content types.
-  let hasStreamDeltas = false;
+  const acc = new StreamingAccumulator();
 
   try {
     const stream = query({ prompt: promptGenerator(), options });
@@ -641,69 +614,18 @@ export async function* processMessage(
       const msg = message as SDKMessage & Record<string, any>;
 
       if (msg.type === "stream_event") {
-        // Real-time token-level streaming — emitted by Anthropic backends.
-        // Non-Anthropic backends (ollama, vllm) don't emit these; they
-        // fall through to the assistant snapshot handler below.
-        const event = msg.event as Record<string, any>;
-        if (event.type === "content_block_delta" && event.delta) {
-          if (event.delta.type === "text_delta" && event.delta.text) {
-            hasStreamDeltas = true;
-            const delta = event.delta.text as string;
-            emittedTextLen += delta.length;
-            fullResponse += delta;
-            yield { type: "chunk", content: delta };
-          } else if (event.delta.type === "thinking_delta" && event.delta.thinking) {
-            hasStreamDeltas = true;
-            const delta = event.delta.thinking as string;
-            emittedThinkingLen += delta.length;
-            yield { type: "thinking", content: delta };
-          }
-        }
+        const chunk = acc.consumeStreamEvent(msg.event as Record<string, any>);
+        if (chunk) yield chunk as SSEChunk;
       } else if (msg.type === "assistant" && msg.message?.content) {
         const parentId = msg.parent_tool_use_id ?? null;
         for (const block of msg.message.content) {
-          if (block.type === "thinking" && !hasStreamDeltas) {
-            // Fallback path (ollama/vllm): no stream_event deltas available.
-            // Block flushing creates multiple short blocks, each with its own
-            // cumulative content. Detect new block when content is shorter.
-            const thinking = (block.thinking ?? "") as string;
-            if (thinking.length < emittedThinkingLen) {
-              emittedThinkingLen = 0;
-            }
-            if (thinking.length > emittedThinkingLen) {
-              const delta = thinking.slice(emittedThinkingLen);
-              emittedThinkingLen = thinking.length;
-              yield { type: "thinking", content: delta };
-            }
-          } else if (block.type === "text" && !hasStreamDeltas) {
-            const text = block.text as string;
-            if (text.length < emittedTextLen) {
-              emittedTextLen = 0;
-            }
-            if (text.length > emittedTextLen) {
-              const delta = text.slice(emittedTextLen);
-              emittedTextLen = text.length;
-              fullResponse += delta;
-              yield { type: "chunk", content: delta };
-            }
-          } else if (block.type === "tool_use") {
-            if (!emittedToolIds.has(block.id)) {
-              emittedToolIds.add(block.id);
-              yield {
-                type: "tool_use",
-                name: block.name,
-                input: block.input,
-                tool_use_id: block.id,
-                ...(parentId ? { parent_tool_use_id: parentId } : {}),
-              };
-            }
-          }
+          const chunk = acc.consumeAssistantBlock(block, parentId);
+          if (chunk) yield chunk as SSEChunk;
         }
       } else if (msg.type === "user" && msg.message?.content) {
-        // SDKUserMessage — tool results sent back to the model after execution.
-        // New assistant turn starts after this, so reset tracking.
-        emittedTextLen = 0;
-        emittedThinkingLen = 0;
+        // SDKUserMessage — tool results sent back to the model. A new
+        // assistant turn starts after this, so reset cumulative counters.
+        acc.resetForNewTurn();
         const parentId = msg.parent_tool_use_id ?? null;
         const content = msg.message.content;
         if (Array.isArray(content)) {
@@ -732,8 +654,8 @@ export async function* processMessage(
         };
       } else if (msg.type === "result") {
         // Emit final text if nothing was streamed
-        if (msg.result && !fullResponse) {
-          fullResponse = msg.result;
+        if (msg.result && !acc.fullResponse) {
+          acc.fullResponse = msg.result;
           yield { type: "chunk", content: msg.result };
         }
         // Emit result metadata (cost, usage, duration). SDK-native

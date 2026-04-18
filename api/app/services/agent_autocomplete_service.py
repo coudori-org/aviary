@@ -221,7 +221,7 @@ async def _call(
     tool: dict,
     user_token: str,
 ) -> dict:
-    mc = req.model_config_data
+    mc = req.model_config_json
     runtime_model_config: dict = {
         "backend": mc.backend,
         "model": mc.model,

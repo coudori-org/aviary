@@ -280,11 +280,16 @@ services:
       - "8090:4000"
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    # `LITELLM_SITE_PACKAGES` pins where to mount the .pth patches into the
+    # image's Python site-packages dir. Override in `.env` whenever the
+    # upstream LiteLLM image bumps its Python version.
     volumes:
       - ./config/litellm/config.yaml:/app/config.yaml
-      - ./config/litellm/patches/aviary_user_api_key.py:/usr/lib/python3.13/site-packages/aviary_user_api_key.py
-      - ./config/litellm/patches/aviary_mcp_credentials.py:/usr/lib/python3.13/site-packages/aviary_mcp_credentials.py
-      - ./config/litellm/patches/aviary_patches.pth:/usr/lib/python3.13/site-packages/aviary_patches.pth
+      - ./config/litellm/patches/aviary_jwt_util.py:${LITELLM_SITE_PACKAGES:-/usr/lib/python3.13/site-packages}/aviary_jwt_util.py
+      - ./config/litellm/patches/aviary_vault_util.py:${LITELLM_SITE_PACKAGES:-/usr/lib/python3.13/site-packages}/aviary_vault_util.py
+      - ./config/litellm/patches/aviary_user_api_key.py:${LITELLM_SITE_PACKAGES:-/usr/lib/python3.13/site-packages}/aviary_user_api_key.py
+      - ./config/litellm/patches/aviary_mcp_credentials.py:${LITELLM_SITE_PACKAGES:-/usr/lib/python3.13/site-packages}/aviary_mcp_credentials.py
+      - ./config/litellm/patches/aviary_patches.pth:${LITELLM_SITE_PACKAGES:-/usr/lib/python3.13/site-packages}/aviary_patches.pth
       - ./config/litellm/mcp-secret-injection.yaml:/app/aviary-mcp-secret-injection.yaml:ro
     environment:
       LITELLM_MASTER_KEY: "sk-aviary-dev"

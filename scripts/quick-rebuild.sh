@@ -15,7 +15,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+# shellcheck source=_common.sh
+source "$SCRIPT_DIR/_common.sh"
 cd "$PROJECT_DIR"
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; CYAN='\033[0;36m'
@@ -25,18 +26,7 @@ TARGET="${1:-help}"
 RUN_SMOKE=false
 SMOKE_BACKEND=""
 
-# Load .env for registry settings (UV_INDEX_URL, NPM_CONFIG_REGISTRY)
-if [ -f "$PROJECT_DIR/.env" ]; then
-  set -a
-  # shellcheck disable=SC1091
-  source "$PROJECT_DIR/.env"
-  set +a
-fi
-
-# Collect --build-arg flags from registry env vars
-BUILD_ARGS=()
-[ -n "${UV_INDEX_URL:-}" ]        && BUILD_ARGS+=(--build-arg "UV_INDEX_URL=$UV_INDEX_URL")
-[ -n "${NPM_CONFIG_REGISTRY:-}" ] && BUILD_ARGS+=(--build-arg "NPM_CONFIG_REGISTRY=$NPM_CONFIG_REGISTRY")
+load_env_and_build_args
 
 for arg in "$@"; do
   if [ "$arg" = "--smoke" ]; then
@@ -47,21 +37,21 @@ for arg in "$@"; do
   prev_arg="$arg"
 done
 
-load_k8s_image() {
+load_k8s_image_with_status() {
   local image=$1
   echo -e "${CYAN}Loading ${image} into K8s...${NC}"
-  docker save "$image" | docker compose exec -T k8s ctr images import -
+  load_k8s_image "$image"
   echo -e "${GREEN}✓ ${image} loaded${NC}"
 }
 
 rebuild_runtime() {
   echo -e "${BOLD}Rebuilding runtime (+ custom variant)...${NC}"
   docker build "${BUILD_ARGS[@]}" -t aviary-runtime:latest ./runtime/
-  load_k8s_image "aviary-runtime:latest"
+  load_k8s_image_with_status "aviary-runtime:latest"
   # The custom variant layers on top of the base, so rebuild it too — any
   # change to the base should propagate to the `custom` environment.
   docker build "${BUILD_ARGS[@]}" -f ./runtime/Dockerfile.custom -t aviary-runtime-custom:latest ./runtime/
-  load_k8s_image "aviary-runtime-custom:latest"
+  load_k8s_image_with_status "aviary-runtime-custom:latest"
   echo -e "${CYAN}Rolling restart runtime pods...${NC}"
   docker compose exec -T k8s kubectl rollout restart deployment -n agents \
     -l aviary/role=agent-runtime 2>/dev/null || true

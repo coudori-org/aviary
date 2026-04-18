@@ -1,11 +1,11 @@
 """WorkflowRun — top-level orchestration.
 
-Executes nodes by frontier — every node whose upstream deps are satisfied
-runs concurrently, so independent branches don't serialize behind each
-other. A failed condition propagates `skipped` to its descendants. A
-cancel signal aborts all in-flight nodes (agent steps abort their
-supervisor stream on the way out) and marks every later node as skipped.
-Fail-fast: the first node failure cancels peers and fails the run.
+Runs nodes by frontier: every node whose upstream deps are satisfied
+runs concurrently, so independent branches don't serialize. A failed
+condition propagates ``skipped`` to its descendants. A cancel signal
+aborts in-flight nodes (agent_steps abort their supervisor stream on the
+way out) and marks every later node skipped. First node failure cancels
+peers and fails the run (fail-fast).
 """
 
 from __future__ import annotations
@@ -23,8 +23,8 @@ with workflow.unsafe.imports_passed_through():
     from worker.activities.agent_step import (
         ensure_agent_step_session_activity,
         run_agent_step_activity,
-        step_session_id,
     )
+    from worker.activities.agent_step_helpers import step_session_id
     from worker.activities.nodes import (
         evaluate_condition_activity,
         merge_activity,
@@ -36,13 +36,13 @@ with workflow.unsafe.imports_passed_through():
 
 
 _ACT_TIMEOUT = timedelta(seconds=30)
-_AGENT_STEP_TIMEOUT = timedelta(minutes=30)  # LLM turns can run long
+_AGENT_STEP_TIMEOUT = timedelta(minutes=30)
+_AGENT_STEP_HEARTBEAT_TIMEOUT = timedelta(seconds=60)
 _TRIGGER_TYPES = {"manual_trigger", "webhook_trigger"}
 
-# Default for every activity — fail fast on the first error. Node
-# activities can opt into retry via `node.data.retry_count` set in the
-# builder's Inspector. Persistence/publish activities stay at 1 attempt
-# because the run's own status machine handles surfacing the failure.
+# Every activity fails fast by default. Node activities opt into retry via
+# `node.data.retry_count`; persistence/publish stay at 1 because the run's
+# own status machine surfaces failures.
 _DEFAULT_RETRY = RetryPolicy(maximum_attempts=1)
 _MAX_RETRY = 10
 
@@ -58,15 +58,14 @@ def _node_retry(node_data: dict) -> RetryPolicy:
 
 
 def _single_input(inputs: dict, trigger_data: dict):
-    """Collapse `inputs` into a single `input` value for templates.
+    """Collapse ``inputs`` into a single ``input`` value for templates.
 
-    - 0 upstream edges → trigger payload (lets `{{ input.text }}` work
-      even for a node wired directly from a trigger).
+    - 0 upstream edges → trigger payload (``{{ input.text }}`` works when
+      wired directly from a trigger).
     - 1 upstream edge → that upstream's output verbatim.
-    - 2+ upstream edges → the whole `{node_id: output}` dict. Merge-style
-      nodes that care about provenance can still reach into it; callers
-      who only need one branch should use `{{ inputs.<node_id> }}`
-      explicitly.
+    - 2+ upstream edges → the whole ``{node_id: output}`` dict. Merge-style
+      nodes that care about provenance reach into it; single-branch
+      consumers use ``{{ inputs.<node_id> }}`` explicitly.
     """
     if not inputs:
         return trigger_data
@@ -76,11 +75,7 @@ def _single_input(inputs: dict, trigger_data: dict):
 
 
 async def _dispatch_node(node: PlanNode, inputs: dict, inp: WorkflowRunInput) -> dict:
-    """Map a node type to the activity that owns its side effects."""
     if node.type in _TRIGGER_TYPES:
-        # Trigger nodes pass the payload through unchanged so downstream
-        # templates can use `{{ input.text }}` symmetrically with any other
-        # upstream node. No envelope.
         return inp.trigger_data
     single = _single_input(inputs, inp.trigger_data)
     ctx = {"input": single, "inputs": inputs, "trigger": inp.trigger_data}
@@ -112,13 +107,9 @@ async def _dispatch_node(node: PlanNode, inputs: dict, inp: WorkflowRunInput) ->
             retry_policy=_node_retry(node.data),
         )
     if node.type == "agent_step":
-        # `heartbeat_timeout` is what makes cancel actually reach the
-        # activity process — without it, Temporal has no path to deliver
-        # the cancel until the activity returns. 60s gives the activity
-        # room to breathe under concurrent parallel dispatch (two steps
-        # sharing one event loop each sending a full SSE stream); the
-        # worker still heartbeats every ~3s so timeout fires only when
-        # something is actually wedged.
+        # heartbeat_timeout is what makes cancel actually reach the activity
+        # process — without it Temporal can't deliver until the activity
+        # returns. 60s absorbs parallel-dispatch starvation.
         return await workflow.execute_activity(
             run_agent_step_activity,
             args=[
@@ -127,7 +118,7 @@ async def _dispatch_node(node: PlanNode, inputs: dict, inp: WorkflowRunInput) ->
                 inp.root_run_id or inp.run_id,
             ],
             start_to_close_timeout=_AGENT_STEP_TIMEOUT,
-            heartbeat_timeout=timedelta(seconds=60),
+            heartbeat_timeout=_AGENT_STEP_HEARTBEAT_TIMEOUT,
             retry_policy=_node_retry(node.data),
         )
     raise ValueError(f"Unknown node type: {node.type}")
@@ -154,15 +145,14 @@ async def _set_node(
     )
 
 
-def _session_id_for(node: PlanNode, run_id: str, root_run_id: str | None) -> str | None:
-    """Agent_step nodes own a shared-sessions row computed deterministically
-    from (root_run_id, node_id); surfacing it early lets the inspector
-    subscribe the moment the step starts running. The root anchor is what
-    makes a resumed run's inspector find the ancestor run's transcript
-    instead of subscribing to a nonexistent session."""
-    if node.type != "agent_step":
-        return None
-    return step_session_id(run_id, node.id, root_run_id)
+def _session_ids(plan: list[PlanNode], run_id: str, root_run_id: str | None) -> dict[str, str | None]:
+    """Precompute deterministic session ids for agent_step nodes. Used by
+    every ``_set_node`` call so the inspector can subscribe the moment the
+    status transitions — and so resumed runs find the ancestor's session."""
+    return {
+        n.id: (step_session_id(run_id, n.id, root_run_id) if n.type == "agent_step" else None)
+        for n in plan
+    }
 
 
 @workflow.defn(name="WorkflowRun")
@@ -173,8 +163,6 @@ class WorkflowRunWorkflow:
 
     @workflow.signal
     def cancel(self) -> None:
-        """Cancel the run. Signalling every active task is what actually
-        aborts long-running agent_steps mid-stream."""
         self._cancelled = True
         for task in list(self._active_tasks):
             if not task.done():
@@ -192,44 +180,52 @@ class WorkflowRunWorkflow:
 
         edges = inp.definition_snapshot.get("edges", [])
         nodes_by_id: dict[str, PlanNode] = {n.id: n for n in plan}
+        session_ids = _session_ids(plan, inp.run_id, inp.root_run_id)
         context: dict = {}
         skipped: set[str] = set()
         completed: set[str] = set()
         resume_context = inp.resume_context or {}
 
-        # Seed resume_context: every carried node is already "completed" so
-        # frontier scheduling can immediately release its dependents.
-        for node in plan:
-            if node.id in resume_context:
-                carried = resume_context[node.id]
-                context[node.id] = carried
+        async def _skip(nid: str) -> None:
+            node = nodes_by_id[nid]
+            with contextlib.suppress(Exception):
                 await _set_node(
-                    inp.run_id, node.id, node.type, "completed",
-                    output_data=carried,
-                    session_id=_session_id_for(node, inp.run_id, inp.root_run_id),
+                    inp.run_id, nid, node.type, "skipped",
+                    session_id=session_ids.get(nid),
                 )
-                completed.add(node.id)
-                if node.type == "condition" and isinstance(carried, dict) and not carried.get("result"):
-                    for ds in downstream_of(node.id, edges):
-                        skipped.add(ds)
+
+        # Seed resume_context: carried nodes are already completed so the
+        # frontier immediately releases their dependents.
+        for node in plan:
+            if node.id not in resume_context:
+                continue
+            carried = resume_context[node.id]
+            context[node.id] = carried
+            await _set_node(
+                inp.run_id, node.id, node.type, "completed",
+                output_data=carried, session_id=session_ids.get(node.id),
+            )
+            completed.add(node.id)
+            if node.type == "condition" and isinstance(carried, dict) and not carried.get("result"):
+                for ds in downstream_of(node.id, edges):
+                    skipped.add(ds)
 
         remaining = {n.id for n in plan} - completed
         failure_error: str | None = None
 
         async def run_node(node: PlanNode) -> tuple[str, bool, dict | None, str | None]:
-            """Return (node_id, ok, output, error_message). A `skipped` or
-            cancelled node returns ok=True output=None so the caller can
+            """Return (node_id, ok, output, error_message). Skipped /
+            cancelled nodes return ok=True output=None so the caller can
             branch without exception plumbing."""
-            sid = _session_id_for(node, inp.run_id, inp.root_run_id)
+            sid = session_ids.get(node.id)
             if self._cancelled or node.id in skipped:
                 await _set_node(inp.run_id, node.id, node.type, "skipped", session_id=sid)
                 return node.id, True, None, None
             inputs = {src: context.get(src) for src in upstream_of(node.id, edges)}
             if node.type == "agent_step":
-                # Provision the ``sessions`` row before the inspector hears
-                # "running" — otherwise a ChatTranscript that mounts on the
-                # status change would 404 before the agent_step activity's
-                # own setup runs.
+                # Provision the sessions row before "running" so the
+                # inspector's ChatTranscript doesn't 404 between status
+                # publish and the activity's own setup.
                 await workflow.execute_activity(
                     ensure_agent_step_session_activity,
                     args=[inp.run_id, node.id, inp.root_run_id],
@@ -261,14 +257,9 @@ class WorkflowRunWorkflow:
         while remaining and failure_error is None and not self._cancelled:
             frontier = [
                 nodes_by_id[nid] for nid in remaining
-                if all(
-                    src in completed or src in skipped
-                    for src in upstream_of(nid, edges)
-                )
+                if all(src in completed or src in skipped for src in upstream_of(nid, edges))
             ]
             if not frontier:
-                # Should not happen once the plan topology is valid, but
-                # guard against livelock just in case.
                 break
 
             tasks: dict[asyncio.Task, PlanNode] = {}
@@ -285,10 +276,7 @@ class WorkflowRunWorkflow:
                     if not ok:
                         failure_error = err or "node failed"
                         continue
-                    if node_id in skipped:
-                        continue
-                    if output is None:
-                        # Skipped-by-cancel path.
+                    if node_id in skipped or output is None:
                         continue
                     context[node_id] = output
                     completed.add(node_id)
@@ -300,18 +288,8 @@ class WorkflowRunWorkflow:
                     self._active_tasks.discard(task)
 
             if failure_error is not None:
-                # Fail-fast: cancel peers already started in this frontier
-                # and any still-pending tasks. We've already awaited them in
-                # the loop above, so only pending work from other frontiers
-                # (there is none — we schedule one frontier at a time) would
-                # be hit. Remaining nodes get marked skipped below.
-                for nid in remaining:
-                    node = nodes_by_id[nid]
-                    with contextlib.suppress(Exception):
-                        await _set_node(
-                            inp.run_id, nid, node.type, "skipped",
-                            session_id=_session_id_for(node, inp.run_id, inp.root_run_id),
-                        )
+                for nid in list(remaining):
+                    await _skip(nid)
                 remaining.clear()
                 break
 
@@ -320,15 +298,8 @@ class WorkflowRunWorkflow:
             return WorkflowRunResult(status="failed")
 
         if self._cancelled:
-            # Any node we never got to gets an explicit skipped status so
-            # the UI doesn't show them stuck at pending.
-            for nid in remaining:
-                node = nodes_by_id[nid]
-                with contextlib.suppress(Exception):
-                    await _set_node(
-                        inp.run_id, nid, node.type, "skipped",
-                        session_id=_session_id_for(node, inp.run_id, inp.root_run_id),
-                    )
+            for nid in list(remaining):
+                await _skip(nid)
             await _set_run(inp.run_id, "cancelled")
             return WorkflowRunResult(status="cancelled")
 

@@ -3,9 +3,12 @@
 import Link from "next/link";
 import { ArrowLeft, Trash2, Loader2, Upload, Pencil } from "@/components/icons";
 import { useWorkflowBuilder } from "@/features/workflows/providers/workflow-builder-provider";
+import {
+  useVersionSelection,
+  DRAFT_SELECTION,
+} from "@/features/workflows/providers/version-selection-provider";
 import { routes } from "@/lib/constants/routes";
 import { cn } from "@/lib/utils";
-import type { WorkflowVersionData } from "@/features/workflows/api/workflows-api";
 
 function ToolbarButton({
   onClick,
@@ -40,30 +43,16 @@ function ToolbarButton({
   );
 }
 
-const DRAFT = "draft" as const;
-
 interface ToolbarProps {
   deploying: boolean;
-  /** List of deployed WorkflowVersions (latest first). */
-  versions: WorkflowVersionData[];
-  /** "draft" sentinel or a deployed version's id — the single source
-   *  of truth for which graph is on the canvas. */
-  selected: string;
-  isDraft: boolean;
-  /** True once there's at least one deployed snapshot — controls
-   *  whether the Cancel button (revert-to-latest) is worth offering. */
-  hasPriorDeploy: boolean;
-  onSelect: (next: string) => void;
   onDeploy: () => void;
   onEdit: () => void;
   onCancelEdit: () => void;
 }
 
-export function Toolbar({
-  deploying, versions, selected, isDraft, hasPriorDeploy,
-  onSelect, onDeploy, onEdit, onCancelEdit,
-}: ToolbarProps) {
+export function Toolbar({ deploying, onDeploy, onEdit, onCancelEdit }: ToolbarProps) {
   const { workflowName, undo, redo, canUndo, canRedo, deleteSelected } = useWorkflowBuilder();
+  const { versions, selected, isDraft, hasPriorDeploy, setSelected } = useVersionSelection();
   const latestId = versions[0]?.id;
 
   return (
@@ -102,20 +91,14 @@ export function Toolbar({
           </>
         )}
 
-        {/*
-          Single select covers every version the workflow can show. The
-          draft slot is always an option when one is active — selecting
-          it is the same thing as "I'm in edit mode". Deployed snapshots
-          below are read-only.
-        */}
         {(isDraft || versions.length > 0) && (
           <select
             value={selected}
-            onChange={(e) => onSelect(e.target.value)}
+            onChange={(e) => setSelected(e.target.value)}
             className="mr-1 rounded-md border border-white/[0.08] bg-canvas px-2 py-1 text-[12px] text-fg-primary focus:outline-none focus:border-info"
             title="Select version"
           >
-            {isDraft && <option value={DRAFT}>Draft</option>}
+            {isDraft && <option value={DRAFT_SELECTION}>Draft</option>}
             {versions.map((v) => (
               <option key={v.id} value={v.id}>
                 v{v.version}

@@ -14,9 +14,13 @@ import "@xyflow/react/dist/style.css";
 import "./builder.css";
 
 import { useWorkflowBuilder } from "@/features/workflows/providers/workflow-builder-provider";
+import {
+  useVersionSelection,
+  DRAFT_SELECTION,
+} from "@/features/workflows/providers/version-selection-provider";
 import { useWorkflowRun } from "@/features/workflows/hooks/use-workflow-run";
 import { RunStatusProvider, useAllNodeRunStatuses } from "@/features/workflows/providers/run-status-provider";
-import { workflowsApi, type WorkflowVersionData } from "@/features/workflows/api/workflows-api";
+import { workflowsApi } from "@/features/workflows/api/workflows-api";
 import { SettingsPanel } from "./settings-panel";
 import { NodePalette } from "./node-palette";
 import { InspectorPanel } from "./inspector-panel";
@@ -29,7 +33,6 @@ import { AgentStepNode } from "./nodes/agent-step-node";
 import { ConditionNode, MergeNode } from "./nodes/control-nodes";
 import { PayloadParserNode, TemplateNode } from "./nodes/transform-nodes";
 import type { NodeType } from "@/features/workflows/lib/types";
-import type { Workflow } from "@/types";
 import { cn } from "@/lib/utils";
 
 const defaultEdgeOptions: DefaultEdgeOptions = {
@@ -46,7 +49,6 @@ const nodeTypes = {
   template: TemplateNode,
 };
 
-// --- Tab Button ---
 function TabButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
   return (
     <button
@@ -62,7 +64,6 @@ function TabButton({ active, onClick, children }: { active: boolean; onClick: ()
   );
 }
 
-// --- Canvas ---
 function Canvas({ readOnly }: { readOnly: boolean }) {
   const {
     nodes, edges, onNodesChange, onEdgesChange,
@@ -126,22 +127,17 @@ function Canvas({ readOnly }: { readOnly: boolean }) {
     <div ref={reactFlowWrapper} className="flex-1">
       <ReactFlow
         nodes={nodes} edges={edges}
-        // Keep change handlers wired in both modes — ReactFlow routes
-        // selection state through onNodesChange too, so dropping it
-        // breaks node-click selection + anything that depends on node
-        // measurements (MiniMap, fitView). Edit restriction happens via
-        // the nodesDraggable / nodesConnectable / edgesReconnectable
-        // flags below, which stop user-initiated mutations at the
-        // ReactFlow layer before any change event is dispatched.
+        // Keep change handlers wired in read-only too: ReactFlow routes
+        // selection + measurement through onNodesChange, so dropping it
+        // breaks node click-selection, minimap, and fitView. Edit
+        // restriction happens via the `nodesDraggable / nodesConnectable
+        // / edgesReconnectable` flags below instead.
         onNodesChange={onNodesChange} onEdgesChange={onEdgesChange}
         onConnect={onConnect}
         onNodeDragStart={onNodeDragStart} onNodeDragStop={onNodeDragStop}
         onDragOver={onDragOver} onDrop={onDrop}
         nodeTypes={nodeTypes} defaultEdgeOptions={defaultEdgeOptions}
         fitView deleteKeyCode={null}
-        // Deployed view is snapshot-only: selection + pan/zoom stay
-        // enabled so inspector, run history, and triggers all work.
-        // Only structural edits are turned off.
         nodesDraggable={!readOnly}
         nodesConnectable={!readOnly}
         edgesFocusable={!readOnly}
@@ -156,17 +152,12 @@ function Canvas({ readOnly }: { readOnly: boolean }) {
   );
 }
 
-// --- Left Panel (Settings + Nodes tabs) ---
 function LeftPanel({
   readOnly, onAddNode,
 }: {
   readOnly: boolean;
   onAddNode: (type: NodeType) => void;
 }) {
-  // Node palette is an editing affordance — on a deployed (snapshot)
-  // view it's misleading, so collapse to Settings-only. Settings itself
-  // stays read-only because it only exposes fields the builder treats
-  // as safe to display regardless of status (name, description).
   const [tab, setTab] = useState<"nodes" | "settings">(readOnly ? "settings" : "nodes");
 
   return (
@@ -184,7 +175,6 @@ function LeftPanel({
   );
 }
 
-// --- Resize handle (vertical, left edge) ---
 function PanelResizeHandle({ onResize }: { onResize: (delta: number) => void }) {
   const dragging = useRef(false);
   const lastX = useRef(0);
@@ -216,32 +206,17 @@ function PanelResizeHandle({ onResize }: { onResize: (delta: number) => void }) 
 }
 
 const RIGHT_MIN = 320;
-const RIGHT_MAX = 640;
+const RIGHT_MAX = 960;
 const RIGHT_DEFAULT = 380;
 
-// --- Right Panel (Inspector + Test + History tabs) ---
 function RightPanel({
-  workflowId, run, tab, onTabChange,
-  isDraft, selectedVersionId, isLatestVersionSelected,
+  run, tab, onTabChange,
 }: {
-  workflowId: string;
   run: ReturnType<typeof useWorkflowRun>;
   tab: "inspector" | "test" | "history";
   onTabChange: (tab: "inspector" | "test" | "history") => void;
-  /** True when the user is viewing the draft slot. History filters by
-   *  run_type=draft; the trigger can always fire. */
-  isDraft: boolean;
-  /** Deployed-version mode: the history filter narrows to this
-   *  WorkflowVersion.id. Null in draft mode. */
-  selectedVersionId: string | null;
-  /** Trigger is gated to the latest deployed version (or draft) — on a
-   *  past version the backend would silently run the LATEST, which is
-   *  misleading; the user rolls back via Edit first. */
-  isLatestVersionSelected: boolean;
 }) {
-  const setTab = onTabChange;
   const [width, setWidth] = useState(RIGHT_DEFAULT);
-
   const handleResize = useCallback((delta: number) => {
     setWidth((w) => Math.min(RIGHT_MAX, Math.max(RIGHT_MIN, w + delta)));
   }, []);
@@ -253,81 +228,38 @@ function RightPanel({
     >
       <PanelResizeHandle onResize={handleResize} />
       <div className="flex shrink-0 border-b border-white/[0.06]">
-        <TabButton active={tab === "inspector"} onClick={() => setTab("inspector")}>Inspector</TabButton>
-        <TabButton active={tab === "test"} onClick={() => setTab("test")}>Test</TabButton>
-        <TabButton active={tab === "history"} onClick={() => setTab("history")}>History</TabButton>
+        <TabButton active={tab === "inspector"} onClick={() => onTabChange("inspector")}>Inspector</TabButton>
+        <TabButton active={tab === "test"} onClick={() => onTabChange("test")}>Test</TabButton>
+        <TabButton active={tab === "history"} onClick={() => onTabChange("history")}>History</TabButton>
       </div>
       <div className="flex-1 overflow-hidden">
         {tab === "inspector" && <InspectorPanel />}
-        {tab === "test" && (
-          <TestPanel
-            run={run}
-            canTrigger={isDraft || isLatestVersionSelected}
-            runType={isDraft ? "draft" : "deployed"}
-          />
-        )}
-        {tab === "history" && (
-          <RunHistoryPanel
-            workflowId={workflowId}
-            run={run}
-            onOpenRun={() => setTab("test")}
-            runType={isDraft ? "draft" : "deployed"}
-            versionId={selectedVersionId ?? undefined}
-          />
-        )}
+        {tab === "test" && <TestPanel run={run} />}
+        {tab === "history" && <RunHistoryPanel run={run} onOpenRun={() => onTabChange("test")} />}
       </div>
     </div>
   );
 }
 
-// --- Main Builder ---
-/** Sentinel the page uses to mean "the editable draft slot". */
-const DRAFT = "draft" as const;
-
-interface WorkflowBuilderProps {
-  versions: WorkflowVersionData[];
-  /** ``"draft"`` or a deployed version's id. Selection is the single
-   *  source of truth for read-only, history filter, and trigger gating
-   *  — there's no separate workflowStatus branching anywhere below. */
-  selected: string;
-  onSelect: (next: string) => void;
-  isDraft: boolean;
-  isLatestVersionSelected: boolean;
-  /** Definition of the non-draft version currently loaded. Only set
-   *  when a deployed version is selected — used to push that snapshot
-   *  onto the draft slot on rollback Edit. */
-  selectedVersionDefinition?: Workflow["definition"];
-  /** Run to auto-load into the test panel. The page gates this to only
-   *  be set when the URL's runId is consistent with ``selected`` — so
-   *  a stale post-action URL can't overlay an old run's node statuses
-   *  onto a fresh draft / other-version view. */
-  deepLinkRunId: string | null;
-  /** Refetch workflow/versions and re-point selection afterwards.
-   *  Each action (Deploy / Edit / Cancel) picks where to land. */
-  reloadAndSelect: (
-    next: string | ((latestId: string | null) => string),
-  ) => Promise<void>;
-}
-
-export function WorkflowBuilder({
-  versions, selected, onSelect, isDraft, isLatestVersionSelected,
-  selectedVersionDefinition, deepLinkRunId, reloadAndSelect,
-}: WorkflowBuilderProps) {
+export function WorkflowBuilder() {
   const { workflowId, addNode, cancelPendingSave } = useWorkflowBuilder();
+  const {
+    isDraft,
+    isLatestVersionSelected,
+    selectedVersionDefinition,
+    deepLinkRunId,
+    mutateAndNavigate,
+  } = useVersionSelection();
   const run = useWorkflowRun(workflowId);
   const [deploying, setDeploying] = useState(false);
-  // Cancel is only available once the workflow has been deployed at
-  // least once — otherwise there's no snapshot to revert to.
-  const hasPriorDeploy = versions.length > 0;
   const readOnly = !isDraft;
-  // Deep-link: the page passes a runId only when the URL is coherent
-  // with `selected` (so a stale post-action URL can't slip a v1 run's
-  // statuses into the draft view). Fires viewRun + flips to the Test
-  // tab when it flips to a new value; user-initiated tab switches
-  // don't clobber because this effect only fires on runId change.
+
   const [rightTab, setRightTab] = useState<"inspector" | "test" | "history">(
     deepLinkRunId ? "test" : "inspector",
   );
+  // Fire viewRun only on runId transitions so user-initiated tab
+  // switches don't clobber. Boolean guard would only work once; ref
+  // tracks the last handled value.
   const lastHandledRunIdRef = useRef<string | null>(null);
   useEffect(() => {
     if (!deepLinkRunId) return;
@@ -348,59 +280,38 @@ export function WorkflowBuilder({
     setDeploying(true);
     try {
       await workflowsApi.deploy(workflowId);
-      // Land on the newly-created latest version so the user sees the
-      // snapshot they just published.
-      await reloadAndSelect((latestId) => latestId ?? DRAFT);
-    } catch {
-      // TODO: show error
+      await mutateAndNavigate((latestId) => latestId ?? DRAFT_SELECTION);
     } finally {
       setDeploying(false);
     }
-  }, [workflowId, reloadAndSelect]);
+  }, [workflowId, mutateAndNavigate]);
 
   const handleEdit = useCallback(async () => {
-    try {
-      // Rollback path: the user is viewing a past version and clicks
-      // Edit. Push that snapshot into the draft slot first so the draft
-      // view actually holds v1's content, then flip status. When
-      // editing from the latest version the slot already matches, so
-      // we skip the extra PUT.
-      if (!isLatestVersionSelected && selectedVersionDefinition) {
-        await workflowsApi.update(workflowId, {
-          definition: selectedVersionDefinition as unknown as Record<string, unknown>,
-        });
-      }
-      await workflowsApi.edit(workflowId);
-      await reloadAndSelect(DRAFT);
-    } catch {
-      // TODO: show error
+    // Rollback: when editing a past version, push that snapshot into
+    // the draft slot first so the editable view reflects v1 content.
+    if (!isLatestVersionSelected && selectedVersionDefinition) {
+      await workflowsApi.update(workflowId, {
+        definition: selectedVersionDefinition as unknown as Record<string, unknown>,
+      });
     }
-  }, [workflowId, isLatestVersionSelected, selectedVersionDefinition, reloadAndSelect]);
+    await workflowsApi.edit(workflowId);
+    await mutateAndNavigate(DRAFT_SELECTION);
+  }, [workflowId, isLatestVersionSelected, selectedVersionDefinition, mutateAndNavigate]);
 
   const handleCancelEdit = useCallback(async () => {
     if (!window.confirm("Discard draft changes and restore the latest deployed version?")) return;
-    // Kill any debounced auto-save queued for the stale draft state —
-    // otherwise it can fire after cancel-edit and overwrite the
-    // restored definition on the server.
+    // Kill the debounced auto-save queued for the stale draft — otherwise
+    // it can land after cancel-edit and overwrite the restored definition.
     cancelPendingSave();
-    try {
-      await workflowsApi.cancelEdit(workflowId);
-      await reloadAndSelect((latestId) => latestId ?? DRAFT);
-    } catch {
-      // TODO: show error
-    }
-  }, [workflowId, cancelPendingSave, reloadAndSelect]);
+    await workflowsApi.cancelEdit(workflowId);
+    await mutateAndNavigate((latestId) => latestId ?? DRAFT_SELECTION);
+  }, [workflowId, cancelPendingSave, mutateAndNavigate]);
 
   return (
     <RunStatusProvider nodeStatuses={run.nodeStatuses}>
       <div className="flex h-full flex-col">
         <Toolbar
           deploying={deploying}
-          versions={versions}
-          selected={selected}
-          isDraft={isDraft}
-          hasPriorDeploy={hasPriorDeploy}
-          onSelect={onSelect}
           onDeploy={handleDeploy}
           onEdit={handleEdit}
           onCancelEdit={handleCancelEdit}
@@ -411,19 +322,11 @@ export function WorkflowBuilder({
             <ReactFlowProvider>
               <div className="flex flex-1 overflow-hidden">
                 <Canvas readOnly={readOnly} />
-                <RightPanel
-                  workflowId={workflowId}
-                  run={run}
-                  tab={rightTab}
-                  onTabChange={setRightTab}
-                  isDraft={isDraft}
-                  selectedVersionId={isDraft ? null : selected}
-                  isLatestVersionSelected={isLatestVersionSelected}
-                />
+                <RightPanel run={run} tab={rightTab} onTabChange={setRightTab} />
               </div>
             </ReactFlowProvider>
           </div>
-          <AssistantPanel />
+          {!readOnly && <AssistantPanel />}
         </div>
       </div>
     </RunStatusProvider>

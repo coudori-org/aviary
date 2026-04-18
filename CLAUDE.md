@@ -83,11 +83,13 @@ Three backend services with distinct roles:
 
 **Pod Strategy (env-per-pool, (agent, session)-per-workdir):** One Helm release per environment. Replicas fixed (min 1), no scale-to-zero. Every pod serves every agent. Isolation comes from per-(agent, session) on-disk paths plus bubblewrap — the pod itself is agent-agnostic.
 
-**LiteLLM Gateway** (docker compose, `:8090`): All LLM calls go through LiteLLM OSS proxy. Backend is determined by the model name prefix (e.g., `anthropic/claude-sonnet-4-6` → Claude API, `ollama/gemma4:26b` → Ollama, `vllm/...` → vLLM, `bedrock/...` → Bedrock). Natively compatible with Anthropic SDK (`/v1/messages`), so claude-agent-sdk works transparently. The same proxy also serves `/mcp` — the aggregated MCP endpoint (see "MCP Aggregation" below). Configuration in `config/litellm/config.yaml`. Two startup patches loaded via `.pth` file:
+**LiteLLM Gateway** (docker compose, `:8090`): All LLM calls go through LiteLLM OSS proxy. Backend is determined by the model name prefix (e.g., `anthropic/claude-sonnet-4-6` → Claude API, `ollama/gemma4:26b` → Ollama, `vllm/...` → vLLM, `bedrock/...` → Bedrock). Natively compatible with Anthropic SDK (`/v1/messages`), so claude-agent-sdk works transparently. The same proxy also serves `/mcp` — the aggregated MCP endpoint (see "MCP Aggregation" below). Configuration in `config/litellm/config.yaml`. Four patch modules loaded via `.pth` file:
 - `aviary_user_api_key.py` — `CustomLogger.async_pre_call_hook` that validates the user's Keycloak JWT (forwarded as `X-Aviary-User-Token`), fetches per-user Anthropic API key from Vault, overrides the outgoing key. Fails closed.
 - `aviary_mcp_credentials.py` — owns everything MCP: request-ingress JWT gate (plugs the OAuth2-passthrough fail-open), tools/list filter (X-Aviary-Allowed-Tools + RBAC stub), tools/call gate, and `pre_mcp_call` Vault-argument injection. Same JWKS/Keycloak validation as above.
+- `aviary_jwt_util.py` — shared JWKS fetch + JWT validation + sub-cache helpers used by both patches above. JWKS has a forced-refetch cooldown so random-kid tokens can't DoS the IdP.
+- `aviary_vault_util.py` — shared Vault credential fetch (`secret/aviary/credentials/{sub}/{key}`). No caching by design — profile changes must reflect immediately. Slow fetches log a warning.
 
-LiteLLM UI (`http://localhost:8090/ui`, default `admin/admin`) is backed by a dedicated `litellm` Postgres database on the shared Postgres instance. LiteLLM applies its own Prisma migrations on startup. Keys, teams, and spend live in the DB; models stay file-only (`config.yaml` is the single source of truth — `STORE_MODEL_IN_DB` is off so `/v1/model/info` doesn't surface UI-added shadow copies). Credentials come from `LITELLM_UI_USERNAME` / `LITELLM_UI_PASSWORD` env vars.
+LiteLLM UI (`http://localhost:8090/ui`, default `admin/admin`) is backed by a dedicated `litellm` Postgres database on the shared Postgres instance. LiteLLM applies its own Prisma migrations on startup. Keys, teams, and spend live in the DB; models stay file-only — `config.yaml` is the single source of truth. `STORE_MODEL_IN_DB` is left at its default (off) so `/v1/model/info` never surfaces UI-added shadow copies. Credentials come from `LITELLM_UI_USERNAME` / `LITELLM_UI_PASSWORD` env vars.
 
 **Observability**: Prometheus (`:9090`) scrapes `supervisor:9000/metrics` every 15s with 7d retention. Grafana (`:3001`, anonymous admin in dev) auto-provisions the Prometheus datasource plus the "Aviary Supervisor" dashboard from `config/grafana/dashboards/supervisor.json` — panels cover active streams, publish request rate/error ratio, p50/p95/p99 publish duration, TTFB, SSE event mix, runtime HTTP errors, abort paths, and Vault/Redis dependency health.
 
@@ -110,7 +112,7 @@ No background loops. No per-agent state. No 0↔1 activation — environments ar
 Keycloak tokens have `iss=http://localhost:8080/...` (browser URL), but API container must fetch OIDC metadata from `http://keycloak:8080/...` (internal DNS). Two env vars: `OIDC_ISSUER` (public, for token validation) and `OIDC_INTERNAL_ISSUER` (internal, for discovery/JWKS/exchange). See `_rewrite_url()` / `to_public_url()` in `auth/oidc.py`.
 
 ### Pydantic v2 `model_config` Conflict
-`model_config` is a reserved Pydantic class variable. Use `Field(alias="model_config")` with `model_config_data` as the Python field name. The `model_config = {...}` class var must be declared BEFORE field definitions. See `api/app/schemas/agent.py`.
+`model_config` is a reserved Pydantic class variable. Use `Field(alias="model_config")` with `model_config_json` as the Python field name — the shared `MODEL_CONFIG_ALIAS` in `api/app/schemas/_common.py` centralizes this. The `ConfigDict(populate_by_name=True, protected_namespaces=())` class var must be declared BEFORE field definitions. See `api/app/schemas/agent.py`.
 
 ### API + Admin Know Nothing About Infrastructure
 Neither service has K8s concepts (namespace, pod, deployment, NetworkPolicy). The only routing input they touch is the optional `agent.runtime_endpoint` string column. Everything else is Helm-managed.
@@ -248,13 +250,12 @@ API/Admin: dedicated `aviary_test` database with `NullPool`, no lifespan.
 **Helm chart changes** — render locally and apply via k3s kubectl:
 
 ```bash
-docker run --rm -v "$PWD/charts:/charts:ro" alpine/helm:3.14.4 template \
-  aviary-env-default /charts/aviary-environment -f /charts/aviary-environment/values-dev.yaml \
-  --set hostGatewayIP=$K8S_GATEWAY_IP \
-  | docker compose exec -T k8s kubectl apply -f -
+./scripts/helm-apply.sh platform   # aviary-platform (values-dev.yaml)
+./scripts/helm-apply.sh default    # aviary-env-default
+./scripts/helm-apply.sh custom     # aviary-env-custom
 ```
 
-`setup-dev.sh` does this automatically on first run.
+`setup-dev.sh` does this automatically on first run. Under the hood the script renders `alpine/helm:3.14.4 template` with `hostGatewayIP` from the K3s container and pipes into `kubectl apply -f -`.
 
 **Docker Compose services** — hot reload via bind-mount, or `docker compose up -d --build <service>`.
 

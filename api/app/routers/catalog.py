@@ -22,7 +22,7 @@ async def browse_catalog(
 ):
     agents, total = await agent_service.list_agents_for_user(db, user, offset, limit)
     return AgentListResponse(
-        items=[AgentResponse.from_orm_agent(a) for a in agents],
+        items=[AgentResponse.model_validate(a) for a in agents],
         total=total,
     )
 
@@ -48,6 +48,6 @@ async def search_catalog(
     )).scalars().all()
 
     return AgentListResponse(
-        items=[AgentResponse.from_orm_agent(a) for a in agents],
+        items=[AgentResponse.model_validate(a) for a in agents],
         total=total,
     )

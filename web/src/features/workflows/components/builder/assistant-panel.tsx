@@ -347,9 +347,16 @@ function TopResizeHandle({ onResize }: { onResize: (delta: number) => void }) {
 // --- Main panel ---
 
 const MIN_HEIGHT = 160;
-const MAX_HEIGHT = 600;
+const MAX_HEIGHT_ABSOLUTE = 1600;
+// Always keep this many pixels of canvas+toolbar visible above the panel.
+const RESERVED_ABOVE = 140;
 const DEFAULT_HEIGHT = 280;
 const COLLAPSED_HEIGHT = 36;
+
+function getMaxHeight(): number {
+  if (typeof window === "undefined") return MAX_HEIGHT_ABSOLUTE;
+  return Math.max(MIN_HEIGHT, Math.min(MAX_HEIGHT_ABSOLUTE, window.innerHeight - RESERVED_ABOVE));
+}
 
 export function AssistantPanel() {
   const { workflowId, nodes, edges, applyPlan, workflowModelBackend, workflowModelName } =
@@ -382,7 +389,15 @@ export function AssistantPanel() {
 
   const handleResize = useCallback((delta: number) => {
     setCollapsed(false);
-    setHeight((h) => Math.min(MAX_HEIGHT, Math.max(MIN_HEIGHT, h + delta)));
+    setHeight((h) => Math.min(getMaxHeight(), Math.max(MIN_HEIGHT, h + delta)));
+  }, []);
+
+  // Clamp current height when the viewport shrinks so a previously-tall
+  // panel can't end up taller than the available space.
+  useEffect(() => {
+    const onResize = () => setHeight((h) => Math.min(h, getMaxHeight()));
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
   }, []);
 
   const modelReady = Boolean(workflowModelBackend && workflowModelName);

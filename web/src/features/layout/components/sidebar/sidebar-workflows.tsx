@@ -62,18 +62,8 @@ function WorkflowGroupRow({ group, currentPath }: {
         <ul className="space-y-px pl-5">
           {runs.map((r) => (
             <li key={r.id}>
-              {/*
-                Deep-link into the builder's Test tab with the run AND its
-                version pre-selected: without versionId the page would
-                fall back to the latest deploy, overlaying v1 node
-                statuses onto v2's graph.
-              */}
               <Link
-                href={
-                  r.version_id
-                    ? `${builderHref}?runId=${r.id}&versionId=${r.version_id}`
-                    : `${builderHref}?runId=${r.id}&versionId=draft`
-                }
+                href={routes.workflowAtVersion(workflow.id, r.version_id ?? "draft", r.id)}
                 className="flex items-center gap-2 rounded-sm px-2 py-1 text-fg-muted hover:bg-white/[0.03] hover:text-fg-primary transition-colors"
               >
                 <span

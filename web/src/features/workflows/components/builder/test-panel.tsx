@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { Bot, Play, Check, X, CircleDot, Loader2, Globe, GitBranch, Layers, Filter, FileText, Send, Square, RefreshCw } from "@/components/icons";
 import { ChatTranscript } from "@/features/chat/components/chat-transcript";
 import { useWorkflowBuilder } from "@/features/workflows/providers/workflow-builder-provider";
+import { useVersionSelection } from "@/features/workflows/providers/version-selection-provider";
 import { useWorkflowRun, type NodeRunData } from "@/features/workflows/hooks/use-workflow-run";
 import { cn } from "@/lib/utils";
 
@@ -135,16 +136,11 @@ function RunFooter({
   );
 }
 
-// --- Trigger input bar ---
 function TriggerInputBar({
   run, isWebhook, runType,
 }: {
   run: ReturnType<typeof useWorkflowRun>;
   isWebhook: boolean;
-  /** draft = scratch run off the in-memory definition, deployed = run
-   *  bound to the latest published WorkflowVersion. Controlled by the
-   *  parent based on workflow status so deployed builds trigger real
-   *  runs that surface in the sidebar. */
   runType: "draft" | "deployed";
 }) {
   const [inputValue, setInputValue] = useState("");
@@ -208,7 +204,6 @@ function TriggerInputBar({
   );
 }
 
-// --- Non-trigger running status bar (so cancel is reachable from any node view) ---
 function RunningStatusBar({ run }: { run: ReturnType<typeof useWorkflowRun> }) {
   if (!run.isRunning) return null;
   return (
@@ -229,27 +224,21 @@ function RunningStatusBar({ run }: { run: ReturnType<typeof useWorkflowRun> }) {
   );
 }
 
-// --- Test Panel ---
 interface TestPanelProps {
   run: ReturnType<typeof useWorkflowRun>;
-  /** The builder passes `false` when the user is inspecting a past
-   *  deployed version — backend create_run would pick the LATEST
-   *  deployed version, so silently running it from a past-version
-   *  view would mislead the user. They roll back via Edit first. */
-  canTrigger?: boolean;
-  /** Draft selection → scratch run off the in-memory definition.
-   *  Deployed (latest) → run pinned to the latest WorkflowVersion. */
-  runType: "draft" | "deployed";
 }
 
-export function TestPanel({ run, canTrigger = true, runType }: TestPanelProps) {
+export function TestPanel({ run }: TestPanelProps) {
   const { nodes: graphNodes, selectedNodeId } = useWorkflowBuilder();
+  const { isDraft, isLatestVersionSelected } = useVersionSelection();
+  // Trigger is gated to draft or latest-deployed: past versions would
+  // silently run the LATEST on the backend (misleading), so the user
+  // must roll back via Edit first.
+  const canTrigger = isDraft || isLatestVersionSelected;
+  const runType: "draft" | "deployed" = isDraft ? "draft" : "deployed";
 
   const triggerNode = graphNodes.find((n) => TRIGGER_TYPES.has(n.type ?? ""));
   const selectedNode = selectedNodeId ? graphNodes.find((n) => n.id === selectedNodeId) : null;
-
-  // Focus = explicit selection, else the trigger. Trigger view renders the
-  // input bar; every other node view just mirrors live run state.
   const focusNode = selectedNode ?? triggerNode ?? null;
   const isTriggerFocus = !!focusNode && TRIGGER_TYPES.has(focusNode.type ?? "");
 
@@ -275,9 +264,9 @@ export function TestPanel({ run, canTrigger = true, runType }: TestPanelProps) {
     );
   }
 
-  // Resume is available whenever the current draft still has unfinished
-  // live nodes — either something failed/cancelled, or the user added
-  // nodes after a successful run.
+  // Resume is offered whenever the current graph still has unfinished
+  // nodes — after a fail/cancel, or when the user added new nodes after
+  // a successful run.
   const hasUnfinishedLiveNodes = graphNodes.some(
     (n) => (run.nodeData[n.id]?.status ?? run.nodeStatuses[n.id]) !== "completed",
   );
@@ -296,11 +285,8 @@ export function TestPanel({ run, canTrigger = true, runType }: TestPanelProps) {
       {!isTriggerFocus && <RunningStatusBar run={run} />}
 
       {isAgentStepFocus ? (
-        // Transcript fills the panel — its own status banner + scroll +
-        // block renderer already handle everything below. A slim label
-        // strip on top keeps the node context visible. ``live`` is false
-        // for terminal node statuses so we don't burn a WS connection
-        // (or spin on reconnects) for a step that won't emit anything.
+        // `live` gates the WS connection to running steps only — a
+        // terminal-state transcript doesn't need (or want) a live socket.
         <>
           <NodeStatusStrip nodeType={focusType} nodeLabel={focusLabel} status={focusData!.status} />
           <div className="flex-1 min-h-0">

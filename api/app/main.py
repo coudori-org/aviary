@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.auth.oidc import init_oidc
 from app.config import settings
+from app.errors import register_handlers as register_domain_handlers
 from app.routers import (
     agent_autocomplete,
     agents,
@@ -54,6 +55,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+register_domain_handlers(app)
 
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(agents.router, prefix="/api/agents", tags=["agents"])

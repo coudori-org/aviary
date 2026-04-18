@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Trash2, Settings, AlertCircle } from "@/components/icons";
+import { ArrowLeft, Trash2, AlertCircle } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { LoadingState } from "@/components/feedback/loading-state";
 import { ErrorState } from "@/components/feedback/error-state";
@@ -19,7 +19,7 @@ import type { Agent, McpToolBinding } from "@/types";
  * Agent detail page — dashboard for a single agent.
  *
  * Layout (top to bottom):
- *   1. Breadcrumb + edit/settings/delete actions
+ *   1. Breadcrumb + edit/delete actions
  *   2. Deleted-banner if applicable
  *   3. Hero (icon, name, description, Start chat CTA)
  *   4. Recent Sessions (top 5 + view all)
@@ -96,12 +96,6 @@ export default function AgentDetailPage() {
             <Link href={routes.agentEdit(agent.id)}>
               <Button variant="ghost" size="sm">
                 Edit
-              </Button>
-            </Link>
-            <Link href={routes.agentSettings(agent.id)}>
-              <Button variant="ghost" size="sm">
-                <Settings size={13} strokeWidth={1.75} />
-                Settings
               </Button>
             </Link>
             {agent.status !== "deleted" && (

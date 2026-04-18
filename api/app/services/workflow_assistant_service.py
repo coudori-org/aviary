@@ -2,10 +2,10 @@
 supervisor→runtime pipeline.
 
 One LLM call per user message. The runtime binds a single dynamic tool
-(`apply_workflow_plan`) via `structured_outputs[]`; the CLI decides
-whether to call it. Regular chat-reply text and the optional tool call
-both land in `assembled_blocks`, which we splice into the response
-shape the frontend already understands (`{reply, plan}`).
+(``apply_workflow_plan``) via ``structured_outputs[]``; the CLI decides
+whether to call it. Chat-reply text and the optional tool call both
+land in ``assembled_blocks``, which we splice into the frontend's
+``{reply, plan}`` shape.
 """
 
 from __future__ import annotations
@@ -13,10 +13,10 @@ from __future__ import annotations
 import json
 import logging
 
-from fastapi import HTTPException, status
 from pydantic import TypeAdapter, ValidationError
 
 from app.db.models import Workflow
+from app.errors import StateError, UpstreamError
 from app.schemas.workflow_assistant import (
     PlanOp,
     WorkflowAssistantRequest,
@@ -63,11 +63,6 @@ _APPLY_WORKFLOW_PLAN_CLI_NAME = llm_runtime.structured_tool_cli_name(
 )
 
 
-# ---------------------------------------------------------------------------
-# Entry point
-# ---------------------------------------------------------------------------
-
-
 async def ask(
     workflow: Workflow,
     body: WorkflowAssistantRequest,
@@ -78,19 +73,14 @@ async def ask(
     backend = model_cfg.get("backend")
     model = model_cfg.get("model")
     if not backend or not model:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Workflow has no default model configured",
-        )
+        raise StateError("Workflow has no default model configured")
     runtime_model_config = {"backend": backend, "model": model}
     if isinstance(model_cfg.get("max_output_tokens"), int):
         runtime_model_config["max_output_tokens"] = model_cfg["max_output_tokens"]
 
     catalog = await mcp_catalog.fetch_tools(user_token)
-
     system = _build_system_prompt(
-        current_definition=body.current_definition,
-        catalog=catalog,
+        current_definition=body.current_definition, catalog=catalog,
     )
     history_turns = [
         {"role": turn.role, "content": turn.content}
@@ -109,29 +99,17 @@ async def ask(
         )
     except llm_runtime.LLMRuntimeError as e:
         logger.warning("Workflow assistant LLM call failed: %s", e)
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"LLM gateway error: {e}",
-        ) from e
+        raise UpstreamError(f"LLM gateway error: {e}") from e
 
     reply = result.get("assembled_text") or ""
     plan = _extract_plan(result)
-
     if plan:
         err = _validate_plan_references(plan, body.current_definition)
         if err:
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                detail=f"LLM plan failed reference validation: {err}",
-            )
+            raise UpstreamError(f"LLM plan failed reference validation: {err}")
         _inject_workflow_defaults(plan, backend=backend, model=model)
 
     return WorkflowAssistantResponse(reply=reply, plan=plan)
-
-
-# ---------------------------------------------------------------------------
-# Plan extraction
-# ---------------------------------------------------------------------------
 
 
 def _extract_plan(result: dict) -> list[PlanOp]:
@@ -140,40 +118,24 @@ def _extract_plan(result: dict) -> list[PlanOp]:
         return []
     payload = block.get("input")
     if not isinstance(payload, dict):
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"apply_workflow_plan input is not a dict: {type(payload).__name__}",
+        raise UpstreamError(
+            f"apply_workflow_plan input is not a dict: {type(payload).__name__}",
         )
     plan_json = payload.get("plan_json", "[]")
     if not isinstance(plan_json, str):
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"plan_json must be a string, got {type(plan_json).__name__}",
+        raise UpstreamError(
+            f"plan_json must be a string, got {type(plan_json).__name__}",
         )
     try:
         plan_raw = json.loads(plan_json)
     except json.JSONDecodeError as e:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"plan_json is not valid JSON: {e}",
-        ) from e
+        raise UpstreamError(f"plan_json is not valid JSON: {e}") from e
     if not isinstance(plan_raw, list):
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="plan_json must decode to a list",
-        )
+        raise UpstreamError("plan_json must decode to a list")
     try:
         return _plan_adapter.validate_python(plan_raw)
     except ValidationError as e:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"LLM plan failed schema validation: {e.errors()}",
-        ) from e
-
-
-# ---------------------------------------------------------------------------
-# System prompt
-# ---------------------------------------------------------------------------
+        raise UpstreamError(f"LLM plan failed schema validation: {e.errors()}") from e
 
 
 _ROLE_BLOCK = """\
@@ -307,11 +269,6 @@ def _format_tools_block(catalog: list[dict]) -> str:
     return "\n".join(lines)
 
 
-# ---------------------------------------------------------------------------
-# Post-processing
-# ---------------------------------------------------------------------------
-
-
 def _inject_workflow_defaults(plan: list[PlanOp], backend: str, model: str) -> None:
     default_cfg = {"backend": backend, "model": model}
     for op in plan:
@@ -322,7 +279,6 @@ def _inject_workflow_defaults(plan: list[PlanOp], backend: str, model: str) -> N
 def _validate_plan_references(plan: list[PlanOp], definition: dict) -> str | None:
     nodes_raw = definition.get("nodes", [])
     edges_raw = definition.get("edges", [])
-
     live_nodes: set[str] = {
         n["id"] for n in nodes_raw if isinstance(n, dict) and isinstance(n.get("id"), str)
     }

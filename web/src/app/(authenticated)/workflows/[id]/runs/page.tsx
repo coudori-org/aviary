@@ -150,15 +150,7 @@ export default function WorkflowRunsPage() {
               {runs.map((r) => (
                 <Link
                   key={r.id}
-                  href={
-                    // Include the run's version so the builder opens
-                    // the graph at the snapshot that actually ran —
-                    // without it the deep-link would overlay node
-                    // statuses onto whatever version is latest now.
-                    r.version_id
-                      ? `${routes.workflow(workflow.id)}?runId=${r.id}&versionId=${r.version_id}`
-                      : `${routes.workflow(workflow.id)}?runId=${r.id}&versionId=draft`
-                  }
+                  href={routes.workflowAtVersion(workflow.id, r.version_id ?? "draft", r.id)}
                   className="grid grid-cols-[auto_1fr_auto_auto_auto] items-center gap-4 px-4 py-3 hover:bg-raised/50 transition-colors"
                 >
                   <span

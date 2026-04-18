@@ -2,21 +2,13 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+# shellcheck source=_common.sh
+source "$SCRIPT_DIR/_common.sh"
 cd "$PROJECT_DIR"
 
 echo "=== Aviary Dev Environment Setup ==="
 
-if [ -f "$PROJECT_DIR/.env" ]; then
-  set -a
-  # shellcheck disable=SC1091
-  source "$PROJECT_DIR/.env"
-  set +a
-fi
-
-BUILD_ARGS=()
-[ -n "${UV_INDEX_URL:-}" ]        && BUILD_ARGS+=(--build-arg "UV_INDEX_URL=$UV_INDEX_URL")
-[ -n "${NPM_CONFIG_REGISTRY:-}" ] && BUILD_ARGS+=(--build-arg "NPM_CONFIG_REGISTRY=$NPM_CONFIG_REGISTRY")
+load_env_and_build_args
 
 echo "[1/6] Building and starting Docker Compose services..."
 docker compose up -d --build
@@ -39,16 +31,16 @@ until docker compose exec -T k8s kubectl get nodes 2>/dev/null | grep -q " Ready
 done
 echo "  K8s is ready."
 
-K8S_GATEWAY_IP=$(docker compose exec -T k8s ip route | awk '/default/ {print $3}' | head -1)
+K8S_GATEWAY_IP=$(k8s_gateway_ip)
 echo "  K8s gateway IP: $K8S_GATEWAY_IP"
 
 # Only runtime images live in K3s now. Supervisor runs as a compose service.
 echo "[5/6] Building and loading runtime images..."
 docker build "${BUILD_ARGS[@]}" -t aviary-runtime:latest ./runtime/
-docker save aviary-runtime:latest | docker compose exec -T k8s ctr images import -
+load_k8s_image aviary-runtime:latest
 # Example customized variant (used by the `custom` environment) — extends the base.
 docker build "${BUILD_ARGS[@]}" -f ./runtime/Dockerfile.custom -t aviary-runtime-custom:latest ./runtime/
-docker save aviary-runtime-custom:latest | docker compose exec -T k8s ctr images import -
+load_k8s_image aviary-runtime-custom:latest
 
 echo "  Rendering and applying Helm charts..."
 HELM_IMAGE="alpine/helm:3.14.4"
