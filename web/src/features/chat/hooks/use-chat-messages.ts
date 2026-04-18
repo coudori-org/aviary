@@ -44,11 +44,22 @@ interface UseChatMessagesResult {
   clearRestoreDraft: () => void;
 }
 
+interface UseChatMessagesOptions {
+  /** Open the WS subscription for live events. Default true. Set false
+   *  when the caller already knows the session is in a terminal state
+   *  (e.g. the workflow inspector viewing a completed step) — skips the
+   *  connection and its reconnect loop, just renders REST history. */
+  live?: boolean;
+}
+
 /**
  * useChatMessages — composes initial session fetch, WS subscription, streaming
  * block accumulation, and persistence of completed messages.
  */
-export function useChatMessages(sessionId: string): UseChatMessagesResult {
+export function useChatMessages(
+  sessionId: string, options: UseChatMessagesOptions = {},
+): UseChatMessagesResult {
+  const live = options.live ?? true;
   const { refreshUser } = useAuth();
   const [session, setSession] = useState<Session | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -354,7 +365,7 @@ export function useChatMessages(sessionId: string): UseChatMessagesResult {
 
   const { ws, status, statusMessage, reconnectIn, retryNow } = useSessionWebSocket({
     sessionId,
-    enabled: !!session,
+    enabled: !!session && live,
     onMessage: handleMessage,
     // After every successful (re)connect, refresh history so anything that
     // happened during the offline window appears in the UI.

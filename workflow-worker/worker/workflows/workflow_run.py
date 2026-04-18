@@ -20,7 +20,11 @@ from temporalio.exceptions import ActivityError, CancelledError as TemporalCance
 
 with workflow.unsafe.imports_passed_through():
     from aviary_shared.workflow_types import WorkflowRunInput, WorkflowRunResult
-    from worker.activities.agent_step import run_agent_step_activity
+    from worker.activities.agent_step import (
+        ensure_agent_step_session_activity,
+        run_agent_step_activity,
+        step_session_id,
+    )
     from worker.activities.nodes import (
         evaluate_condition_activity,
         merge_activity,
@@ -140,14 +144,25 @@ async def _set_run(run_id: str, status: str, error: str | None = None) -> None:
 async def _set_node(
     run_id: str, node_id: str, node_type: str, status: str,
     input_data: dict | None = None, output_data: dict | None = None,
-    error: str | None = None,
+    error: str | None = None, session_id: str | None = None,
 ) -> None:
     await workflow.execute_activity(
         set_node_status,
-        args=[run_id, node_id, node_type, status, input_data, output_data, error],
+        args=[run_id, node_id, node_type, status, input_data, output_data, error, session_id],
         start_to_close_timeout=_ACT_TIMEOUT,
         retry_policy=_DEFAULT_RETRY,
     )
+
+
+def _session_id_for(node: PlanNode, run_id: str, root_run_id: str | None) -> str | None:
+    """Agent_step nodes own a shared-sessions row computed deterministically
+    from (root_run_id, node_id); surfacing it early lets the inspector
+    subscribe the moment the step starts running. The root anchor is what
+    makes a resumed run's inspector find the ancestor run's transcript
+    instead of subscribing to a nonexistent session."""
+    if node.type != "agent_step":
+        return None
+    return step_session_id(run_id, node.id, root_run_id)
 
 
 @workflow.defn(name="WorkflowRun")
@@ -191,6 +206,7 @@ class WorkflowRunWorkflow:
                 await _set_node(
                     inp.run_id, node.id, node.type, "completed",
                     output_data=carried,
+                    session_id=_session_id_for(node, inp.run_id, inp.root_run_id),
                 )
                 completed.add(node.id)
                 if node.type == "condition" and isinstance(carried, dict) and not carried.get("result"):
@@ -204,25 +220,41 @@ class WorkflowRunWorkflow:
             """Return (node_id, ok, output, error_message). A `skipped` or
             cancelled node returns ok=True output=None so the caller can
             branch without exception plumbing."""
+            sid = _session_id_for(node, inp.run_id, inp.root_run_id)
             if self._cancelled or node.id in skipped:
-                await _set_node(inp.run_id, node.id, node.type, "skipped")
+                await _set_node(inp.run_id, node.id, node.type, "skipped", session_id=sid)
                 return node.id, True, None, None
             inputs = {src: context.get(src) for src in upstream_of(node.id, edges)}
-            await _set_node(inp.run_id, node.id, node.type, "running", input_data=inputs)
+            if node.type == "agent_step":
+                # Provision the ``sessions`` row before the inspector hears
+                # "running" — otherwise a ChatTranscript that mounts on the
+                # status change would 404 before the agent_step activity's
+                # own setup runs.
+                await workflow.execute_activity(
+                    ensure_agent_step_session_activity,
+                    args=[inp.run_id, node.id, inp.root_run_id],
+                    start_to_close_timeout=_ACT_TIMEOUT,
+                    retry_policy=_DEFAULT_RETRY,
+                )
+            await _set_node(
+                inp.run_id, node.id, node.type, "running",
+                input_data=inputs, session_id=sid,
+            )
             try:
                 output = await _dispatch_node(node, inputs, inp)
             except asyncio.CancelledError:
-                await _set_node(inp.run_id, node.id, node.type, "skipped")
+                await _set_node(inp.run_id, node.id, node.type, "skipped", session_id=sid)
                 return node.id, True, None, None
             except ActivityError as e:
                 if isinstance(e.cause, (asyncio.CancelledError, TemporalCancelledError)):
-                    await _set_node(inp.run_id, node.id, node.type, "skipped")
+                    await _set_node(inp.run_id, node.id, node.type, "skipped", session_id=sid)
                     return node.id, True, None, None
                 err = str(e.cause) if e.cause else str(e)
-                await _set_node(inp.run_id, node.id, node.type, "failed", error=err)
+                await _set_node(inp.run_id, node.id, node.type, "failed", error=err, session_id=sid)
                 return node.id, False, None, err
             await _set_node(
-                inp.run_id, node.id, node.type, "completed", output_data=output,
+                inp.run_id, node.id, node.type, "completed",
+                output_data=output, session_id=sid,
             )
             return node.id, True, output, None
 
@@ -276,7 +308,10 @@ class WorkflowRunWorkflow:
                 for nid in remaining:
                     node = nodes_by_id[nid]
                     with contextlib.suppress(Exception):
-                        await _set_node(inp.run_id, nid, node.type, "skipped")
+                        await _set_node(
+                            inp.run_id, nid, node.type, "skipped",
+                            session_id=_session_id_for(node, inp.run_id, inp.root_run_id),
+                        )
                 remaining.clear()
                 break
 
@@ -290,7 +325,10 @@ class WorkflowRunWorkflow:
             for nid in remaining:
                 node = nodes_by_id[nid]
                 with contextlib.suppress(Exception):
-                    await _set_node(inp.run_id, nid, node.type, "skipped")
+                    await _set_node(
+                        inp.run_id, nid, node.type, "skipped",
+                        session_id=_session_id_for(node, inp.run_id, inp.root_run_id),
+                    )
             await _set_run(inp.run_id, "cancelled")
             return WorkflowRunResult(status="cancelled")
 

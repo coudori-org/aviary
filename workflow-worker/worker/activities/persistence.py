@@ -56,12 +56,16 @@ async def set_node_status(
     input_data: dict | None = None,
     output_data: dict | None = None,
     error: str | None = None,
+    session_id: str | None = None,
 ) -> None:
     """Upsert the WorkflowNodeRun row, then publish the matching event.
 
     Arguments with `None` mean "don't overwrite" except for status, which
     always applies. Passing `input_data` on the "running" transition and
     `output_data` on "completed" gives listeners the full story.
+    ``session_id`` (agent_step only) is tunneled on the event so the
+    inspector's ChatTranscript has a sessionId to subscribe to the moment
+    the step transitions to running.
     """
     now = datetime.now(timezone.utc)
     run_uuid = uuid.UUID(run_id)
@@ -114,5 +118,7 @@ async def set_node_status(
         event["output_data"] = output_data
     if error:
         event["error"] = error
+    if session_id:
+        event["session_id"] = session_id
     await publish_event(run_id, event)
     logger.info("run=%s node=%s status=%s", run_id, node_id, status)

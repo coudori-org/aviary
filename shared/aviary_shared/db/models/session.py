@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import ForeignKey, Index, String, Text, func
+from sqlalchemy import CheckConstraint, ForeignKey, Index, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB, TIMESTAMP, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -14,12 +14,19 @@ from aviary_shared.db.models.base import Base
 
 class Session(Base):
     __tablename__ = "sessions"
+    __table_args__ = (
+        Index("idx_sessions_workflow_run", "workflow_run_id", "node_id"),
+        CheckConstraint(
+            "agent_id IS NOT NULL OR workflow_run_id IS NOT NULL",
+            name="ck_sessions_agent_or_workflow",
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, server_default=func.gen_random_uuid()
     )
-    agent_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("agents.id"), nullable=False
+    agent_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("agents.id"), nullable=True
     )
     created_by: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id"), nullable=False
@@ -32,8 +39,14 @@ class Session(Base):
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now()
     )
+    workflow_run_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("workflow_runs.id", ondelete="CASCADE"),
+        nullable=True,
+    )
+    node_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
-    agent: Mapped["Agent"] = relationship(back_populates="sessions")  # noqa: F821
+    agent: Mapped["Agent | None"] = relationship(back_populates="sessions")  # noqa: F821
     creator: Mapped["User"] = relationship(foreign_keys=[created_by])  # noqa: F821
     messages: Mapped[list["Message"]] = relationship(
         back_populates="session", cascade="all, delete-orphan", passive_deletes=True,

@@ -62,7 +62,7 @@ export function ChatHeader({
       <div className={cn("mx-auto flex items-center justify-between", widthClass)}>
         <div className="flex items-center gap-3 min-w-0">
           <Link
-            href={routes.agent(session.agent_id)}
+            href={session.agent_id ? routes.agent(session.agent_id) : routes.agents}
             className="flex h-8 w-8 shrink-0 items-center justify-center rounded-sm bg-raised text-fg-muted hover:text-fg-primary transition-colors"
             aria-label="Back to agent"
           >

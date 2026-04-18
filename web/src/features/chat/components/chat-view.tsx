@@ -44,7 +44,7 @@ function ChatViewInner({ sessionId }: { sessionId: string }) {
   const { widthClass } = useChatWidth();
   const chat = useChatMessages(sessionId);
   const visibleStatus = useConnectionStatus(chat.status);
-  const { visionEnabled } = useAgentCapabilities(chat.session?.agent_id);
+  const { visionEnabled } = useAgentCapabilities(chat.session?.agent_id ?? undefined);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const titleEditor = useTitleEditor({
@@ -167,7 +167,7 @@ function ChatViewInner({ sessionId }: { sessionId: string }) {
               placeholder={
                 !isReady ? "Waiting for agent…" : chat.isStreaming ? "Agent is responding…" : undefined
               }
-              agentId={chat.session.agent_id}
+              agentId={chat.session.agent_id ?? undefined}
               visionEnabled={visionEnabled}
               restoreDraft={chat.restoreDraft}
               onDraftRestored={chat.clearRestoreDraft}

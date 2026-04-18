@@ -100,9 +100,16 @@ class WorkflowNodeRunResponse(BaseModel):
     error: str | None = None
     started_at: datetime | None = None
     completed_at: datetime | None = None
+    # Chat session the inspector should subscribe to when this node is an
+    # agent_step. Deterministic uuid5(run_id, node_id) — matches the id the
+    # worker uses to create the Session row, so the inspector can resolve
+    # the transcript endpoint without an extra lookup.
+    session_id: str | None = None
 
     @classmethod
-    def from_orm_node_run(cls, n) -> "WorkflowNodeRunResponse":
+    def from_orm_node_run(
+        cls, n, run_id: str, root_run_id: str | None = None,
+    ) -> "WorkflowNodeRunResponse":
         return cls(
             id=str(n.id),
             node_id=n.node_id,
@@ -113,7 +120,21 @@ class WorkflowNodeRunResponse(BaseModel):
             error=n.error,
             started_at=n.started_at,
             completed_at=n.completed_at,
+            session_id=(
+                _agent_step_session_id(run_id, n.node_id, root_run_id)
+                if n.node_type == "agent_step" else None
+            ),
         )
+
+
+def _agent_step_session_id(run_id: str, node_id: str, root_run_id: str | None) -> str:
+    """Must match ``workflow-worker.worker.activities.agent_step.step_session_id``:
+    a resumed run and its ancestor share the same node → session mapping,
+    so the inspector's ChatTranscript finds the transcript created by
+    whichever run originally executed the step."""
+    import uuid
+    anchor = root_run_id or run_id
+    return str(uuid.uuid5(uuid.UUID(anchor), node_id))
 
 
 class WorkflowRunResponse(BaseModel):
@@ -147,7 +168,13 @@ class WorkflowRunResponse(BaseModel):
             completed_at=r.completed_at,
             created_at=r.created_at,
             node_runs=(
-                [WorkflowNodeRunResponse.from_orm_node_run(n) for n in r.node_runs]
+                [
+                    WorkflowNodeRunResponse.from_orm_node_run(
+                        n, str(r.id),
+                        str(r.root_run_id) if r.root_run_id else None,
+                    )
+                    for n in r.node_runs
+                ]
                 if include_node_runs else None
             ),
         )

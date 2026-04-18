@@ -57,7 +57,7 @@ export interface McpServer {
 
 export interface Session {
   id: string;
-  agent_id: string;
+  agent_id: string | null;
   type: "private" | "team";
   created_by: string;
   team_id?: string;
@@ -66,6 +66,12 @@ export interface Session {
   pod_name?: string;
   last_message_at?: string;
   created_at: string;
+  /** Workflow-origin session: anchored to a workflow run's root
+   *  (for resume-chain continuity) rather than a chat agent. Null for
+   *  regular chat sessions. */
+  workflow_run_id?: string | null;
+  /** Workflow node this session belongs to. */
+  node_id?: string | null;
 }
 
 export interface Message {
@@ -200,6 +206,9 @@ export interface WorkflowNodeRun {
   started_at?: string;
   completed_at?: string;
   error?: string;
+  /** For agent_step nodes only. Chat session the inspector subscribes to
+   *  for history + live stream. */
+  session_id?: string | null;
 }
 
 // --- MCP Gateway types ---

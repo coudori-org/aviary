@@ -1,5 +1,12 @@
 """Agent step activity — drives one supervisor `/message` round.
 
+Each step runs inside a first-class ``sessions`` row so the frontend can
+render history + live stream via the normal chat endpoints
+(``GET /sessions/{id}`` + ``/api/sessions/{id}/ws``) — no workflow-specific
+transcript plumbing required. The session is anchored to
+``(workflow_run_id, node_id)`` and stays out of the chat sidebar via the
+``workflow_run_id IS NULL`` filter in ``list_sessions_for_agent``.
+
 Cancellation story:
   * Workflow sends the cancel signal.
   * Signal handler cancels the activity task; Temporal delivers the cancel
@@ -18,18 +25,20 @@ import contextlib
 import json
 import logging
 import uuid
+from datetime import datetime, timezone
 
 from jinja2 import Environment, StrictUndefined
+from sqlalchemy import select
 from temporalio import activity
 
-from worker.events import publish_event, subscribe_session
+from aviary_shared.db.models import Message, Session, WorkflowRun
+from worker.db import session_scope
+from worker.events import publish_session_event, subscribe_session
 from worker.services import supervisor_client
 
 logger = logging.getLogger(__name__)
 
 _jinja = Environment(undefined=StrictUndefined, autoescape=False)
-
-_LOG_EVENT_TYPES = {"chunk", "thinking", "tool_use", "tool_result"}
 
 # How often the activity pokes Temporal so cancel requests get through.
 # Tight interval because two activities sharing an event loop (parallel
@@ -45,19 +54,28 @@ _HEARTBEAT_INTERVAL_SECONDS = 3.0
 _AGENT_STEP_MAX_TURNS = 15
 
 
-def _step_session_id(run_id: str, node_id: str) -> str:
-    """Ephemeral per-(run, node) Claude session. Must be a valid UUID so the
-    CLI accepts `--session-id`; derive deterministically via uuid5 so a
-    resumed run's same node_id still maps to its own slot."""
-    return str(uuid.uuid5(uuid.UUID(run_id), node_id))
+def step_session_id(run_id: str, node_id: str, root_run_id: str | None = None) -> str:
+    """Deterministic per-(chain, node) session UUID.
+
+    Anchored on the resume chain's **root** run so every run in the chain
+    (fresh → resume → resume → …) resolves the same node to the same
+    session — a resumed run can render its carried-over step's chat
+    transcript instead of 404-ing on a session that only exists under the
+    original run's id.
+
+    Must be a valid UUID so the CLI accepts ``--session-id``; deriving via
+    uuid5 also means the orchestrator can compute it without touching the
+    DB (used to plumb the id into node_status events before the activity
+    starts)."""
+    anchor = root_run_id or run_id
+    return str(uuid.uuid5(uuid.UUID(anchor), node_id))
 
 
-async def _fan_in(
-    run_id: str, node_id: str, wf_session_id: str, stream_id_ref: dict
-) -> None:
-    """Rewrite supervisor session events as node_log on the workflow
-    channel. Captures the stream_id from `stream_started` so cancel can
-    abort it later."""
+async def _capture_stream_id(wf_session_id: str, stream_id_ref: dict) -> None:
+    """Watch the supervisor's session channel just long enough to grab the
+    ``stream_started`` event. The id is needed so cancel can abort the
+    right outbound stream. Everything else on the channel is published by
+    the supervisor — the frontend subscribes to it directly."""
     ps = await subscribe_session(wf_session_id)
     try:
         async for msg in ps.listen():
@@ -67,29 +85,135 @@ async def _fan_in(
                 event = json.loads(msg["data"])
             except json.JSONDecodeError:
                 continue
-            etype = event.get("type")
-            if etype == "stream_started":
+            if event.get("type") == "stream_started":
                 stream_id_ref["value"] = event.get("stream_id")
-                continue
-            if etype not in _LOG_EVENT_TYPES:
-                continue
-
-            log: dict = {"type": "node_log", "node_id": node_id, "log_type": etype}
-            if etype in ("chunk", "thinking"):
-                log["content"] = event.get("content", "")
-            elif etype == "tool_use":
-                log["name"] = event.get("name")
-                log["input"] = event.get("input")
-                log["tool_use_id"] = event.get("tool_use_id")
-            elif etype == "tool_result":
-                log["content"] = event.get("content")
-                log["tool_use_id"] = event.get("tool_use_id")
-                log["is_error"] = event.get("is_error", False)
-            await publish_event(run_id, log)
+                return
     finally:
         with contextlib.suppress(Exception):
             await ps.unsubscribe()
             await ps.aclose()
+
+
+@activity.defn
+async def ensure_agent_step_session_activity(
+    run_id: str, node_id: str, root_run_id: str | None = None,
+) -> str:
+    """Create (or find) the shared ``sessions`` row for this step and
+    return its id. Called by the orchestrator *before* transitioning the
+    node to ``running`` so the inspector's ChatTranscript can subscribe
+    the moment the status event arrives — otherwise REST would 404 for
+    the window between node_status publish and agent_step activity start.
+
+    Anchors on ``root_run_id`` (the head of the resume chain) so a
+    resumed run's re-executed step reuses the session row created by its
+    ancestor run instead of writing a parallel row the original can't
+    see. Session's workflow_run_id points at the root for the same
+    reason — deleting a resumed run doesn't orphan the original's
+    transcript.
+
+    Owner is the workflow run's triggerer — same user whose JWT is
+    forwarded to the supervisor, so the chat WS owner check passes for
+    the inspector UI. Idempotent: resumed runs and activity retries both
+    hit the same deterministic uuid5 and leave the existing row alone."""
+    anchor_run_id = root_run_id or run_id
+    session_id = step_session_id(run_id, node_id, root_run_id)
+    session_uuid = uuid.UUID(session_id)
+    anchor_uuid = uuid.UUID(anchor_run_id)
+    current_uuid = uuid.UUID(run_id)
+    async with session_scope() as db:
+        existing = (await db.execute(
+            select(Session).where(Session.id == session_uuid)
+        )).scalar_one_or_none()
+        if existing is not None:
+            return session_id
+        # Fall back to the current run for ``triggered_by`` if the anchor
+        # row has been pruned — ownership stays consistent with whoever
+        # is driving this execution.
+        run = (await db.execute(
+            select(WorkflowRun).where(WorkflowRun.id == current_uuid)
+        )).scalar_one()
+        db.add(Session(
+            id=session_uuid,
+            agent_id=None,
+            created_by=run.triggered_by,
+            title=f"{node_id}",
+            workflow_run_id=anchor_uuid,
+            node_id=node_id,
+        ))
+    return session_id
+
+
+async def _save_user_message(session_id: str, content: str) -> None:
+    """Persist the rendered prompt as the user turn and publish the
+    ``user_message`` WS event so any live ChatTranscript renders the
+    bubble without waiting for a history reload."""
+    session_uuid = uuid.UUID(session_id)
+    async with session_scope() as db:
+        msg = Message(
+            session_id=session_uuid,
+            sender_type="user",
+            sender_id=None,
+            content=content,
+            metadata_json={},
+        )
+        db.add(msg)
+        session = (await db.execute(
+            select(Session).where(Session.id == session_uuid)
+        )).scalar_one()
+        session.last_message_at = datetime.now(timezone.utc)
+        await db.flush()
+        message_id = str(msg.id)
+
+    await publish_session_event(session_id, {
+        "type": "user_message",
+        "messageId": message_id,
+        "sender_id": None,
+        "content": content,
+    })
+
+
+async def _save_agent_message(
+    session_id: str, content: str, blocks_meta: list[dict], *, terminal: str,
+    error_message: str | None = None,
+) -> None:
+    """Persist the assistant turn in the chat-compatible shape so the
+    normal REST history feed re-renders it after a reload, then publish
+    the matching terminal event to ``session:{sid}:events`` so any live
+    ChatTranscript subscribed to this session transitions out of the
+    streaming state (mirrors what ``api`` does for chat sessions)."""
+    meta: dict = {"blocks": blocks_meta} if blocks_meta else {}
+    if terminal == "cancelled":
+        meta["cancelled"] = True
+    elif terminal == "error":
+        meta["error"] = True
+
+    fallback = (
+        "[Cancelled]" if terminal == "cancelled"
+        else (error_message or "[Error]") if terminal == "error"
+        else ""
+    )
+
+    session_uuid = uuid.UUID(session_id)
+    async with session_scope() as db:
+        msg = Message(
+            session_id=session_uuid,
+            sender_type="agent",
+            sender_id=None,
+            content=content or fallback,
+            metadata_json=meta,
+        )
+        db.add(msg)
+        session = (await db.execute(
+            select(Session).where(Session.id == session_uuid)
+        )).scalar_one()
+        session.last_message_at = datetime.now(timezone.utc)
+        await db.flush()
+        message_id = str(msg.id)
+
+    event: dict = {"type": terminal, "messageId": message_id}
+    if terminal == "error" and error_message:
+        event["message"] = error_message
+    await publish_session_event(session_id, event)
 
 
 @activity.defn
@@ -106,14 +230,19 @@ async def run_agent_step_activity(
     root_run_id: str | None = None,
 ) -> dict:
     # Each step gets its own session so runtime isolation works per-node and
-    # independent branches run in parallel.
-    step_session_id = _step_session_id(run_id, node_id)
+    # independent branches run in parallel. Anchor on root_run_id so the
+    # session id stays stable across the resume chain.
     effective_root = root_run_id or run_id
+    session_id = step_session_id(run_id, node_id, root_run_id)
 
     prompt_tpl = data.get("prompt_template") or ""
     rendered_prompt = _jinja.from_string(prompt_tpl).render(
         input=input_value, inputs=inputs, trigger=trigger_data,
     )
+
+    # Row was created ahead of time by the orchestrator via
+    # ensure_agent_step_session_activity; persist the user turn into it.
+    await _save_user_message(session_id, rendered_prompt)
 
     mcp_tool_ids = data.get("mcp_tool_ids") or []
     tools = [f"mcp__gateway__{t}" for t in mcp_tool_ids]
@@ -138,7 +267,7 @@ async def run_agent_step_activity(
     instruction = _augment_instruction_with_artifacts(instruction, artifacts, input_artifacts)
 
     body: dict = {
-        "session_id": step_session_id,
+        "session_id": session_id,
         "content_parts": [{"text": rendered_prompt}],
         "agent_config": {
             "agent_id": f"wf:{run_id}:{node_id}",
@@ -164,9 +293,9 @@ async def run_agent_step_activity(
         body["on_behalf_of_sub"] = owner_external_id
 
     stream_id_ref: dict = {"value": None}
-    fan_in_task = asyncio.create_task(_fan_in(run_id, node_id, step_session_id, stream_id_ref))
+    capture_task = asyncio.create_task(_capture_stream_id(session_id, stream_id_ref))
     supervisor_task = asyncio.create_task(
-        supervisor_client.post_message(step_session_id, body, user_token=user_token)
+        supervisor_client.post_message(session_id, body, user_token=user_token)
     )
 
     # First heartbeat up front — ensures a fresh timestamp before the loop
@@ -192,17 +321,51 @@ async def run_agent_step_activity(
         if sid:
             logger.info("agent_step cancelled; aborting supervisor stream=%s", sid)
             await supervisor_client.abort_stream(sid, user_token=user_token)
-        supervisor_task.cancel()
+        # abort_stream closes the outbound TCP, which the supervisor's
+        # `/message` call translates into a normal return with
+        # status=aborted + assembled partial — await it so the partial
+        # lands in the transcript instead of vanishing.
+        partial: dict | None = None
         with contextlib.suppress(Exception):
-            await supervisor_task
+            partial = await supervisor_task
+        if partial is not None:
+            await _save_agent_message(
+                session_id,
+                partial.get("assembled_text", ""),
+                partial.get("assembled_blocks", []),
+                terminal="cancelled",
+            )
         raise
     finally:
-        fan_in_task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await fan_in_task
+        capture_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError, Exception):
+            await capture_task
 
-    if result.get("status") == "error":
-        raise RuntimeError(result.get("message") or "agent step failed")
+    status = result.get("status")
+    if status == "error":
+        err_msg = result.get("message") or "agent step failed"
+        await _save_agent_message(
+            session_id,
+            result.get("assembled_text", ""),
+            result.get("assembled_blocks", []),
+            terminal="error",
+            error_message=err_msg,
+        )
+        raise RuntimeError(err_msg)
+    if status == "aborted":
+        await _save_agent_message(
+            session_id,
+            result.get("assembled_text", ""),
+            result.get("assembled_blocks", []),
+            terminal="cancelled",
+        )
+    else:
+        await _save_agent_message(
+            session_id,
+            result.get("assembled_text", ""),
+            result.get("assembled_blocks", []),
+            terminal="done",
+        )
 
     captured = _extract_tool_input(result.get("assembled_blocks") or [], output_tool_cli_name)
     artifacts_produced = _extract_artifacts_produced(

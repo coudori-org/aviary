@@ -11,6 +11,7 @@ import {
 } from "react";
 import { MessageBubble } from "./message-bubble";
 import { TimeDivider } from "./time-divider";
+import { RestartDivider } from "./restart-divider";
 import { JumpRail } from "./jump-rail";
 import { StreamingResponse } from "@/features/chat/components/blocks/streaming-response";
 import { ChatEmptyState } from "@/features/chat/components/chat-empty-state";
@@ -39,6 +40,13 @@ interface MessageListProps {
   /** Live search query. When non-empty, the list inserts `<mark>`
    *  spans around every occurrence in the rendered DOM. */
   searchQuery?: string;
+  /** Insert a visual divider between a terminal (error / cancelled)
+   *  agent turn and the next user turn. Only meaningful for sessions
+   *  where a new user turn really starts a fresh SDK context — i.e.
+   *  workflow agent_step sessions where resume creates a new run
+   *  with a clean workspace. Chat preserves SDK history across a
+   *  retry, so the default is off. */
+  showRestartDividers?: boolean;
 }
 
 /**
@@ -65,6 +73,7 @@ export const MessageList = forwardRef<HTMLDivElement, MessageListProps>(
       onLoadEarlier,
       highlightedTargetId,
       searchQuery,
+      showRestartDividers = false,
     },
     forwardedRef,
   ) {
@@ -256,13 +265,27 @@ export const MessageList = forwardRef<HTMLDivElement, MessageListProps>(
                 const dividerLabel = prev
                   ? computeTimeDividerLabel(prev.created_at, msg.created_at)
                   : null;
+                // A user turn following a terminal (error / cancelled)
+                // agent turn means the caller started a fresh SDK context
+                // — mainly workflow resume, but chat retries after an
+                // error land here too. The preserved history above is
+                // visible but not part of the new turn's conversation.
+                const prevTerminated =
+                  !!prev?.metadata?.error || !!prev?.metadata?.cancelled;
+                const showRestart =
+                  showRestartDividers &&
+                  !!prev &&
+                  prev.sender_type === "agent" &&
+                  prevTerminated &&
+                  msg.sender_type === "user";
                 // Show avatar only on the first message of a same-sender run.
-                // A time divider also resets the run because it's a visual break.
+                // A time / restart divider also resets the run because it's a visual break.
                 const showAvatar =
-                  !prev || prev.sender_type !== msg.sender_type || dividerLabel !== null;
+                  !prev || prev.sender_type !== msg.sender_type || dividerLabel !== null || showRestart;
 
                 return (
                   <Fragment key={msg.id}>
+                    {showRestart && <RestartDivider />}
                     {dividerLabel && <TimeDivider label={dividerLabel} />}
                     <div
                       data-rail-id={msg.id}

@@ -58,6 +58,7 @@ async def list_sessions_for_agent(
             Session.agent_id == agent_id,
             Session.status == "active",
             Session.created_by == user.id,
+            Session.workflow_run_id.is_(None),
         )
         .order_by(Session.created_at.desc())
     )

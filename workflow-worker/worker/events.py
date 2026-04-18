@@ -54,9 +54,22 @@ async def publish_event(run_id: str, event: dict) -> None:
         await pipe.execute()
 
 
+async def publish_session_event(session_id: str, event: dict) -> None:
+    """Publish a DB-consistent terminal event (done / cancelled / error) on
+    the same ``session:{sid}:events`` channel the supervisor used for the
+    live stream. Chat's API does this after persisting the assistant
+    message; the workflow worker does the same so a ChatTranscript
+    subscribed to a workflow agent_step session sees the same terminal
+    signal and transitions out of the streaming state."""
+    cli = await _get_client()
+    await cli.publish(f"session:{session_id}:events", json.dumps(event))
+
+
 async def subscribe_session(session_id: str):
     """Subscribe to the supervisor's session event channel. Agent Step
-    activity fans these events into the workflow run channel as node_log."""
+    activity listens for ``stream_started`` so it can capture the stream
+    id for abort; the transcript itself is rendered by subscribing to this
+    channel directly from the chat WebSocket — no re-broadcast."""
     cli = await _get_client()
     ps = cli.pubsub()
     await ps.subscribe(f"session:{session_id}:events")

@@ -288,12 +288,18 @@ async def websocket_chat(websocket: WebSocket, session_id: uuid.UUID):
                 await websocket.send_json({"type": "error", "message": "Not the owner of this session"})
                 return
 
-            agent = (await db.execute(
-                select(Agent).where(Agent.id == session.agent_id)
-            )).scalar_one_or_none()
-            if not agent:
-                await websocket.send_json({"type": "error", "message": "Agent not found"})
-                return
+            # Workflow-origin sessions (agent_id IS NULL) are transcript-
+            # only: the inspector subscribes read-only, never sends. We
+            # still accept the subscription; outbound message handling is
+            # gated below on agent_id being set.
+            agent = None
+            if session.agent_id is not None:
+                agent = (await db.execute(
+                    select(Agent).where(Agent.id == session.agent_id)
+                )).scalar_one_or_none()
+                if not agent:
+                    await websocket.send_json({"type": "error", "message": "Agent not found"})
+                    return
             await db.commit()
 
         await websocket.send_json({"type": "status", "status": "ready"})
@@ -344,6 +350,13 @@ async def websocket_chat(websocket: WebSocket, session_id: uuid.UUID):
                     continue
 
                 if data.get("type") != "message":
+                    continue
+
+                if agent is None:
+                    await websocket.send_json({
+                        "type": "error",
+                        "message": "This session is read-only",
+                    })
                     continue
 
                 content = (data.get("content") or "").strip()

@@ -10,12 +10,14 @@ class SessionCreate(BaseModel):
 
 class SessionResponse(BaseModel):
     id: str
-    agent_id: str
+    agent_id: str | None = None
     created_by: str
     title: str | None = None
     status: str
     last_message_at: datetime | None = None
     created_at: datetime
+    workflow_run_id: str | None = None
+    node_id: str | None = None
 
     model_config = {"from_attributes": True}
 
@@ -23,12 +25,14 @@ class SessionResponse(BaseModel):
     def from_orm_session(cls, session) -> "SessionResponse":
         return cls(
             id=str(session.id),
-            agent_id=str(session.agent_id),
+            agent_id=str(session.agent_id) if session.agent_id else None,
             created_by=str(session.created_by),
             title=session.title,
             status=session.status,
             last_message_at=session.last_message_at,
             created_at=session.created_at,
+            workflow_run_id=str(session.workflow_run_id) if session.workflow_run_id else None,
+            node_id=session.node_id,
         )
 
 

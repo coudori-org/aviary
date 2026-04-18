@@ -5,21 +5,14 @@ import type { WorkflowRun, WorkflowNodeRun } from "@/types";
 export type NodeRunStatus = "pending" | "running" | "completed" | "failed" | "skipped";
 export type RunStatus = "idle" | "pending" | "running" | "completed" | "failed" | "cancelled";
 
-export interface NodeLogEntry {
-  node_id: string;
-  log_type: string;
-  content?: string;
-  name?: string;
-  input?: Record<string, unknown>;
-  timestamp: number;
-}
-
 export interface NodeRunData {
   status: NodeRunStatus;
   node_type?: string;
   input_data?: Record<string, unknown> | null;
   output_data?: Record<string, unknown> | null;
   error?: string;
+  /** agent_step: the chat session_id the inspector subscribes to. */
+  session_id?: string | null;
 }
 
 const TERMINAL_RUN_STATUSES: ReadonlySet<RunStatus> = new Set([
@@ -35,6 +28,7 @@ function nodeRunToState(nr: WorkflowNodeRun): NodeRunData {
     input_data: nr.input_data ?? null,
     output_data: nr.output_data ?? null,
     error: nr.error,
+    session_id: nr.session_id ?? null,
   };
 }
 
@@ -43,14 +37,12 @@ export function useWorkflowRun(workflowId: string) {
   const [runStatus, setRunStatus] = useState<RunStatus>("idle");
   const [nodeStatuses, setNodeStatuses] = useState<Record<string, NodeRunStatus>>({});
   const [nodeData, setNodeData] = useState<Record<string, NodeRunData>>({});
-  const [logs, setLogs] = useState<NodeLogEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
 
   const reset = useCallback(() => {
     setNodeStatuses({});
     setNodeData({});
-    setLogs([]);
     setError(null);
   }, []);
 
@@ -64,7 +56,6 @@ export function useWorkflowRun(workflowId: string) {
     }
     setNodeStatuses(statuses);
     setNodeData(data);
-    setLogs([]);
     setError(run.error ?? null);
     setRunStatus(run.status as RunStatus);
     setRunId(run.id);
@@ -90,11 +81,10 @@ export function useWorkflowRun(workflowId: string) {
             ...(data.input_data !== undefined && { input_data: data.input_data }),
             ...(data.output_data !== undefined && { output_data: data.output_data }),
             ...(data.error && { error: data.error }),
+            ...(data.session_id && { session_id: data.session_id }),
           },
         }));
         if (data.error) setError(data.error);
-      } else if (data.type === "node_log") {
-        setLogs((prev) => [...prev, { ...data, timestamp: Date.now() }]);
       } else if (data.type === "run_status") {
         setRunStatus(data.status);
         if (data.error) setError(data.error);
@@ -178,7 +168,7 @@ export function useWorkflowRun(workflowId: string) {
   }, []);
 
   return {
-    runId, runStatus, nodeStatuses, nodeData, logs, error,
+    runId, runStatus, nodeStatuses, nodeData, error,
     trigger, viewRun, cancel, resume,
     isRunning: runStatus === "running" || runStatus === "pending",
     canResume: !!runId && TERMINAL_RUN_STATUSES.has(runStatus),
