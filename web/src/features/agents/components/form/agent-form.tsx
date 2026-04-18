@@ -5,11 +5,13 @@ import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { extractErrorMessage } from "@/lib/http";
 import { useAgentForm } from "./use-agent-form";
+import { AutocompleteBanner } from "./autocomplete-banner";
 import { BasicInfoSection } from "./basic-info-section";
 import { InstructionSection } from "./instruction-section";
 import { ModelSection } from "./model-section";
 import { ToolsSection } from "./tools-section";
 import type { AgentFormData } from "./types";
+import type { AutocompleteResponse } from "@/features/agents/api/agent-autocomplete-api";
 import type { McpToolInfo } from "@/types";
 
 interface AgentFormProps {
@@ -45,6 +47,18 @@ export function AgentForm({ initialData, initialToolInfo, onSubmit, submitLabel 
     }
   };
 
+  const applyAutocomplete = (r: AutocompleteResponse) => {
+    setName(r.name);
+    setField("description", r.description);
+    setField("instruction", r.instruction);
+    setField("mcp_tool_ids", r.mcp_tool_ids);
+    setToolInfoMap((prev) => {
+      const next = new Map(prev);
+      for (const t of r.tool_info) next.set(t.id, t);
+      return next;
+    });
+  };
+
   return (
     <form onSubmit={handleSubmit} className="space-y-10">
       {error && (
@@ -53,6 +67,7 @@ export function AgentForm({ initialData, initialToolInfo, onSubmit, submitLabel 
         </div>
       )}
 
+      <AutocompleteBanner data={data} applyResult={applyAutocomplete} />
       <BasicInfoSection data={data} onNameChange={setName} setField={setField} />
       <InstructionSection data={data} setField={setField} />
       <ModelSection data={data} setModelConfig={setModelConfig} />

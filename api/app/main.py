@@ -7,7 +7,18 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.auth.oidc import init_oidc
 from app.config import settings
-from app.routers import agents, auth, catalog, inference, mcp, search, sessions, uploads, workflows
+from app.routers import (
+    agent_autocomplete,
+    agents,
+    auth,
+    catalog,
+    inference,
+    mcp,
+    search,
+    sessions,
+    uploads,
+    workflows,
+)
 from app.services import agent_supervisor, temporal_client
 from app.services.redis_service import close_redis, get_client, init_redis
 
@@ -46,6 +57,9 @@ app.add_middleware(
 
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(agents.router, prefix="/api/agents", tags=["agents"])
+app.include_router(
+    agent_autocomplete.router, prefix="/api/agents/autocomplete", tags=["agents"]
+)
 app.include_router(catalog.router, prefix="/api/catalog", tags=["catalog"])
 app.include_router(inference.router, prefix="/api/inference", tags=["inference"])
 app.include_router(mcp.router, prefix="/api/mcp", tags=["mcp"])
