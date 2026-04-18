@@ -282,6 +282,8 @@ services:
       - "host.docker.internal:host-gateway"
     volumes:
       - ./config/litellm/config.yaml:/app/config.yaml
+      - ./config/litellm/patches/aviary_jwt_util.py:/usr/lib/python3.13/site-packages/aviary_jwt_util.py
+      - ./config/litellm/patches/aviary_vault_util.py:/usr/lib/python3.13/site-packages/aviary_vault_util.py
       - ./config/litellm/patches/aviary_user_api_key.py:/usr/lib/python3.13/site-packages/aviary_user_api_key.py
       - ./config/litellm/patches/aviary_mcp_credentials.py:/usr/lib/python3.13/site-packages/aviary_mcp_credentials.py
       - ./config/litellm/patches/aviary_patches.pth:/usr/lib/python3.13/site-packages/aviary_patches.pth
