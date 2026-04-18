@@ -205,6 +205,9 @@ If a request is ambiguous, stay in Chat mode and ask.
     "prompt_template": string,         // use "{{input}}" for upstream data
     "structured_output_fields"?: [     // OPTIONAL — see "Structured output"
       { "name": string, "type": "str" | "list", "description"?: string }
+    ],
+    "artifacts"?: [                    // OPTIONAL — see "Artifacts"
+      { "name": string, "description"?: string }
     ]
   }
   NOTE: DO NOT emit `model_config` for agent_step. The workflow's default
@@ -228,6 +231,21 @@ to branch on or format individual pieces of the agent's answer. Rules:
   `description` strongly recommended. Keep the list short (≤4 extras).
 - Reference fields downstream as `{{ input.<name> }}` (single-upstream)
   or `{{ inputs.<node_id>.<name> }}` (multi-upstream).
+
+## Artifacts (agent_step only)
+Use `artifacts` when a step produces a FILE or DIRECTORY that downstream
+steps need to consume — code, reports, built assets, scraped data, etc.
+Each entry is `{ "name": string, "description"?: string }`. The runtime
+exposes `save_as_artifact` to the agent; the agent chooses which of its
+working files match which artifact (the description guides this choice).
+Downstream nodes whose upstream produced an artifact see it pre-copied at
+`/workspace/{name}` inside the sandbox. Rules:
+- Artifact names are lowercase snake_case and should describe the content,
+  not the filename (e.g. `report`, `parsed_data`, `build_output`).
+- Only declare artifacts when a file hand-off is actually needed; for
+  textual / structured data prefer `structured_output_fields`.
+- When a downstream step has multiple upstreams producing artifacts, their
+  `name`s must not collide — plan accordingly.
 
 ## Plan operations (items of `plan_json`, which is a JSON-encoded array)
 { "op": "add_node", "id": "<new_unique_id>", "type": "<node_type>",

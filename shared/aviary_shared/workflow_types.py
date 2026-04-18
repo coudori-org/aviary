@@ -25,6 +25,9 @@ class WorkflowRunInput:
     # resolves to its configured default environment.
     runtime_endpoint: str | None = None
     resume_context: dict[str, Any] | None = None
+    # Shared key for artifact storage across a resume chain. Fresh runs get
+    # their own run_id here; resumed runs inherit the source's root_run_id.
+    root_run_id: str | None = None
 
 
 @dataclass

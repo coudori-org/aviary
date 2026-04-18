@@ -5,13 +5,17 @@ handles the synchronous slice: workflow CRUD, deploy/edit state transitions,
 and version history.
 """
 
+import logging
 import uuid
 
-from sqlalchemy import func, select
+from sqlalchemy import distinct, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import User, Workflow, WorkflowVersion
+from app.db.models import User, Workflow, WorkflowRun, WorkflowVersion
 from app.schemas.workflow import WorkflowCreate, WorkflowUpdate
+from app.services import agent_supervisor
+
+logger = logging.getLogger(__name__)
 
 
 async def create_workflow(db: AsyncSession, user: User, data: WorkflowCreate) -> Workflow:
@@ -70,6 +74,22 @@ async def update_workflow(db: AsyncSession, workflow: Workflow, data: WorkflowUp
 
 
 async def delete_workflow(db: AsyncSession, workflow: Workflow) -> None:
+    # Collect every distinct root_run_id (or run.id when root is null) for
+    # this workflow so we can ask the supervisor to wipe each artifact tree
+    # before the CASCADE drops the rows. Best-effort — artifact removal is
+    # not transactional with the DB delete.
+    rows = await db.execute(
+        select(distinct(func.coalesce(WorkflowRun.root_run_id, WorkflowRun.id)))
+        .where(WorkflowRun.workflow_id == workflow.id)
+    )
+    roots = [str(r) for r in rows.scalars().all() if r is not None]
+    runtime_endpoint = workflow.runtime_endpoint
+    for root in roots:
+        try:
+            await agent_supervisor.cleanup_workflow_artifacts(root, runtime_endpoint)
+        except Exception:  # noqa: BLE001
+            logger.warning("Artifact cleanup failed for root=%s", root, exc_info=True)
+
     await db.delete(workflow)
     await db.flush()
 

@@ -19,6 +19,11 @@ export interface StructuredOutputField {
   description?: string;
 }
 
+export interface ArtifactField {
+  name: string;
+  description?: string;
+}
+
 export interface AgentStepData {
   label: string;
   instruction: string;
@@ -29,6 +34,10 @@ export interface AgentStepData {
   // `[{name:"text",...}, ...structured_output_fields]` as the schema, so
   // `text` is always present and users only manage the extras.
   structured_output_fields?: StructuredOutputField[];
+  // Named file/directory outputs. When set, the runtime exposes
+  // `save_as_artifact` to the agent; downstream steps receive each produced
+  // artifact as `/workspace/{name}` inside their sandbox.
+  artifacts?: ArtifactField[];
   [key: string]: unknown;
 }
 

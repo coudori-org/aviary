@@ -41,6 +41,47 @@ async def _latest_version(db: AsyncSession, workflow_id: uuid.UUID) -> WorkflowV
     return result.scalar_one_or_none()
 
 
+def _validate_artifact_name_uniqueness(definition: dict) -> None:
+    """Reject runs where a downstream node has multiple upstreams producing
+    the same artifact name — the pre-copy target would collide at
+    `/workspace/{name}`."""
+    nodes = definition.get("nodes") or []
+    edges = definition.get("edges") or []
+    produces: dict[str, set[str]] = {}
+    for node in nodes:
+        if not isinstance(node, dict):
+            continue
+        nid = node.get("id")
+        data = node.get("data") or {}
+        names = {
+            a.get("name")
+            for a in (data.get("artifacts") or [])
+            if isinstance(a, dict) and isinstance(a.get("name"), str)
+        }
+        names.discard(None)
+        if isinstance(nid, str) and names:
+            produces[nid] = names
+
+    upstream: dict[str, list[str]] = {}
+    for edge in edges:
+        if not isinstance(edge, dict):
+            continue
+        src, tgt = edge.get("source"), edge.get("target")
+        if isinstance(src, str) and isinstance(tgt, str):
+            upstream.setdefault(tgt, []).append(src)
+
+    for target, sources in upstream.items():
+        seen: dict[str, str] = {}
+        for src in sources:
+            for name in produces.get(src, ()):  # type: ignore[union-attr]
+                if name in seen and seen[name] != src:
+                    raise ValueError(
+                        f"Artifact name collision at node '{target}': both "
+                        f"'{seen[name]}' and '{src}' declare artifact '{name}'",
+                    )
+                seen[name] = src
+
+
 async def create_run(
     db: AsyncSession, workflow: Workflow, user: User, body: WorkflowRunCreate,
     user_token: str | None = None,
@@ -59,6 +100,8 @@ async def create_run(
     else:
         definition_snapshot = workflow.definition
         version_id = None
+
+    _validate_artifact_name_uniqueness(definition_snapshot)
 
     run = WorkflowRun(
         workflow_id=workflow.id,
@@ -84,6 +127,7 @@ async def create_run(
             trigger_data=body.trigger_data or {},
             user_token=user_token,
             runtime_endpoint=workflow.runtime_endpoint,
+            root_run_id=str(run.id),
         )
     )
     run.temporal_run_id = temporal_run_id
@@ -181,6 +225,7 @@ async def resume_run(
         raise ValueError("Resume is only supported for draft runs")
 
     definition_snapshot = workflow.definition
+    _validate_artifact_name_uniqueness(definition_snapshot)
     live_node_ids = {
         n["id"] for n in definition_snapshot.get("nodes", [])
         if isinstance(n, dict) and isinstance(n.get("id"), str)
@@ -203,6 +248,7 @@ async def resume_run(
             "completed in this run",
         )
 
+    root_run_id = source_run.root_run_id or source_run.id
     run = WorkflowRun(
         workflow_id=workflow.id,
         version_id=None,
@@ -212,6 +258,7 @@ async def resume_run(
         triggered_by=user.id,
         status="pending",
         definition_snapshot=definition_snapshot,
+        root_run_id=root_run_id,
     )
     db.add(run)
     await db.flush()
@@ -226,6 +273,7 @@ async def resume_run(
             user_token=user_token,
             runtime_endpoint=workflow.runtime_endpoint,
             resume_context=resume_context,
+            root_run_id=str(root_run_id),
         )
     )
     run.temporal_run_id = temporal_run_id

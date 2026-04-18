@@ -73,6 +73,19 @@ if [ -x "$VENV_HOST/bin/python" ]; then
     VENV_BIND=(--bind "$VENV_HOST" "$VENV_GUEST")
 fi
 
+# ── Workflow artifacts (optional, read-only) ──────────────────
+# When the step belongs to a workflow run, SESSION_ARTIFACTS_DIR points at
+# /workspace-root/workflows/<root_run_id>/artifacts on the PVC. We bind it
+# read-only to /artifacts inside the sandbox so the agent can inspect any
+# prior step's produced artifacts from the same run chain. Writes happen
+# exclusively through the `save_as_artifact` MCP tool, which executes in
+# the runtime process (outside the sandbox) and has direct FS access.
+ARTIFACTS_BIND=()
+if [ -n "${SESSION_ARTIFACTS_DIR:-}" ]; then
+    mkdir -p "$SESSION_ARTIFACTS_DIR"
+    ARTIFACTS_BIND=(--ro-bind "$SESSION_ARTIFACTS_DIR" /artifacts)
+fi
+
 exec bwrap \
     --ro-bind / / \
     --dev /dev \
@@ -81,6 +94,7 @@ exec bwrap \
     --bind "$SESSION_WORKSPACE" /workspace \
     --bind "$SESSION_CLAUDE_DIR" /workspace/.claude \
     "${VENV_BIND[@]}" \
+    "${ARTIFACTS_BIND[@]}" \
     --bind "$SESSION_TMP" /tmp \
     --unshare-pid \
     --die-with-parent \

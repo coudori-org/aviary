@@ -49,7 +49,7 @@ RUN CLAUDE_BIN=$(which claude-real) && \
 # $SESSION_WORKSPACE. /workspace-root is the K8s PVC mount point (created
 # at pod startup); bwrap then tmpfs-masks it so sibling sessions living
 # under the same PVC are invisible inside the sandbox.
-RUN mkdir -p /workspace
+RUN mkdir -p /workspace /artifacts
 
 # Global git config — available inside bwrap via --ro-bind / /
 RUN git config --system user.name "aviary" \

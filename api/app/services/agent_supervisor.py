@@ -79,6 +79,25 @@ async def cleanup_session(
         logger.warning("Session cleanup failed for %s", session_id, exc_info=True)
 
 
+async def cleanup_workflow_artifacts(
+    root_run_id: str,
+    runtime_endpoint: str | None = None,
+) -> None:
+    """Best-effort wipe of a workflow run's artifact tree on the PVC."""
+    try:
+        resp = await _supervisor.client.request(
+            "DELETE",
+            f"/v1/workflows/{root_run_id}/artifacts",
+            json={"runtime_endpoint": runtime_endpoint},
+            timeout=15,
+        )
+        resp.raise_for_status()
+    except httpx.HTTPError:
+        logger.warning(
+            "Artifact cleanup failed for root_run=%s", root_run_id, exc_info=True,
+        )
+
+
 async def health_check() -> bool:
     try:
         resp = await _supervisor.client.get("/v1/health")

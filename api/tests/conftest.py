@@ -114,6 +114,7 @@ def _mock_agent_supervisor():
         "post_message",
         "abort_stream",
         "cleanup_session",
+        "cleanup_workflow_artifacts",
         "health_check",
     ]
     patchers = [

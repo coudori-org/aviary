@@ -32,3 +32,19 @@ export function sessionVenvDir(sessionId: string, agentId: string): string {
 export function sessionTmp(sessionId: string, agentId: string): string {
   return `/tmp/${agentId}_${sessionId}`;
 }
+
+/** Top of a workflow run's artifact tree. Keyed by root_run_id so a resume
+ *  chain shares one tree. Agents see this as `/artifacts` (ro) inside the
+ *  sandbox when `SESSION_ARTIFACTS_DIR` is set. */
+export function workflowArtifactsDir(rootRunId: string): string {
+  return path.join(WORKSPACE_ROOT, "workflows", rootRunId, "artifacts");
+}
+
+/** Target path for one artifact from one node. */
+export function workflowArtifactPath(
+  rootRunId: string,
+  nodeId: string,
+  artifactName: string,
+): string {
+  return path.join(workflowArtifactsDir(rootRunId), nodeId, artifactName);
+}

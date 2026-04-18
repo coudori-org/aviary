@@ -397,3 +397,30 @@ async def cleanup_session(session_id: str, body: _CleanupBody):
     except httpx.HTTPError:
         logger.warning("Cleanup failed for session %s", session_id, exc_info=True)
         return {"ok": False}
+
+
+# ── /workflows/{root_run_id}/artifacts cleanup ──────────────────────────────
+
+class _WorkflowArtifactsCleanupBody(BaseModel):
+    runtime_endpoint: str | None = None
+
+
+@router.delete("/workflows/{root_run_id}/artifacts")
+async def cleanup_workflow_artifacts(
+    root_run_id: str, body: _WorkflowArtifactsCleanupBody,
+):
+    """Drop the entire artifact tree for a workflow run chain. Proxies to
+    the runtime because the PVC is only mounted there."""
+    base = resolve_runtime_base(body.runtime_endpoint)
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.delete(
+                f"{base}/workflows/{root_run_id}/artifacts",
+                timeout=10,
+            )
+            return {"ok": resp.status_code in (200, 404)}
+    except httpx.HTTPError:
+        logger.warning(
+            "Artifact cleanup failed for root_run=%s", root_run_id, exc_info=True,
+        )
+        return {"ok": False}

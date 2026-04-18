@@ -10,7 +10,7 @@ import { ModelSelect } from "./model-select";
 import { ToolSelector } from "@/features/agents/components/tool-selector/tool-selector";
 import { ToolDetailsSheet } from "@/features/agents/components/tool-selector/tool-details-sheet";
 import { ToolChip } from "@/features/agents/components/form/tool-chip";
-import type { WorkflowNode, StructuredOutputField } from "@/features/workflows/lib/types";
+import type { WorkflowNode, StructuredOutputField, ArtifactField } from "@/features/workflows/lib/types";
 import type { McpToolInfo } from "@/types";
 
 function NodeField({
@@ -353,6 +353,118 @@ function OutputFieldsEditor({
   );
 }
 
+function ArtifactRow({
+  field, onChange, onRemove,
+}: {
+  field: ArtifactField;
+  onChange: (patch: Partial<ArtifactField>) => void;
+  onRemove: () => void;
+}) {
+  const [localName, setLocalName] = useState(field.name);
+  const [localDesc, setLocalDesc] = useState(field.description ?? "");
+  const nameFocused = useRef(false);
+  const descFocused = useRef(false);
+
+  useEffect(() => {
+    if (!nameFocused.current) setLocalName(field.name);
+  }, [field.name]);
+  useEffect(() => {
+    if (!descFocused.current) setLocalDesc(field.description ?? "");
+  }, [field.description]);
+
+  const commitName = () => {
+    nameFocused.current = false;
+    const trimmed = localName.trim();
+    if (trimmed !== field.name) onChange({ name: trimmed });
+    setLocalName(trimmed);
+  };
+  const commitDesc = () => {
+    descFocused.current = false;
+    const next = localDesc.trim();
+    const prev = field.description ?? "";
+    if (next !== prev) onChange({ description: next || undefined });
+    setLocalDesc(next);
+  };
+
+  return (
+    <div className="space-y-1.5 rounded-md border border-white/[0.08] bg-white/[0.02] px-2 py-2">
+      <div className="flex items-center gap-1.5">
+        <Input
+          value={localName}
+          placeholder="artifact_name"
+          onChange={(e) => setLocalName(e.target.value)}
+          onFocus={() => { nameFocused.current = true; }}
+          onBlur={commitName}
+          className="flex-1 h-7 text-[12px] font-mono"
+        />
+        <button
+          type="button"
+          onClick={onRemove}
+          className="flex h-7 w-7 items-center justify-center rounded-md text-fg-disabled hover:bg-danger/10 hover:text-danger transition-colors"
+          title="Remove artifact"
+        >
+          <Trash2 size={11} strokeWidth={1.75} />
+        </button>
+      </div>
+      <Textarea
+        value={localDesc}
+        placeholder="What file/directory belongs to this artifact (guides the agent)"
+        onChange={(e) => setLocalDesc(e.target.value)}
+        onFocus={() => { descFocused.current = true; }}
+        onBlur={commitDesc}
+        rows={1}
+        className="text-[12px]"
+      />
+    </div>
+  );
+}
+
+function ArtifactsEditor({
+  artifacts, onChange,
+}: {
+  artifacts: ArtifactField[];
+  onChange: (next: ArtifactField[]) => void;
+}) {
+  const updateAt = (idx: number, patch: Partial<ArtifactField>) =>
+    onChange(artifacts.map((a, i) => (i === idx ? { ...a, ...patch } : a)));
+  const removeAt = (idx: number) =>
+    onChange(artifacts.filter((_, i) => i !== idx));
+  const add = () => onChange([...artifacts, { name: "" }]);
+
+  return (
+    <div className="space-y-2">
+      <Label className="text-[11px] font-medium text-fg-disabled uppercase tracking-wider">
+        Artifacts
+      </Label>
+
+      {artifacts.map((field, idx) => (
+        <ArtifactRow
+          key={idx}
+          field={field}
+          onChange={(patch) => updateAt(idx, patch)}
+          onRemove={() => removeAt(idx)}
+        />
+      ))}
+
+      <button
+        type="button"
+        onClick={add}
+        className="inline-flex items-center gap-1 rounded-sm border border-white/[0.08] bg-transparent px-2 py-1 text-[11px] text-fg-muted hover:bg-white/[0.04] hover:text-fg-primary transition-colors"
+      >
+        <Plus size={11} strokeWidth={2.25} />
+        Add artifact
+      </button>
+
+      <p className="text-[10px] text-fg-disabled">
+        Declare named file/directory outputs. The agent calls{" "}
+        <span className="font-mono">save_as_artifact</span> to publish each one;
+        downstream steps receive them as{" "}
+        <span className="font-mono">/workspace/&#123;name&#125;</span>.
+      </p>
+    </div>
+  );
+}
+
 export function InspectorPanel() {
   const { nodes, selectedNodeId, updateNodeData } = useWorkflowBuilder();
 
@@ -416,6 +528,10 @@ export function InspectorPanel() {
             <OutputFieldsEditor
               fields={(d.structured_output_fields as StructuredOutputField[]) ?? []}
               onChange={(next) => updateNodeData(node.id, "structured_output_fields", next)}
+            />
+            <ArtifactsEditor
+              artifacts={(d.artifacts as ArtifactField[]) ?? []}
+              onChange={(next) => updateNodeData(node.id, "artifacts", next)}
             />
           </>
         )}

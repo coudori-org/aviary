@@ -11,7 +11,7 @@
 import * as fs from "node:fs";
 import express from "express";
 import { SessionManager } from "./session-manager.js";
-import { WORKSPACE_ROOT } from "./constants.js";
+import { WORKSPACE_ROOT, workflowArtifactsDir } from "./constants.js";
 import { healthRouter, setReady } from "./health.js";
 import { processMessage } from "./agent.js";
 
@@ -173,6 +173,24 @@ app.delete("/sessions/:sessionId", (req, res) => {
     res.status(404).json({ error: "session not found" });
     return;
   }
+  res.json({ status: "removed" });
+});
+
+app.delete("/workflows/:rootRunId/artifacts", (req, res) => {
+  const { rootRunId } = req.params;
+  // rootRunId arrives from the supervisor which already validated it's a
+  // UUID-shaped string; keep a belt-and-suspenders check so a stray slash
+  // or traversal can't reach outside the workflows tree.
+  if (!/^[A-Za-z0-9_-]+$/.test(rootRunId)) {
+    res.status(400).json({ error: "invalid root_run_id" });
+    return;
+  }
+  const target = workflowArtifactsDir(rootRunId);
+  if (!fs.existsSync(target)) {
+    res.status(404).json({ error: "artifacts not found" });
+    return;
+  }
+  fs.rmSync(target, { recursive: true, force: true });
   res.json({ status: "removed" });
 });
 
