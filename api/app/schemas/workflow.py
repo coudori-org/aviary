@@ -72,6 +72,11 @@ class WorkflowVersionResponse(BaseModel):
     version: int
     deployed_by: str
     deployed_at: datetime
+    # Frozen snapshot of the graph at deploy time. The builder reads
+    # this when the user picks a past version in the version select so
+    # the canvas renders that snapshot read-only — and reuses it as the
+    # starting state when the user clicks Edit to roll back.
+    definition: dict
 
     @classmethod
     def from_orm_version(cls, v) -> "WorkflowVersionResponse":
@@ -81,6 +86,7 @@ class WorkflowVersionResponse(BaseModel):
             version=v.version,
             deployed_by=str(v.deployed_by),
             deployed_at=v.deployed_at,
+            definition=v.definition or {},
         )
 
 

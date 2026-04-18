@@ -8,7 +8,7 @@ and version history.
 import logging
 import uuid
 
-from sqlalchemy import distinct, func, select
+from sqlalchemy import delete, distinct, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import User, Workflow, WorkflowRun, WorkflowVersion
@@ -103,11 +103,33 @@ async def current_version_number(db: AsyncSession, workflow_id: uuid.UUID) -> in
     return result.scalar_one_or_none()
 
 
+async def _cleanup_terminal_drafts(
+    db: AsyncSession, workflow_id: uuid.UUID,
+) -> None:
+    """Delete finished draft runs for this workflow.
+
+    Both deploy and cancel-edit close out an edit cycle — the scratch
+    runs produced during that cycle are no longer interesting and
+    clutter the history list. Cascade FKs (workflow_node_runs and
+    sessions via workflow_run_id) remove dependent rows in one go.
+    In-flight drafts are spared so the user can still watch them.
+    """
+    await db.execute(
+        delete(WorkflowRun).where(
+            WorkflowRun.workflow_id == workflow_id,
+            WorkflowRun.run_type == "draft",
+            WorkflowRun.status.in_(("completed", "failed", "cancelled")),
+        )
+    )
+
+
 async def deploy_workflow(db: AsyncSession, workflow: Workflow, user: User) -> WorkflowVersion:
     """Snapshot the current definition as a new immutable version.
 
     Each deploy always creates a new version — even if the definition is
-    unchanged. The user action itself is what we're recording.
+    unchanged. The user action itself is what we're recording. Terminal
+    draft runs accumulated during the previous edit cycle are cleaned up
+    here: deploy is the natural "commit" boundary.
     """
     latest = await current_version_number(db, workflow.id)
     next_version = (latest or 0) + 1
@@ -121,12 +143,43 @@ async def deploy_workflow(db: AsyncSession, workflow: Workflow, user: User) -> W
     )
     db.add(version)
     workflow.status = "deployed"
+
+    await _cleanup_terminal_drafts(db, workflow.id)
     await db.flush()
     return version
 
 
 async def mark_workflow_draft(db: AsyncSession, workflow: Workflow) -> Workflow:
     workflow.status = "draft"
+    await db.flush()
+    return workflow
+
+
+async def cancel_edit(db: AsyncSession, workflow: Workflow) -> Workflow:
+    """Discard in-progress draft edits and restore the latest deployed
+    version. The inverse of ``mark_workflow_draft`` after an Edit click:
+    the user decided not to keep their changes, so we reset
+    ``definition`` / ``model_config_json`` from the most recent
+    WorkflowVersion snapshot and flip status back to "deployed".
+
+    Requires at least one deployed version — there's nothing to revert
+    to otherwise. Draft runs accumulated during the abandoned edit
+    cycle are cleaned up, same as deploy.
+    """
+    latest_version = (await db.execute(
+        select(WorkflowVersion)
+        .where(WorkflowVersion.workflow_id == workflow.id)
+        .order_by(WorkflowVersion.version.desc())
+        .limit(1)
+    )).scalar_one_or_none()
+    if latest_version is None:
+        raise ValueError("Workflow has no deployed version to revert to")
+
+    workflow.definition = latest_version.definition
+    workflow.model_config_json = latest_version.model_config_json or {}
+    workflow.status = "deployed"
+
+    await _cleanup_terminal_drafts(db, workflow.id)
     await db.flush()
     return workflow
 

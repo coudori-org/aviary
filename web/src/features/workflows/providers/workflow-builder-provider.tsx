@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useCallback, useRef, useState } from "react";
+import { createContext, useContext, useCallback, useEffect, useRef, useState } from "react";
 import {
   useNodesState,
   useEdgesState,
@@ -19,7 +19,11 @@ import { applyPlan as applyPlanPure, validatePlan, type PlanOp } from "../lib/as
 interface WorkflowBuilderContextValue {
   workflowId: string;
   workflowName: string;
-  workflowStatus: string;
+  /** True when the current view is a deployed version snapshot — the
+   *  inspector + keyboard shortcuts switch to read-only. The page owns
+   *  the selection that drives this and passes it in at provider
+   *  construction time. */
+  isReadOnly: boolean;
   nodes: WorkflowNode[];
   edges: WorkflowEdge[];
   onNodesChange: OnNodesChange<WorkflowNode>;
@@ -38,6 +42,10 @@ interface WorkflowBuilderContextValue {
   redo: () => void;
   canUndo: boolean;
   canRedo: boolean;
+  /** Cancel the pending debounced auto-save without firing it. Used
+   *  before cancel-edit so a save that was queued right before the
+   *  click can't overwrite the server's reverted definition. */
+  cancelPendingSave: () => void;
 }
 
 const WorkflowBuilderContext = createContext<WorkflowBuilderContextValue | null>(null);
@@ -50,10 +58,15 @@ export function useWorkflowBuilder() {
 
 interface Props {
   workflow: Workflow;
+  /** Whether the current view is a read-only snapshot. Controls whether
+   *  the inspector + keyboard shortcuts accept edits. The canvas
+   *  separately reads ``isReadOnly`` via its own prop so ReactFlow's
+   *  interaction flags can be bound at the right level. */
+  isReadOnly?: boolean;
   children: React.ReactNode;
 }
 
-export function WorkflowBuilderProvider({ workflow, children }: Props) {
+export function WorkflowBuilderProvider({ workflow, isReadOnly = false, children }: Props) {
   const initialNodes = (workflow.definition?.nodes ?? []) as WorkflowNode[];
   const initialEdges = (workflow.definition?.edges ?? []) as WorkflowEdge[];
 
@@ -116,6 +129,18 @@ export function WorkflowBuilderProvider({ workflow, children }: Props) {
     },
     [workflow.id],
   );
+
+  const cancelPendingSave = useCallback(() => {
+    clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = undefined;
+  }, []);
+
+  // Drop any pending save on unmount — the builder page remounts the
+  // provider on version switch / status flip, and a leftover timer
+  // from the prior instance would fire against the old state.
+  useEffect(() => {
+    return () => clearTimeout(saveTimerRef.current);
+  }, []);
 
   // Push current state to history, then apply new state
   const commit = useCallback(
@@ -288,7 +313,7 @@ export function WorkflowBuilderProvider({ workflow, children }: Props) {
       value={{
         workflowId: workflow.id,
         workflowName: workflow.name,
-        workflowStatus: workflow.status,
+        isReadOnly,
         nodes,
         edges,
         onNodesChange,
@@ -307,6 +332,7 @@ export function WorkflowBuilderProvider({ workflow, children }: Props) {
         redo,
         canUndo: history.canUndo(),
         canRedo: history.canRedo(),
+        cancelPendingSave,
       }}
     >
       {children}

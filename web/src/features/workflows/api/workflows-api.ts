@@ -47,9 +47,18 @@ export interface WorkflowUpdateData {
 
 export interface WorkflowVersionData {
   id: string;
+  workflow_id: string;
   version: number;
   deployed_by: string;
   deployed_at: string;
+  /** Frozen definition snapshot at deploy time. The builder uses this
+   *  to render past versions read-only and to seed a new draft when
+   *  the user rolls back via Edit. */
+  definition: {
+    nodes: Array<Record<string, unknown>>;
+    edges: Array<Record<string, unknown>>;
+    viewport?: { x: number; y: number; zoom: number };
+  };
 }
 
 export const workflowsApi = {
@@ -81,18 +90,31 @@ export const workflowsApi = {
     return http.post<Workflow>(`/workflows/${id}/edit`, {});
   },
 
+  cancelEdit(id: string) {
+    // Discards the current draft and restores the latest deployed
+    // version. Backend 400s if there's no prior deploy to fall back on.
+    return http.post<Workflow>(`/workflows/${id}/cancel-edit`, {});
+  },
+
   listVersions(id: string) {
     return http.get<WorkflowVersionData[]>(`/workflows/${id}/versions`);
   },
 
   listRuns(
     id: string,
-    opts: { includeDrafts?: boolean; offset?: number; limit?: number } = {},
+    opts: {
+      runType?: "draft" | "deployed";
+      includeDrafts?: boolean;
+      offset?: number; limit?: number;
+      versionId?: string;
+    } = {},
   ) {
     const params = new URLSearchParams();
+    if (opts.runType) params.set("run_type", opts.runType);
     if (opts.includeDrafts) params.set("include_drafts", "true");
     if (opts.offset !== undefined) params.set("offset", String(opts.offset));
     if (opts.limit !== undefined) params.set("limit", String(opts.limit));
+    if (opts.versionId) params.set("version_id", opts.versionId);
     const qs = params.toString();
     return http.get<WorkflowRunListResponse>(
       `/workflows/${id}/runs${qs ? `?${qs}` : ""}`,

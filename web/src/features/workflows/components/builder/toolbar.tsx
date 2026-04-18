@@ -5,6 +5,7 @@ import { ArrowLeft, Trash2, Loader2, Upload, Pencil } from "@/components/icons";
 import { useWorkflowBuilder } from "@/features/workflows/providers/workflow-builder-provider";
 import { routes } from "@/lib/constants/routes";
 import { cn } from "@/lib/utils";
+import type { WorkflowVersionData } from "@/features/workflows/api/workflows-api";
 
 function ToolbarButton({
   onClick,
@@ -39,16 +40,31 @@ function ToolbarButton({
   );
 }
 
+const DRAFT = "draft" as const;
+
 interface ToolbarProps {
-  workflowStatus: string;
   deploying: boolean;
+  /** List of deployed WorkflowVersions (latest first). */
+  versions: WorkflowVersionData[];
+  /** "draft" sentinel or a deployed version's id — the single source
+   *  of truth for which graph is on the canvas. */
+  selected: string;
+  isDraft: boolean;
+  /** True once there's at least one deployed snapshot — controls
+   *  whether the Cancel button (revert-to-latest) is worth offering. */
+  hasPriorDeploy: boolean;
+  onSelect: (next: string) => void;
   onDeploy: () => void;
   onEdit: () => void;
+  onCancelEdit: () => void;
 }
 
-export function Toolbar({ workflowStatus, deploying, onDeploy, onEdit }: ToolbarProps) {
+export function Toolbar({
+  deploying, versions, selected, isDraft, hasPriorDeploy,
+  onSelect, onDeploy, onEdit, onCancelEdit,
+}: ToolbarProps) {
   const { workflowName, undo, redo, canUndo, canRedo, deleteSelected } = useWorkflowBuilder();
-  const isDraft = workflowStatus === "draft";
+  const latestId = versions[0]?.id;
 
   return (
     <div className="flex items-center justify-between border-b border-white/[0.06] bg-[rgb(10_11_13)] px-2 py-1.5">
@@ -65,7 +81,7 @@ export function Toolbar({ workflowStatus, deploying, onDeploy, onEdit }: Toolbar
           "ml-2 rounded-sm px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider",
           isDraft ? "bg-warning/10 text-warning" : "bg-success/10 text-success",
         )}>
-          {workflowStatus}
+          {isDraft ? "draft" : "deployed"}
         </span>
       </div>
 
@@ -84,6 +100,40 @@ export function Toolbar({ workflowStatus, deploying, onDeploy, onEdit }: Toolbar
             </ToolbarButton>
             <div className="mx-1 h-4 w-px bg-white/[0.06]" />
           </>
+        )}
+
+        {/*
+          Single select covers every version the workflow can show. The
+          draft slot is always an option when one is active — selecting
+          it is the same thing as "I'm in edit mode". Deployed snapshots
+          below are read-only.
+        */}
+        {(isDraft || versions.length > 0) && (
+          <select
+            value={selected}
+            onChange={(e) => onSelect(e.target.value)}
+            className="mr-1 rounded-md border border-white/[0.08] bg-canvas px-2 py-1 text-[12px] text-fg-primary focus:outline-none focus:border-info"
+            title="Select version"
+          >
+            {isDraft && <option value={DRAFT}>Draft</option>}
+            {versions.map((v) => (
+              <option key={v.id} value={v.id}>
+                v{v.version}
+                {v.id === latestId ? " (latest)" : ""}
+              </option>
+            ))}
+          </select>
+        )}
+
+        {isDraft && hasPriorDeploy && (
+          <button
+            type="button"
+            onClick={onCancelEdit}
+            className="mr-1 flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[12px] font-medium text-fg-muted hover:text-danger hover:bg-danger/[0.06] transition-colors"
+            title="Discard draft changes and return to the latest deployed version"
+          >
+            Cancel
+          </button>
         )}
 
         {isDraft ? (

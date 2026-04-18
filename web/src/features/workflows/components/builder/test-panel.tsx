@@ -137,10 +137,15 @@ function RunFooter({
 
 // --- Trigger input bar ---
 function TriggerInputBar({
-  run, isWebhook,
+  run, isWebhook, runType,
 }: {
   run: ReturnType<typeof useWorkflowRun>;
   isWebhook: boolean;
+  /** draft = scratch run off the in-memory definition, deployed = run
+   *  bound to the latest published WorkflowVersion. Controlled by the
+   *  parent based on workflow status so deployed builds trigger real
+   *  runs that surface in the sidebar. */
+  runType: "draft" | "deployed";
 }) {
   const [inputValue, setInputValue] = useState("");
 
@@ -150,9 +155,9 @@ function TriggerInputBar({
     const triggerData = isWebhook
       ? (() => { try { return JSON.parse(text); } catch { return { raw: text }; } })()
       : { text };
-    run.trigger(triggerData);
+    run.trigger(triggerData, runType);
     setInputValue("");
-  }, [inputValue, run, isWebhook]);
+  }, [inputValue, run, isWebhook, runType]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -227,9 +232,17 @@ function RunningStatusBar({ run }: { run: ReturnType<typeof useWorkflowRun> }) {
 // --- Test Panel ---
 interface TestPanelProps {
   run: ReturnType<typeof useWorkflowRun>;
+  /** The builder passes `false` when the user is inspecting a past
+   *  deployed version — backend create_run would pick the LATEST
+   *  deployed version, so silently running it from a past-version
+   *  view would mislead the user. They roll back via Edit first. */
+  canTrigger?: boolean;
+  /** Draft selection → scratch run off the in-memory definition.
+   *  Deployed (latest) → run pinned to the latest WorkflowVersion. */
+  runType: "draft" | "deployed";
 }
 
-export function TestPanel({ run }: TestPanelProps) {
+export function TestPanel({ run, canTrigger = true, runType }: TestPanelProps) {
   const { nodes: graphNodes, selectedNodeId } = useWorkflowBuilder();
 
   const triggerNode = graphNodes.find((n) => TRIGGER_TYPES.has(n.type ?? ""));
@@ -320,7 +333,18 @@ export function TestPanel({ run }: TestPanelProps) {
       <RunFooter run={run} showResume={showResume} resumeLabel={resumeLabel} />
 
       {isTriggerFocus && (
-        <TriggerInputBar run={run} isWebhook={focusType === "webhook_trigger"} />
+        canTrigger ? (
+          <TriggerInputBar
+            run={run}
+            isWebhook={focusType === "webhook_trigger"}
+            runType={runType}
+          />
+        ) : (
+          <div className="shrink-0 border-t border-white/[0.06] px-3 py-3 type-caption text-fg-muted text-center">
+            Viewing a past version — click Edit in the toolbar to roll back
+            before running.
+          </div>
+        )
       )}
     </div>
   );

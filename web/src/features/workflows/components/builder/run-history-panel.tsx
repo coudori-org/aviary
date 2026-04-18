@@ -9,6 +9,13 @@ interface Props {
   workflowId: string;
   run: ReturnType<typeof useWorkflowRun>;
   onOpenRun: () => void;
+  /** Always filter by the selection's run_type — draft view lists
+   *  only drafts, a deployed-version view lists only deployed runs
+   *  (narrowed further by versionId). There's no "show everything"
+   *  mode from the inspector anymore. */
+  runType: "draft" | "deployed";
+  /** When set, narrow deployed runs to this WorkflowVersion. */
+  versionId?: string;
 }
 
 const STATUS_TONE: Record<string, string> = {
@@ -23,19 +30,21 @@ function fmt(ts?: string) {
   return ts ? new Date(ts).toLocaleString() : "—";
 }
 
-export function RunHistoryPanel({ workflowId, run, onOpenRun }: Props) {
+export function RunHistoryPanel({
+  workflowId, run, onOpenRun, runType, versionId,
+}: Props) {
   const [runs, setRuns] = useState<WorkflowRun[]>([]);
   const [loading, setLoading] = useState(true);
 
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const r = await workflowsApi.listRuns(workflowId, { includeDrafts: true });
+      const r = await workflowsApi.listRuns(workflowId, { runType, versionId });
       setRuns(r.items);
     } finally {
       setLoading(false);
     }
-  }, [workflowId]);
+  }, [workflowId, runType, versionId]);
 
   useEffect(() => { refresh(); }, [refresh]);
 

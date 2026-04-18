@@ -63,12 +63,17 @@ function WorkflowGroupRow({ group, currentPath }: {
           {runs.map((r) => (
             <li key={r.id}>
               {/*
-                Deep-link into the builder's Test tab with the run pre-loaded
-                via ?runId=. The builder reads the query param on mount and
-                calls useWorkflowRun.viewRun().
+                Deep-link into the builder's Test tab with the run AND its
+                version pre-selected: without versionId the page would
+                fall back to the latest deploy, overlaying v1 node
+                statuses onto v2's graph.
               */}
               <Link
-                href={`${builderHref}?runId=${r.id}`}
+                href={
+                  r.version_id
+                    ? `${builderHref}?runId=${r.id}&versionId=${r.version_id}`
+                    : `${builderHref}?runId=${r.id}&versionId=draft`
+                }
                 className="flex items-center gap-2 rounded-sm px-2 py-1 text-fg-muted hover:bg-white/[0.03] hover:text-fg-primary transition-colors"
               >
                 <span

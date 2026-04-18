@@ -221,10 +221,29 @@ async def resume_run(
     db: AsyncSession, workflow: Workflow, source_run: WorkflowRun, user: User,
     user_token: str | None = None,
 ) -> WorkflowRun:
-    if source_run.run_type != "draft":
-        raise ValueError("Resume is only supported for draft runs")
+    # Resume inherits the source's type + definition so the carried-over
+    # outputs stay bound to the graph they were produced against:
+    #   draft source    → draft resume off the live workflow.definition
+    #   deployed source → deployed resume pinned to the SOURCE's version,
+    #                     not the latest (the user might have since moved
+    #                     the workflow forward to v3; resuming a v1 run
+    #                     against v3 would mismatch completed outputs).
+    if source_run.run_type == "deployed":
+        if source_run.version_id is None:
+            raise ValueError("Deployed source run has no version pin")
+        version = (await db.execute(
+            select(WorkflowVersion).where(WorkflowVersion.id == source_run.version_id)
+        )).scalar_one_or_none()
+        if version is None:
+            raise ValueError("Source version no longer exists")
+        definition_snapshot = version.definition
+        new_run_type = "deployed"
+        new_version_id = version.id
+    else:
+        definition_snapshot = workflow.definition
+        new_run_type = "draft"
+        new_version_id = None
 
-    definition_snapshot = workflow.definition
     _validate_artifact_name_uniqueness(definition_snapshot)
     live_node_ids = {
         n["id"] for n in definition_snapshot.get("nodes", [])
@@ -251,8 +270,8 @@ async def resume_run(
     root_run_id = source_run.root_run_id or source_run.id
     run = WorkflowRun(
         workflow_id=workflow.id,
-        version_id=None,
-        run_type="draft",
+        version_id=new_version_id,
+        run_type=new_run_type,
         trigger_type=source_run.trigger_type,
         trigger_data=source_run.trigger_data or {},
         triggered_by=user.id,
@@ -293,11 +312,26 @@ async def get_run(
 
 async def list_runs(
     db: AsyncSession, workflow_id: uuid.UUID,
-    include_drafts: bool = False, offset: int = 0, limit: int = 50,
+    *,
+    run_type: str | None = None,
+    include_drafts: bool = False,
+    version_id: uuid.UUID | None = None,
+    offset: int = 0, limit: int = 50,
 ) -> tuple[list[WorkflowRun], int]:
+    """List runs for a workflow.
+
+    ``run_type`` is the preferred filter — pass "draft" or "deployed"
+    to get only that type. ``include_drafts`` stays as a backwards-
+    compatible shorthand: omit both → deployed-only (old default),
+    include_drafts=True → both types (sidebar uses this path today).
+    """
     base = select(WorkflowRun).where(WorkflowRun.workflow_id == workflow_id)
-    if not include_drafts:
+    if run_type is not None:
+        base = base.where(WorkflowRun.run_type == run_type)
+    elif not include_drafts:
         base = base.where(WorkflowRun.run_type == "deployed")
+    if version_id is not None:
+        base = base.where(WorkflowRun.version_id == version_id)
     total = (await db.execute(select(func.count()).select_from(base.subquery()))).scalar() or 0
     result = await db.execute(
         base.order_by(WorkflowRun.created_at.desc()).offset(offset).limit(limit)

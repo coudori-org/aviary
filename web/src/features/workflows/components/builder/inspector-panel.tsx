@@ -466,7 +466,8 @@ function ArtifactsEditor({
 }
 
 export function InspectorPanel() {
-  const { nodes, selectedNodeId, updateNodeData } = useWorkflowBuilder();
+  const { nodes, selectedNodeId, updateNodeData, isReadOnly } = useWorkflowBuilder();
+  const readOnly = isReadOnly;
 
   const node = selectedNodeId
     ? (nodes.find((n) => n.id === selectedNodeId) as WorkflowNode | undefined)
@@ -487,7 +488,19 @@ export function InspectorPanel() {
 
   return (
     <div className="h-full overflow-y-auto">
-      <div className="flex flex-col gap-4 px-4 py-4">
+      {readOnly && (
+        <div className="flex items-center gap-1.5 border-b border-warning/15 bg-warning/[0.04] px-4 py-2 type-caption text-warning">
+          <Lock size={12} strokeWidth={2} />
+          Deployed snapshot — click Edit in the toolbar to modify.
+        </div>
+      )}
+      {/* <fieldset disabled> propagates to every native control inside;
+          custom components that render plain inputs inherit the disabled
+          state and can't be committed without re-enabling. */}
+      <fieldset
+        disabled={readOnly}
+        className="flex flex-col gap-4 px-4 py-4 disabled:opacity-80"
+      >
         <NodeField
           id="node-label"
           label="Label"
@@ -593,7 +606,7 @@ export function InspectorPanel() {
             <span className="text-[10px] text-fg-disabled font-mono truncate max-w-[120px]">{node.id}</span>
           </div>
         </div>
-      </div>
+      </fieldset>
     </div>
   );
 }

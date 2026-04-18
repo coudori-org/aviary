@@ -123,6 +123,25 @@ async def edit_workflow(
     return WorkflowResponse.from_orm_workflow(workflow, current_version=cv)
 
 
+@router.post("/{workflow_id}/cancel-edit", response_model=WorkflowResponse)
+async def cancel_edit_workflow(
+    workflow: Workflow = Depends(require_workflow_owner()),
+    db: AsyncSession = Depends(get_db),
+):
+    """Abandon the current draft and snap back to the latest deployed
+    version — inverse of `POST /edit`. Fails 400 if the workflow has
+    never been deployed (nothing to revert to)."""
+    try:
+        workflow = await workflow_service.cancel_edit(db, workflow)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e),
+        ) from e
+    await db.refresh(workflow)
+    cv = await workflow_service.current_version_number(db, workflow.id)
+    return WorkflowResponse.from_orm_workflow(workflow, current_version=cv)
+
+
 @router.get("/{workflow_id}/versions", response_model=list[WorkflowVersionResponse])
 async def list_workflow_versions(
     workflow: Workflow = Depends(require_workflow_owner()),
@@ -246,14 +265,19 @@ async def trigger_run(
 
 @router.get("/{workflow_id}/runs", response_model=WorkflowRunListResponse)
 async def list_runs(
+    run_type: str | None = Query(None, pattern="^(draft|deployed)$"),
     include_drafts: bool = Query(False),
+    version_id: uuid.UUID | None = Query(None),
     offset: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=100),
     workflow: Workflow = Depends(require_workflow_owner()),
     db: AsyncSession = Depends(get_db),
 ):
     runs, total = await workflow_run_service.list_runs(
-        db, workflow.id, include_drafts=include_drafts, offset=offset, limit=limit,
+        db, workflow.id,
+        run_type=run_type,
+        include_drafts=include_drafts,
+        version_id=version_id, offset=offset, limit=limit,
     )
     return WorkflowRunListResponse(
         items=[WorkflowRunResponse.from_orm_run(r) for r in runs],

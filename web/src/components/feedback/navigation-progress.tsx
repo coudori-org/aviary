@@ -21,7 +21,12 @@ export function NavigationProgress() {
       const anchor = (e.target as HTMLElement).closest("a");
       if (!anchor) return;
       const href = anchor.getAttribute("href");
-      if (!href || href.startsWith("http") || href.startsWith("#") || href === pathname) return;
+      if (!href || href.startsWith("http") || href.startsWith("#")) return;
+      // Normalise away query + hash before comparing — a same-page
+      // "?runId=X" swap doesn't change pathname, so the completion
+      // effect below would never fire and the bar would hang at 90%.
+      const hrefPath = href.split("?")[0].split("#")[0];
+      if (hrefPath === pathname) return;
 
       setVisible(true);
       setProgress(20);

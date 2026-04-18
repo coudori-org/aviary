@@ -25,13 +25,18 @@ export function WorkflowCard({ workflow }: WorkflowCardProps) {
   const nodeCount = workflow.definition?.nodes?.length ?? 0;
 
   return (
-    <Link href={routes.workflow(workflow.id)} className="group block">
-      <article
-        className={cn(
-          "relative flex h-full flex-col rounded-lg p-5 transition-all duration-200",
-          "bg-elevated shadow-2",
-          "hover:glow-warm",
-        )}
+    // Card body goes to the builder (primary interaction), footer has
+    // a secondary link to the runs detail page — two separate <Link>s
+    // so both targets are reachable without nesting anchors.
+    <article
+      className={cn(
+        "relative flex h-full flex-col rounded-lg p-5 transition-all duration-200",
+        "bg-elevated shadow-2 hover:glow-warm",
+      )}
+    >
+      <Link
+        href={routes.workflow(workflow.id)}
+        className="group flex-1 min-w-0 flex flex-col"
       >
         {/* Header */}
         <div className="mb-3 flex items-start justify-between gap-2">
@@ -63,14 +68,24 @@ export function WorkflowCard({ workflow }: WorkflowCardProps) {
         <p className="mb-4 line-clamp-2 flex-1 type-body-tight text-fg-muted">
           {workflow.description || "No description provided"}
         </p>
+      </Link>
 
-        {/* Footer */}
-        <div className="flex items-center justify-end border-t border-white/[0.06] pt-3">
-          <span className="type-caption text-fg-muted group-hover:text-brand transition-colors">
-            Open builder →
-          </span>
-        </div>
-      </article>
-    </Link>
+      {/* Footer — two actions, separated to keep each Link independently
+          navigable (nesting <a> inside <a> is invalid). */}
+      <div className="flex items-center justify-between gap-2 border-t border-white/[0.06] pt-3">
+        <Link
+          href={routes.workflowRuns(workflow.id)}
+          className="type-caption text-fg-muted hover:text-fg-primary transition-colors"
+        >
+          View runs
+        </Link>
+        <Link
+          href={routes.workflow(workflow.id)}
+          className="type-caption text-fg-muted hover:text-brand transition-colors"
+        >
+          Open builder →
+        </Link>
+      </div>
+    </article>
   );
 }
