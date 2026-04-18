@@ -214,7 +214,7 @@ async def create_page(
     space_key: str,
     title: str,
     body: str,
-    parent_id: str | None = None,
+    parent_id: str | int | None = None,
 ) -> str:
     """Create a new Confluence page. `body` is markdown.
 
@@ -222,6 +222,8 @@ async def create_page(
     numeric spaceId v2 requires. `parent_id` is optional — when omitted the
     page is created at the root of the space.
     """
+    if parent_id is not None:
+        parent_id = str(parent_id)
     space_id = await _resolve_space_id(
         space_key, email=confluence_email, token=confluence_token
     )
