@@ -150,7 +150,9 @@ async def run_agent_step_activity(
     if result.get("status") == "error":
         raise RuntimeError(result.get("message") or "agent step failed")
 
+    text = ""
     for block in reversed(result.get("assembled_blocks") or []):
         if block.get("type") == "text":
-            return block.get("content") or ""
-    return ""
+            text = block.get("content") or ""
+            break
+    return {"text": text}
