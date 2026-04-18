@@ -20,9 +20,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.db.models import User, Workflow, WorkflowNodeRun, WorkflowRun, WorkflowVersion
-from app.db.session import async_session_factory
 from app.schemas.workflow import WorkflowRunCreate
 from app.services import redis_service, temporal_client
+from app.services.workflow_errors import WorkflowStateError
 from aviary_shared.workflow_types import WorkflowRunInput
 
 logger = logging.getLogger(__name__)
@@ -75,7 +75,7 @@ def _validate_artifact_name_uniqueness(definition: dict) -> None:
         for src in sources:
             for name in produces.get(src, ()):  # type: ignore[union-attr]
                 if name in seen and seen[name] != src:
-                    raise ValueError(
+                    raise WorkflowStateError(
                         f"Artifact name collision at node '{target}': both "
                         f"'{seen[name]}' and '{src}' declare artifact '{name}'",
                     )
@@ -86,15 +86,11 @@ async def create_run(
     db: AsyncSession, workflow: Workflow, user: User, body: WorkflowRunCreate,
     user_token: str | None = None,
 ) -> WorkflowRun:
-    """Insert the run row, hand off to Temporal, return the persisted row.
-
-    Raises `ValueError` when the caller asks for a deployed run but no
-    version has been published yet. Router converts this to HTTP 400.
-    """
+    """Insert the run row, hand off to Temporal, return the persisted row."""
     if body.run_type == "deployed":
         version = await _latest_version(db, workflow.id)
         if version is None:
-            raise ValueError("Workflow has no deployed version yet")
+            raise WorkflowStateError("Workflow has no deployed version yet")
         definition_snapshot = version.definition
         version_id = version.id
     else:
@@ -106,7 +102,6 @@ async def create_run(
     run = WorkflowRun(
         workflow_id=workflow.id,
         version_id=version_id,
-        run_type=body.run_type,
         trigger_type=body.trigger_type,
         trigger_data=body.trigger_data or {},
         triggered_by=user.id,
@@ -116,7 +111,8 @@ async def create_run(
     db.add(run)
     await db.flush()
     # Commit before starting Temporal so the worker's persistence activity
-    # (which updates this row by id) always sees it.
+    # (which updates this row by id) always sees it — the router-level
+    # commit at request end is too late for that ordering.
     await db.commit()
 
     temporal_run_id = await temporal_client.start_workflow_run(
@@ -131,26 +127,27 @@ async def create_run(
         )
     )
     run.temporal_run_id = temporal_run_id
-    await db.commit()
+    await db.flush()
     await db.refresh(run)
     return run
 
 
-async def cancel_run(run: WorkflowRun) -> None:
-    """Cooperative cancel → poll briefly → force-terminate on timeout.
+async def cancel_run(db: AsyncSession, run: WorkflowRun) -> None:
+    """Cooperative cancel → poll → force-terminate on timeout.
 
-    Three cases, all resolved before the request returns:
-      1. Temporal workflow is already gone (externally terminated, expired)
-         → reconcile DB row so the UI doesn't stay "Running".
-      2. Signal lands within the grace window → worker's persistence activity
-         writes `cancelled` to DB. Nothing else to do.
-      3. Workflow is wedged (e.g. activation-failure loop) → signal queues
-         forever; we terminate and write DB ourselves.
+    Three outcomes, all resolved before the request returns:
+      1. Temporal workflow already gone → reconcile DB so the UI exits
+         the "Running" state.
+      2. Signal lands within the grace window → worker's persistence
+         activity writes ``cancelled``; we still sweep in case it crashed
+         mid-write.
+      3. Workflow wedged → force-terminate and write DB ourselves
+         (terminate bypasses the worker's persistence).
     """
     run_id = str(run.id)
 
     if not await temporal_client.workflow_still_running(run_id):
-        await _mark_run_cancelled(run_id, error="workflow no longer running in Temporal")
+        await _mark_run_cancelled(db, run_id, error="workflow no longer running in Temporal")
         return
 
     await temporal_client.cancel_workflow_run(run_id)
@@ -158,61 +155,51 @@ async def cancel_run(run: WorkflowRun) -> None:
     for _ in range(_CANCEL_POLL_ATTEMPTS):
         await asyncio.sleep(_CANCEL_POLL_INTERVAL)
         if not await temporal_client.workflow_still_running(run_id):
-            # Worker processed the signal and wrote the final DB status via
-            # its persistence activity. Confirm the row is reconciled in
-            # case the worker crashed mid-write.
-            await _mark_run_cancelled(run_id, error="reconciled after graceful cancel")
+            await _mark_run_cancelled(db, run_id, error="reconciled after graceful cancel")
             return
 
     if await temporal_client.terminate_workflow_run(
         run_id, reason="cancel signal not processed within grace period",
     ):
         await _mark_run_cancelled(
-            run_id, error="force-terminated after cancel signal stalled",
+            db, run_id, error="force-terminated after cancel signal stalled",
         )
 
 
-async def _mark_run_cancelled(run_id: str, error: str) -> None:
-    """Reconcile run + any still-running node rows.
-
-    Graceful cancel path has the worker mark each in-flight node as
-    `skipped` before it exits, matching the Temporal cancel semantics.
-    Force-terminate bypasses worker code, so we do the same sweep here
-    to avoid leaving node_runs stuck at `running`.
-    """
+async def _mark_run_cancelled(db: AsyncSession, run_id: str, error: str) -> None:
+    """Reconcile run + any still-running node rows on the caller's
+    session. Force-terminate skips worker cleanup, so we sweep node_runs
+    stuck at ``running`` here."""
     now = datetime.now(timezone.utc)
     run_uuid = uuid.UUID(run_id)
-    async with async_session_factory() as session:
-        run_result = await session.execute(
-            update(WorkflowRun)
-            .where(
-                WorkflowRun.id == run_uuid,
-                WorkflowRun.status.in_(("pending", "running")),
-            )
-            .values(status="cancelled", completed_at=now, error=error)
+    run_result = await db.execute(
+        update(WorkflowRun)
+        .where(
+            WorkflowRun.id == run_uuid,
+            WorkflowRun.status.in_(("pending", "running")),
         )
-        node_result = await session.execute(
-            update(WorkflowNodeRun)
-            .where(
-                WorkflowNodeRun.run_id == run_uuid,
-                WorkflowNodeRun.status.in_(("pending", "running")),
-            )
-            .values(status="skipped", completed_at=now)
+        .values(status="cancelled", completed_at=now, error=error)
+    )
+    await db.execute(
+        update(WorkflowNodeRun)
+        .where(
+            WorkflowNodeRun.run_id == run_uuid,
+            WorkflowNodeRun.status.in_(("pending", "running")),
         )
-        await session.commit()
+        .values(status="skipped", completed_at=now)
+    )
+    await db.flush()
 
-    if not run_result.rowcount and not node_result.rowcount:
+    if not run_result.rowcount:
         return
     client = redis_service.get_client()
     if not client:
         return
-    channel = f"workflow:run:{run_id}:events"
     try:
-        if run_result.rowcount:
-            await client.publish(
-                channel,
-                json.dumps({"type": "run_status", "status": "cancelled", "error": error}),
-            )
+        await client.publish(
+            f"workflow:run:{run_id}:events",
+            json.dumps({"type": "run_status", "status": "cancelled", "error": error}),
+        )
     except Exception:
         logger.warning("publish cancelled event failed", exc_info=True)
 
@@ -228,20 +215,21 @@ async def resume_run(
     #                     not the latest (the user might have since moved
     #                     the workflow forward to v3; resuming a v1 run
     #                     against v3 would mismatch completed outputs).
-    if source_run.run_type == "deployed":
-        if source_run.version_id is None:
-            raise ValueError("Deployed source run has no version pin")
+    # Resume inherits the source's version pin: a deployed source resumes
+    # against the SAME WorkflowVersion (not the latest — the workflow may
+    # have moved forward to v3 since v1's run, and carrying v1's completed
+    # outputs into v3 would mismatch). A draft source resumes off the
+    # live ``workflow.definition``.
+    if source_run.version_id is not None:
         version = (await db.execute(
             select(WorkflowVersion).where(WorkflowVersion.id == source_run.version_id)
         )).scalar_one_or_none()
         if version is None:
-            raise ValueError("Source version no longer exists")
+            raise WorkflowStateError("Source version no longer exists")
         definition_snapshot = version.definition
-        new_run_type = "deployed"
         new_version_id = version.id
     else:
         definition_snapshot = workflow.definition
-        new_run_type = "draft"
         new_version_id = None
 
     _validate_artifact_name_uniqueness(definition_snapshot)
@@ -262,7 +250,7 @@ async def resume_run(
     # the source finished. If every live node already has a completed
     # output carried forward, there's nothing to run.
     if live_node_ids and set(resume_context.keys()) >= live_node_ids:
-        raise ValueError(
+        raise WorkflowStateError(
             "Nothing to resume — every node in the current workflow is already "
             "completed in this run",
         )
@@ -271,7 +259,6 @@ async def resume_run(
     run = WorkflowRun(
         workflow_id=workflow.id,
         version_id=new_version_id,
-        run_type=new_run_type,
         trigger_type=source_run.trigger_type,
         trigger_data=source_run.trigger_data or {},
         triggered_by=user.id,
@@ -281,7 +268,7 @@ async def resume_run(
     )
     db.add(run)
     await db.flush()
-    await db.commit()
+    await db.commit()  # see create_run — worker needs the row before Temporal fires.
 
     temporal_run_id = await temporal_client.start_workflow_run(
         WorkflowRunInput(
@@ -296,7 +283,7 @@ async def resume_run(
         )
     )
     run.temporal_run_id = temporal_run_id
-    await db.commit()
+    await db.flush()
     await db.refresh(run)
     return run
 
@@ -326,10 +313,13 @@ async def list_runs(
     include_drafts=True → both types (sidebar uses this path today).
     """
     base = select(WorkflowRun).where(WorkflowRun.workflow_id == workflow_id)
-    if run_type is not None:
-        base = base.where(WorkflowRun.run_type == run_type)
+    # ``run_type`` is derived: draft = no version pin, deployed = pinned.
+    if run_type == "draft":
+        base = base.where(WorkflowRun.version_id.is_(None))
+    elif run_type == "deployed":
+        base = base.where(WorkflowRun.version_id.is_not(None))
     elif not include_drafts:
-        base = base.where(WorkflowRun.run_type == "deployed")
+        base = base.where(WorkflowRun.version_id.is_not(None))
     if version_id is not None:
         base = base.where(WorkflowRun.version_id == version_id)
     total = (await db.execute(select(func.count()).select_from(base.subquery()))).scalar() or 0

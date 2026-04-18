@@ -53,6 +53,19 @@ class Workflow(Base):
     )
 
     owner: Mapped["User"] = relationship()  # noqa: F821
+    versions: Mapped[list["WorkflowVersion"]] = relationship(
+        back_populates="workflow",
+        order_by="desc(WorkflowVersion.version)",
+        cascade="all, delete-orphan",
+    )
+
+    @property
+    def current_version(self) -> int | None:
+        """Latest deployed version number, or None for never-deployed
+        workflows. Reads from the eager-loaded ``versions`` relationship
+        so callers must ``selectinload(Workflow.versions)`` before
+        touching this outside the async context."""
+        return max((v.version for v in self.versions), default=None)
 
 
 class WorkflowVersion(Base):
@@ -79,6 +92,8 @@ class WorkflowVersion(Base):
         TIMESTAMP(timezone=True), server_default=func.now()
     )
 
+    workflow: Mapped["Workflow"] = relationship(back_populates="versions")
+
 
 class WorkflowRun(Base):
     """One execution of a workflow. `id` is reused as the Temporal workflow_id."""
@@ -92,11 +107,11 @@ class WorkflowRun(Base):
         UUID(as_uuid=True), ForeignKey("workflows.id", ondelete="CASCADE"), nullable=False, index=True
     )
     # Draft runs have no version pin. SET NULL so deleting a version does not
-    # wipe run history that referenced it.
+    # wipe run history that referenced it. ``version_id IS NULL ↔ draft`` is
+    # the single invariant for run provenance — see ``run_type`` below.
     version_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("workflow_versions.id", ondelete="SET NULL"), nullable=True
     )
-    run_type: Mapped[str] = mapped_column(String(20), nullable=False)   # "draft" | "deployed"
     trigger_type: Mapped[str] = mapped_column(String(20), nullable=False)  # "manual" | "webhook" | "cron"
     trigger_data: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default="{}")
     triggered_by: Mapped[uuid.UUID] = mapped_column(
@@ -122,6 +137,13 @@ class WorkflowRun(Base):
         back_populates="run", cascade="all, delete-orphan"
     )
 
+    @property
+    def run_type(self) -> str:
+        """Derived from ``version_id``: deployed runs pin a version,
+        drafts don't. Read-only — writes happen by (not) setting
+        ``version_id`` at insert time."""
+        return "deployed" if self.version_id is not None else "draft"
+
 
 class WorkflowNodeRun(Base):
     """Per-node execution state within a WorkflowRun."""
@@ -145,3 +167,16 @@ class WorkflowNodeRun(Base):
     completed_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
 
     run: Mapped[WorkflowRun] = relationship(back_populates="node_runs")
+
+    @property
+    def session_id(self) -> str | None:
+        """Chat session for this node's agent_step transcript. Deterministic
+        uuid5 over ``(root_run_id or run_id, node_id)`` — must match the
+        id the worker uses to create the Session row (see
+        ``workflow-worker.worker.activities.agent_step_helpers.step_session_id``)
+        so the inspector resolves the transcript endpoint without an extra
+        lookup. Requires ``self.run`` eager-loaded."""
+        if self.node_type != "agent_step":
+            return None
+        anchor = self.run.root_run_id or self.run.id
+        return str(uuid.uuid5(uuid.UUID(str(anchor)), self.node_id))

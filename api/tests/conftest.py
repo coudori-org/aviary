@@ -41,7 +41,10 @@ def _create_test_app() -> FastAPI:
     """Create a FastAPI instance with the same routes but no lifespan."""
     from app.config import settings
     from app.routers import agents, auth, catalog, inference, sessions, workflows
+    from app.services.workflow_errors import WorkflowError
+    from fastapi import Request
     from fastapi.middleware.cors import CORSMiddleware
+    from fastapi.responses import JSONResponse
 
     test_app = FastAPI(title="Aviary API Test", lifespan=_noop_lifespan)
     test_app.add_middleware(
@@ -51,6 +54,10 @@ def _create_test_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    @test_app.exception_handler(WorkflowError)
+    async def _workflow_error_handler(_: Request, exc: WorkflowError) -> JSONResponse:
+        return JSONResponse(status_code=exc.http_status, content={"detail": str(exc)})
     test_app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
     test_app.include_router(agents.router, prefix="/api/agents", tags=["agents"])
     test_app.include_router(catalog.router, prefix="/api/catalog", tags=["catalog"])
