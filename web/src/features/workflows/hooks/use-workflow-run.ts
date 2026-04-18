@@ -156,7 +156,7 @@ export function useWorkflowRun(workflowId: string) {
   }, [workflowId, runId, runStatus]);
 
   const resume = useCallback(async () => {
-    if (!runId || (runStatus !== "failed" && runStatus !== "cancelled")) return;
+    if (!runId || !TERMINAL_RUN_STATUSES.has(runStatus)) return;
     if (wsRef.current) { wsRef.current.close(); wsRef.current = null; }
     reset();
     setRunStatus("pending");
@@ -181,6 +181,6 @@ export function useWorkflowRun(workflowId: string) {
     runId, runStatus, nodeStatuses, nodeData, logs, error,
     trigger, viewRun, cancel, resume,
     isRunning: runStatus === "running" || runStatus === "pending",
-    canResume: !!runId && (runStatus === "failed" || runStatus === "cancelled"),
+    canResume: !!runId && TERMINAL_RUN_STATUSES.has(runStatus),
   };
 }

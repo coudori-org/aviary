@@ -274,7 +274,19 @@ export function TestPanel({ run }: TestPanelProps) {
     );
   }
 
-  const showResume = run.canResume && (run.runStatus === "failed" || run.runStatus === "cancelled");
+  // Resume is available whenever the current draft still has unfinished
+  // live nodes — either something failed/cancelled, or the user added
+  // nodes after a successful run.
+  const hasUnfinishedLiveNodes = graphNodes.some(
+    (n) => (run.nodeData[n.id]?.status ?? run.nodeStatuses[n.id]) !== "completed",
+  );
+  const showResume = run.canResume && hasUnfinishedLiveNodes;
+  const resumeLabel =
+    run.runStatus === "failed"
+      ? "Resume from failed step"
+      : run.runStatus === "cancelled"
+        ? "Resume from cancelled step"
+        : "Continue with new nodes";
 
   return (
     <div className="flex h-full flex-col">
@@ -298,8 +310,22 @@ export function TestPanel({ run }: TestPanelProps) {
           </p>
         )}
 
-        {run.runStatus === "completed" && (
+        {run.runStatus === "completed" && !showResume && (
           <p className="text-center text-[11px] text-success py-1">Completed</p>
+        )}
+        {run.runStatus === "completed" && showResume && (
+          <div className="flex flex-col items-center gap-1.5 py-2">
+            <p className="text-[11px] text-success">Completed — new nodes pending</p>
+            <button
+              type="button"
+              onClick={run.resume}
+              className="flex items-center gap-1.5 rounded-md border border-info/30 bg-info/10 px-2.5 py-1 text-[11px] font-medium text-info hover:bg-info/20 transition-colors"
+              title="Start a new run that carries forward completed outputs and executes the newly-added nodes"
+            >
+              <RefreshCw size={11} strokeWidth={2} />
+              {resumeLabel}
+            </button>
+          </div>
         )}
         {(run.runStatus === "failed" || run.runStatus === "cancelled") && (
           <div className="flex flex-col items-center gap-1.5 py-2">
@@ -314,7 +340,7 @@ export function TestPanel({ run }: TestPanelProps) {
                 title="Start a new run using the current draft, carrying forward completed node outputs"
               >
                 <RefreshCw size={11} strokeWidth={2} />
-                Resume from failed step
+                {resumeLabel}
               </button>
             )}
           </div>

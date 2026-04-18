@@ -177,8 +177,6 @@ async def resume_run(
     db: AsyncSession, workflow: Workflow, source_run: WorkflowRun, user: User,
     user_token: str | None = None,
 ) -> WorkflowRun:
-    if source_run.status not in ("failed", "cancelled"):
-        raise ValueError("Only failed or cancelled runs can be resumed")
     if source_run.run_type != "draft":
         raise ValueError("Resume is only supported for draft runs")
 
@@ -194,6 +192,16 @@ async def resume_run(
         for nr in (source.node_runs or [])
         if nr.status == "completed" and nr.node_id in live_node_ids
     }
+
+    # Resume only makes sense when there's work left — either failed /
+    # cancelled nodes from the source, or new nodes the user added after
+    # the source finished. If every live node already has a completed
+    # output carried forward, there's nothing to run.
+    if live_node_ids and set(resume_context.keys()) >= live_node_ids:
+        raise ValueError(
+            "Nothing to resume — every node in the current workflow is already "
+            "completed in this run",
+        )
 
     run = WorkflowRun(
         workflow_id=workflow.id,
