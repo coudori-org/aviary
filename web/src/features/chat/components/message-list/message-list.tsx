@@ -25,6 +25,11 @@ import type { Message, StreamBlock } from "@/types";
 /** Distance from the top at which older messages start pre-loading. */
 const PRELOAD_THRESHOLD_PX = 1500;
 
+/** Within this many px of the bottom counts as "following" the stream.
+ *  Generous enough that a short smooth-scroll animation's intermediate
+ *  positions don't accidentally disengage follow mode. */
+const FOLLOW_THRESHOLD_PX = 80;
+
 interface MessageListProps {
   messages: Message[];
   blocks: StreamBlock[];
@@ -129,6 +134,12 @@ export const MessageList = forwardRef<HTMLDivElement, MessageListProps>(
     const prevLastIdRef = useRef<string | null>(null);
     const prevScrollHeightRef = useRef(0);
     const didInitialScrollRef = useRef(false);
+    // Log-viewer "follow" mode: auto-scroll to bottom on new content only
+    // when the user is already at (or very near) the bottom. The moment
+    // they scroll up to read history we stop yanking them down; when they
+    // come back within FOLLOW_THRESHOLD_PX of the bottom we re-engage.
+    // Starts true so initial streams follow by default.
+    const followRef = useRef(true);
 
     useLayoutEffect(() => {
       const el = scrollRef.current;
@@ -162,19 +173,23 @@ export const MessageList = forwardRef<HTMLDivElement, MessageListProps>(
         return;
       }
       if (prevFirst !== null && firstId !== prevFirst && lastId === prevLast) {
-        // Prepend — keep the viewport anchor pinned.
+        // Prepend — keep the viewport anchor pinned regardless of follow
+        // mode (we're not trying to show new content, just not moving the
+        // user's viewport when older history loads above).
         el.scrollTop += el.scrollHeight - prevScrollHeight;
         return;
       }
-      if (prevLast !== null && lastId !== prevLast) {
+      if (prevLast !== null && lastId !== prevLast && followRef.current) {
         el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
       }
     }, [messages]);
 
-    // Streaming block updates always scroll to bottom (they only extend
-    // the current in-flight response — never a prepend).
+    // Streaming block updates auto-scroll only while the user is
+    // following the bottom. If they've scrolled up to read earlier
+    // messages, let them — a new chunk shouldn't yank the viewport.
     useEffect(() => {
       if (blocks.length === 0) return;
+      if (!followRef.current) return;
       const el = scrollRef.current;
       if (!el) return;
       el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
@@ -191,14 +206,16 @@ export const MessageList = forwardRef<HTMLDivElement, MessageListProps>(
       loadingEarlierRef.current = loadingEarlier;
     });
 
-    // Scroll-driven pre-fetch: fires whenever the user gets within
-    // PRELOAD_THRESHOLD_PX of the top.
+    // Scroll listener: (1) pre-fetch older history near the top, and
+    // (2) update follow mode based on distance from the bottom. Same
+    // handler so we only pay one event cost on rapid scroll.
     useEffect(() => {
       const el = scrollRef.current;
       if (!el) return;
       const onScroll = () => {
-        if (!hasMoreRef.current || loadingEarlierRef.current) return;
-        if (el.scrollTop < PRELOAD_THRESHOLD_PX) {
+        const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+        followRef.current = distFromBottom <= FOLLOW_THRESHOLD_PX;
+        if (hasMoreRef.current && !loadingEarlierRef.current && el.scrollTop < PRELOAD_THRESHOLD_PX) {
           loadEarlierRef.current();
         }
       };
