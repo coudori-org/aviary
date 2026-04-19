@@ -36,10 +36,10 @@ echo "  K8s gateway IP: $K8S_GATEWAY_IP"
 
 # Only runtime images live in K3s now. Supervisor runs as a compose service.
 echo "[5/6] Building and loading runtime images..."
-docker build "${BUILD_ARGS[@]}" -t aviary-runtime:latest ./runtime/
+docker build ${BUILD_ARGS[@]+"${BUILD_ARGS[@]}"} -t aviary-runtime:latest ./runtime/
 load_k8s_image aviary-runtime:latest
 # Example customized variant (used by the `custom` environment) — extends the base.
-docker build "${BUILD_ARGS[@]}" -f ./runtime/Dockerfile.custom -t aviary-runtime-custom:latest ./runtime/
+docker build ${BUILD_ARGS[@]+"${BUILD_ARGS[@]}"} -f ./runtime/Dockerfile.custom -t aviary-runtime-custom:latest ./runtime/
 load_k8s_image aviary-runtime-custom:latest
 
 echo "  Rendering and applying Helm charts..."

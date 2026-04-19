@@ -4,3 +4,6 @@ replicas: 1
 
 image:
   pullPolicy: Never
+
+runtime:
+  privileged: true

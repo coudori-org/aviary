@@ -16,11 +16,12 @@ FROM node:22-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git curl ca-certificates bubblewrap python3 python3-venv python-is-python3 \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && chmod u+s /usr/bin/bwrap
 
 ARG NPM_CONFIG_REGISTRY
 RUN npm install -g @anthropic-ai/claude-code \
-    && chmod +x /usr/local/lib/node_modules/@anthropic-ai/claude-code/vendor/ripgrep/*/rg
+    && find /usr/local/lib/node_modules/@anthropic-ai/claude-code -name rg -type f -exec chmod +x {} +
 
 # Replace `claude` binary with bubblewrap sandbox wrapper.
 # SDK invokes `claude` → wrapper → bwrap namespace → `claude-real`.

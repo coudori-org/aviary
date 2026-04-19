@@ -28,6 +28,13 @@ runtime:
   internalAPIKey: "sk-aviary-internal"
   # Supervisor URL — used by the runtime's A2A tool server to invoke sub-agents.
   supervisorURL: "http://supervisor.platform.svc:9000"
+  # Run the runtime container privileged. Needed in dev (K3s-in-Docker on
+  # Docker Desktop LinuxKit) because bubblewrap requires capabilities that
+  # the default pod securityContext cannot grant — setuid+SYS_ADMIN alone
+  # isn't sufficient there. Prod values-prod.yaml should set this to false
+  # and instead grant CAP_SYS_ADMIN plus whatever bwrap needs via a PSA-
+  # compliant securityContext. Defaults to false; dev sets it true.
+  privileged: false
 
 # How the supervisor (running outside k3s in dev) reaches this env's runtime
 # pods. Dev: NodePort on the k3s container — supervisor hits `http://k8s:<port>`.

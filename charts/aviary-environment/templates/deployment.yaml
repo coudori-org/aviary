@@ -41,6 +41,13 @@ spec:
         - name: agent-runtime
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- if .Values.runtime.privileged }}
+            privileged: true
+            {{- else }}
+            capabilities:
+              add: ["SYS_ADMIN"]
+            {{- end }}
           ports:
             - containerPort: {{ .Values.runtime.port }}
           env:
