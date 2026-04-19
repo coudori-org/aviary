@@ -1,6 +1,6 @@
 "use client";
 
-import { Eye, EyeOff, Minimize2, RefreshCw, X } from "@/components/icons";
+import { Eye, EyeOff, Minimize2, PanelRight, RefreshCw, X } from "@/components/icons";
 import { cn } from "@/lib/utils";
 
 interface WorkspaceToolbarProps {
@@ -10,10 +10,13 @@ interface WorkspaceToolbarProps {
   onToggleHidden: () => void;
   onCollapseAll: () => void;
   onClosePanel: () => void;
+  showExpandEditor: boolean;
+  onExpandEditor: () => void;
 }
 
 export function WorkspaceToolbar({
   showHidden, refreshing, onRefresh, onToggleHidden, onCollapseAll, onClosePanel,
+  showExpandEditor, onExpandEditor,
 }: WorkspaceToolbarProps) {
   return (
     <div className="flex shrink-0 items-center justify-between border-b border-white/[0.06] px-2 py-1.5">
@@ -21,6 +24,11 @@ export function WorkspaceToolbar({
         Workspace
       </span>
       <div className="flex items-center gap-0.5">
+        {showExpandEditor && (
+          <ToolbarButton label="Open editor" onClick={onExpandEditor}>
+            <PanelRight size={12} strokeWidth={2} className="shrink-0" />
+          </ToolbarButton>
+        )}
         <ToolbarButton
           label="Refresh"
           onClick={onRefresh}

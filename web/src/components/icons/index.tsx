@@ -86,6 +86,8 @@ export {
   LayoutGrid,
   PanelLeft,
   PanelLeftClose,
+  PanelRight,
+  PanelRightClose,
   Square,
   RectangleVertical,
   RectangleHorizontal,

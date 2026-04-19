@@ -79,8 +79,18 @@ export function WorkspacePanel({ sessionId, onClose, refreshSignal = 0 }: Worksp
   const [confirmState, setConfirmState] = useState<ConfirmState>(null);
   const [renamingPath, setRenamingPath] = useState<string | null>(null);
   const [pendingNew, setPendingNew] = useState<PendingNew>(null);
+  const [editorCollapsed, setEditorCollapsed] = useState(false);
 
-  const editorOpen = editor.activeTabPath !== null;
+  const editorOpen = editor.activeTabPath !== null && !editorCollapsed;
+  const hasOpenTabs = editor.tabs.length > 0;
+
+  const openFile = useCallback(
+    (path: string) => {
+      setEditorCollapsed(false);
+      void editor.openFile(path);
+    },
+    [editor],
+  );
 
   const { width: panelWidth, isResizing, onMouseDown } = usePanelResize({
     storageKey: editorOpen ? STORAGE_KEY_EXPANDED : STORAGE_KEY_COLLAPSED,
@@ -353,7 +363,7 @@ export function WorkspacePanel({ sessionId, onClose, refreshSignal = 0 }: Worksp
           id: "open",
           label: "Open",
           icon: "open",
-          onSelect: () => void editor.openFile(path),
+          onSelect: () => openFile(path),
         });
       }
       if (isDir) {
@@ -388,7 +398,7 @@ export function WorkspacePanel({ sessionId, onClose, refreshSignal = 0 }: Worksp
 
   const ui: TreeInteractions = {
     activeFilePath: editor.activeTabPath,
-    onFileClick: (p) => void editor.openFile(p),
+    onFileClick: openFile,
     onContextMenu: handleContextMenu,
     renamingPath,
     onSubmitRename: (p, v) => void submitRename(p, v),
@@ -419,6 +429,8 @@ export function WorkspacePanel({ sessionId, onClose, refreshSignal = 0 }: Worksp
           onToggleHidden={tree.toggleHidden}
           onCollapseAll={tree.collapseAll}
           onClosePanel={onClose}
+          showExpandEditor={hasOpenTabs && editorCollapsed}
+          onExpandEditor={() => setEditorCollapsed(false)}
         />
         <FileTree tree={tree} ui={ui} />
       </div>
@@ -430,6 +442,7 @@ export function WorkspacePanel({ sessionId, onClose, refreshSignal = 0 }: Worksp
             activeTabPath={editor.activeTabPath}
             onActivate={editor.activate}
             onClose={handleCloseTab}
+            onCollapseEditor={() => setEditorCollapsed(true)}
           />
           {error && (
             <div className="shrink-0 border-b border-danger/30 bg-danger/10 px-3 py-1 type-caption text-danger">

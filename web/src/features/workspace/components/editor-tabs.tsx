@@ -1,6 +1,6 @@
 "use client";
 
-import { X } from "@/components/icons";
+import { PanelRightClose, X } from "@/components/icons";
 import { cn } from "@/lib/utils";
 import type { EditorTab } from "../hooks/use-workspace-editor";
 import { basename } from "../lib/paths";
@@ -10,11 +10,13 @@ interface EditorTabsProps {
   activeTabPath: string | null;
   onActivate: (path: string) => void;
   onClose: (path: string) => void;
+  onCollapseEditor: () => void;
 }
 
-export function EditorTabs({ tabs, activeTabPath, onActivate, onClose }: EditorTabsProps) {
+export function EditorTabs({ tabs, activeTabPath, onActivate, onClose, onCollapseEditor }: EditorTabsProps) {
   return (
-    <div className="flex shrink-0 items-stretch overflow-x-auto border-b border-white/[0.06] bg-base">
+    <div className="flex shrink-0 items-stretch border-b border-white/[0.06] bg-base">
+      <div className="flex min-w-0 flex-1 items-stretch overflow-x-auto">
       {tabs.map((tab) => {
         const active = tab.path === activeTabPath;
         const dirty = tab.draft !== null;
@@ -40,12 +42,12 @@ export function EditorTabs({ tabs, activeTabPath, onActivate, onClose }: EditorT
             title={tab.path}
           >
             <span className="truncate max-w-[160px] font-mono">{basename(tab.path)}</span>
-            {dirty ? (
+            {dirty && (
               <span
                 aria-label="Unsaved changes"
-                className="h-1.5 w-1.5 shrink-0 rounded-full bg-fg-primary group-hover:hidden"
+                className="h-1.5 w-1.5 shrink-0 rounded-full bg-fg-primary"
               />
-            ) : null}
+            )}
             <button
               type="button"
               onClick={(e) => {
@@ -53,16 +55,23 @@ export function EditorTabs({ tabs, activeTabPath, onActivate, onClose }: EditorT
                 onClose(tab.path);
               }}
               aria-label={`Close ${basename(tab.path)}`}
-              className={cn(
-                "flex h-4 w-4 shrink-0 items-center justify-center rounded-xs text-fg-muted hover:bg-white/10 hover:text-fg-primary",
-                dirty ? "hidden group-hover:flex" : "opacity-0 group-hover:opacity-100",
-              )}
+              className="flex h-4 w-4 shrink-0 items-center justify-center rounded-xs text-fg-muted hover:bg-white/10 hover:text-fg-primary"
             >
               <X size={10} strokeWidth={2.5} />
             </button>
           </div>
         );
       })}
+      </div>
+      <button
+        type="button"
+        onClick={onCollapseEditor}
+        aria-label="Collapse editor"
+        title="Collapse editor"
+        className="flex h-auto w-8 shrink-0 items-center justify-center border-l border-white/[0.06] text-fg-muted hover:bg-raised hover:text-fg-primary"
+      >
+        <PanelRightClose size={14} strokeWidth={2} />
+      </button>
     </div>
   );
 }
