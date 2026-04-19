@@ -74,7 +74,7 @@ case "$TARGET" in
     docker compose up -d --build
     ;;
   full)
-    echo -e "${BOLD}Full rebuild (DB / Vault / chat history preserved, K8s reset)...${NC}"
+    echo -e "${BOLD}Full rebuild (DB / Vault / chat history / session workspaces preserved, K8s reset)...${NC}"
     docker compose down
     docker volume rm "$(basename "$PROJECT_DIR")_k8sdata" 2>/dev/null || true
     ./scripts/setup-dev.sh
@@ -94,8 +94,8 @@ case "$TARGET" in
     echo "  runtime            Rebuild runtime image (K3s) + rolling restart"
     echo "  agent-supervisor   Rebuild supervisor (docker compose) + restart"
     echo "  compose            Rebuild all docker compose services (hot-reload)"
-    echo "  full               Full rebuild — preserves DB, Vault, and per-env workspace"
-    echo "  full-clean         Full rebuild — wipes all volumes including chat history"
+    echo "  full               Full rebuild — preserves DB, Vault, chat history, and session workspaces"
+    echo "  full-clean         Full rebuild — wipes all volumes including chat history and workspaces"
     echo "  smoke              Just run smoke test"
     echo ""
     echo "Options:"

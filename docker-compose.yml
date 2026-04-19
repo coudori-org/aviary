@@ -116,6 +116,7 @@ services:
       - "30300:30300"   # aviary-env-default NodePort (supervisor → runtime)
     volumes:
       - k8sdata:/var/lib/rancher/k3s
+      - workspacedata:/var/lib/aviary-workspace
       - ./config/k3s/registries.yaml:/etc/rancher/k3s/registries.yaml
 
   supervisor:
@@ -470,6 +471,7 @@ services:
 volumes:
   pgdata:
   k8sdata:
+  workspacedata:
   vaultdata:
   prometheusdata:
   grafanadata:
