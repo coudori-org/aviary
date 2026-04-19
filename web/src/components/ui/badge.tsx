@@ -3,21 +3,27 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
 
 /**
- * Badge — compact pill for tags, status, categorization.
- * DESIGN.md: bg-raised, 6px radius, 14px font weight 500, 0px 6px padding.
+ * Badge — Aurora Glass.
+ *
+ * Soft glass pill with intent-tinted wash. The `brand` variant uses the
+ * aurora-A gradient for status markers that should stand out (e.g. Beta,
+ * Featured).
  */
 const badgeVariants = cva(
-  "inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 type-caption",
+  "inline-flex items-center gap-1 rounded-pill px-2 py-0.5 type-caption",
   {
     variants: {
       variant: {
-        neutral: "bg-raised text-fg-primary",
-        muted: "bg-white/[0.04] text-fg-muted",
-        info: "bg-info/10 text-info ring-1 ring-inset ring-info/20",
-        success: "bg-success/10 text-success ring-1 ring-inset ring-success/20",
-        warning: "bg-warning/10 text-warning ring-1 ring-inset ring-warning/20",
-        danger: "bg-danger/10 text-danger ring-1 ring-inset ring-danger/20",
-        brand: "bg-brand/10 text-brand ring-1 ring-inset ring-brand/20",
+        neutral: "bg-white/[0.07] text-fg-primary ring-1 ring-inset ring-white/10",
+        muted: "bg-white/[0.04] text-fg-muted ring-1 ring-inset ring-white/[0.06]",
+        info: "bg-aurora-cyan/12 text-aurora-cyan ring-1 ring-inset ring-aurora-cyan/25",
+        success: "bg-aurora-mint/12 text-aurora-mint ring-1 ring-inset ring-aurora-mint/25",
+        warning: "bg-aurora-gold/14 text-aurora-gold ring-1 ring-inset ring-aurora-gold/25",
+        danger: "bg-aurora-pink/12 text-aurora-pink ring-1 ring-inset ring-aurora-pink/25",
+        brand: [
+          "bg-aurora-a text-white",
+          "shadow-[0_0_16px_rgba(123,92,255,0.35),inset_0_1px_0_rgba(255,255,255,0.2)]",
+        ].join(" "),
       },
     },
     defaultVariants: {

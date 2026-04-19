@@ -2,10 +2,11 @@ import * as React from "react";
 import { cn } from "@/lib/utils";
 
 /**
- * Input — Raycast dark surface, focus-blue glow.
+ * Input — Aurora Glass.
  *
- * Background is the canvas color (not elevated) so inputs feel "carved in"
- * rather than floating. Focus replaces border with info-blue and adds glow.
+ * Sunk translucent glass over the aurora backdrop. Focus ring switches
+ * to an aurora-violet glow so the keyboard state feels part of the
+ * theme, not a system default.
  */
 const Input = React.forwardRef<HTMLInputElement, React.InputHTMLAttributes<HTMLInputElement>>(
   ({ className, type = "text", ...props }, ref) => (
@@ -13,11 +14,13 @@ const Input = React.forwardRef<HTMLInputElement, React.InputHTMLAttributes<HTMLI
       ref={ref}
       type={type}
       className={cn(
-        "flex h-9 w-full rounded-md bg-canvas px-3 type-body-tight text-fg-primary",
-        "border border-white/[0.08] transition-colors duration-150",
+        "flex h-10 w-full rounded-sm px-3.5 type-body-tight text-fg-primary",
+        "bg-white/[0.04] border border-white/[0.08]",
+        "transition-all duration-200 ease-out",
         "placeholder:text-fg-disabled",
-        "hover:border-white/[0.12]",
-        "focus-visible:outline-none focus-visible:border-info focus-visible:ring-1 focus-visible:ring-info/30",
+        "hover:border-white/[0.14] hover:bg-white/[0.06]",
+        "focus-visible:outline-none focus-visible:border-aurora-violet/50",
+        "focus-visible:shadow-[0_0_0_3px_rgba(123,92,255,0.2),0_0_24px_rgba(123,92,255,0.25)]",
         "disabled:cursor-not-allowed disabled:opacity-40",
         className,
       )}

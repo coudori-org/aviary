@@ -15,17 +15,28 @@ interface NavLinkProps {
   label: string;
 }
 
+/**
+ * NavLink — active state gets an aurora-A gradient wash + left rail,
+ * inactive states stay neutral with a subtle glass hover.
+ */
 function NavLink({ href, active, collapsed, icon, label }: NavLinkProps) {
   return (
     <Link
       href={href}
       className={cn(
-        "flex items-center gap-2.5 rounded-sm px-3 py-2 type-nav transition-colors",
+        "relative flex items-center gap-2.5 rounded-sm px-3 py-2 type-nav",
+        "transition-all duration-200 ease-out",
         active
-          ? "bg-raised text-fg-primary"
-          : "text-fg-muted hover:bg-white/[0.03] hover:text-fg-primary",
+          ? "text-fg-primary bg-aurora-a-soft shadow-[inset_0_1px_0_rgba(255,255,255,0.1)]"
+          : "text-fg-muted hover:bg-white/[0.05] hover:text-fg-primary",
       )}
     >
+      {active && (
+        <span
+          aria-hidden="true"
+          className="absolute left-0 top-1.5 bottom-1.5 w-0.5 rounded-full bg-aurora-a"
+        />
+      )}
       {icon}
       {!collapsed && label}
     </Link>
@@ -37,7 +48,7 @@ export function SidebarNav() {
   const { collapsed } = useSidebar();
 
   return (
-    <div className="flex flex-col gap-0.5 px-3 pb-2">
+    <div className="flex flex-col gap-0.5 px-3 pb-2 pt-2">
       <NavLink
         href={routes.agents}
         active={pathname === routes.agents}

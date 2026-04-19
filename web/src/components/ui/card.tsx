@@ -3,26 +3,30 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
 
 /**
- * Card primitives — DESIGN.md surface system.
+ * Card primitives — Aurora Glass.
+ *
+ * Every variant uses a translucent surface so the aurora backdrop bleeds
+ * through. backdrop-blur is applied via the .glass-* utilities which
+ * @supports-guard against backdrop-filter-less browsers.
  *
  * Variants:
- * - standard:    bg-elevated + subtle border (most common)
- * - elevated:    double-ring shadow (no border) — Raycast signature
- * - feature:     standard + warm glow for hero/featured content
- * - interactive: standard + hover border + cursor
+ * - standard:    4% white glass, hairline border
+ * - elevated:    7% glass with soft drop shadow (floating pane)
+ * - feature:     elevated + violet glow for hero/featured content
+ * - interactive: glass that lifts on hover
  */
 const cardVariants = cva(
   "rounded-lg",
   {
     variants: {
       variant: {
-        standard: "bg-elevated border border-white/[0.06]",
-        elevated: "bg-elevated shadow-2",
-        feature: "bg-elevated border border-white/[0.06] glow-warm",
+        standard: "glass-pane",
+        elevated: "glass-raised shadow-2",
+        feature: "glass-raised shadow-3 glow-violet",
         interactive: [
-          "bg-elevated border border-white/[0.06]",
-          "transition-colors duration-150",
-          "hover:border-white/[0.12]",
+          "glass-pane",
+          "transition-all duration-[320ms] ease-[cubic-bezier(0.16,1,0.3,1)]",
+          "hover:-translate-y-[1px] hover:bg-white/[0.08] hover:shadow-3",
           "cursor-pointer",
         ].join(" "),
       },

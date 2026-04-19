@@ -15,31 +15,31 @@ import { SidebarUser } from "./sidebar-user";
 import { cn } from "@/lib/utils";
 
 /**
- * Sidebar — assembles brand, search, nav, sessions, and user sections.
+ * Sidebar — translucent glass rail sitting on the aurora backdrop.
  *
- * The search hook lives at this level so it can both:
- *   - Filter the in-memory groups (instant, used by SidebarSessions)
- *   - Trigger debounced backend message search (results in SearchResults)
- *
- * View mode (by-agent vs by-date) is controlled by SidebarProvider and
- * persisted to localStorage. SidebarViewToggle flips between the two
- * dedicated rendering components.
+ * backdrop-blur picks up the drifting colour. The thin gradient hairline
+ * on the right edge keeps the rail visually distinct from the main pane
+ * without introducing a hard line.
  */
 export function Sidebar() {
   const { mode, groups, collapsed, viewMode } = useSidebar();
-  // Search only targets chat agents/sessions — not exposed in workflow
-  // mode. The search hook is cheap when there's no query, so we still
-  // call it unconditionally to keep hook order stable.
   const search = useSidebarSearch(groups);
   const isWorkflowMode = mode === "workflows";
 
   return (
     <aside
       className={cn(
-        "flex shrink-0 flex-col border-r border-white/[0.06] bg-elevated transition-all duration-200",
+        "relative flex shrink-0 flex-col transition-all duration-[320ms] ease-[cubic-bezier(0.16,1,0.3,1)]",
+        "glass-deep",
         collapsed ? "w-16" : "w-[17.5rem]",
       )}
     >
+      {/* Gradient right-edge hairline — aurora-A fade */}
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute right-0 top-0 h-full w-px bg-gradient-to-b from-aurora-violet/30 via-aurora-pink/20 to-transparent"
+      />
+
       <SidebarBrand />
 
       {!collapsed && !isWorkflowMode && (

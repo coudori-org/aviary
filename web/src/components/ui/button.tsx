@@ -3,65 +3,62 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
 
 /**
- * Button — Raycast-inspired variants.
+ * Button — Aurora Glass.
  *
- * - primary:   pill, transparent, multi-layer inset shadow, hover via opacity
- * - cta:       pill, white background, dark text — for hero CTAs
- * - secondary: rectangular 6px, subtle border, opacity hover
- * - ghost:     no background, muted → primary on hover
- * - danger:    transparent with red glow border
- * - icon:      square 32px, 6px radius, hover background
+ * - primary:   aurora-A gradient fill with violet glow + continuous sheen
+ * - cta:       same as primary — louder drop shadow
+ * - secondary: translucent glass pane, hairline border
+ * - ghost:     no fill, muted → primary on hover
+ * - danger:    pink-tinted glass with danger glow
+ * - icon:      square glass tile
  *
- * Following DESIGN.md, hover transitions use opacity rather than color swaps.
+ * Hover states lift (-1px translateY) + amplify glow. All transitions use
+ * 320ms cubic-bezier(0.16, 1, 0.3, 1) — generous but not slow.
  */
 const buttonVariants = cva(
   [
     "inline-flex items-center justify-center gap-2 whitespace-nowrap select-none",
-    "transition-[opacity,transform,background,border-color] duration-150",
-    "disabled:pointer-events-none disabled:opacity-30",
-    "focus-visible:outline-none",
-    "active:scale-[0.98]",
+    "transition-all duration-[320ms] ease-[cubic-bezier(0.16,1,0.3,1)]",
+    "disabled:pointer-events-none disabled:opacity-40",
+    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-aurora-violet/50 focus-visible:ring-offset-2 focus-visible:ring-offset-canvas",
+    "active:translate-y-0 active:scale-[0.98]",
   ].join(" "),
   {
     variants: {
       variant: {
         primary: [
-          "type-button",
-          "rounded-pill",
-          "text-fg-primary",
-          "shadow-3",
-          "hover:opacity-60",
+          "type-button rounded-pill",
+          "bg-aurora-a animate-aurora-sheen",
+          "text-white",
+          "shadow-[0_0_32px_rgba(123,92,255,0.35),inset_0_1px_0_rgba(255,255,255,0.2)]",
+          "hover:-translate-y-[1px] hover:shadow-[0_0_44px_rgba(123,92,255,0.5),inset_0_1px_0_rgba(255,255,255,0.25)]",
         ].join(" "),
         cta: [
-          "type-button",
-          "rounded-pill",
-          "bg-white/[0.815] text-fg-on-light",
-          "shadow-3",
-          "hover:bg-white",
+          "type-button rounded-pill",
+          "bg-aurora-a animate-aurora-sheen",
+          "text-white",
+          "shadow-[0_8px_28px_rgba(123,92,255,0.45),inset_0_1px_0_rgba(255,255,255,0.2)]",
+          "hover:-translate-y-[1px] hover:shadow-[0_12px_40px_rgba(123,92,255,0.6),inset_0_1px_0_rgba(255,255,255,0.25)]",
         ].join(" "),
         secondary: [
-          "type-button",
-          "rounded-sm border border-white/10",
-          "text-fg-primary",
-          "shadow-1",
-          "hover:opacity-60",
+          "type-button rounded-pill",
+          "glass-raised text-fg-primary",
+          "hover:-translate-y-[1px] hover:bg-white/[0.11]",
         ].join(" "),
         ghost: [
-          "type-button",
-          "rounded-pill",
+          "type-button rounded-pill",
           "text-fg-muted",
-          "hover:text-fg-primary hover:opacity-90",
+          "hover:text-fg-primary hover:bg-white/[0.05]",
         ].join(" "),
         danger: [
-          "type-button",
-          "rounded-sm border border-danger/30 bg-danger/10",
-          "text-danger",
-          "hover:bg-danger/20",
+          "type-button rounded-pill",
+          "bg-aurora-pink/15 border border-aurora-pink/30 text-aurora-pink",
+          "hover:bg-aurora-pink/25 hover:shadow-[0_0_20px_rgba(255,79,184,0.35)]",
         ].join(" "),
         icon: [
           "rounded-sm",
           "text-fg-muted",
-          "hover:bg-raised hover:text-fg-primary",
+          "hover:bg-white/[0.07] hover:text-fg-primary",
         ].join(" "),
       },
       size: {

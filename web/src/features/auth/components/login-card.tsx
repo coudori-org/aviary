@@ -9,8 +9,10 @@ import { AviaryLogo } from "@/components/brand/aviary-logo";
 import { routes } from "@/lib/constants/routes";
 
 /**
- * LoginCard — branded sign-in entry. Raycast-style: dark canvas with a
- * subtle warm-glow card, diagonal stripe accent, single CTA.
+ * LoginCard — Aurora Glass hero moment.
+ *
+ * The aurora backdrop is already painted globally; here we layer a
+ * deeper glass card on top with a gradient border and a prominent CTA.
  */
 export function LoginCard() {
   const { user, status, login } = useAuth();
@@ -26,43 +28,47 @@ export function LoginCard() {
 
   return (
     <div className="relative flex min-h-screen flex-col items-center justify-center px-6 overflow-hidden">
-      {/* Decorative diagonal stripes — Raycast brand element */}
-      <div
-        className="pointer-events-none absolute inset-x-0 top-0 h-64 stripe-pattern opacity-40"
-        aria-hidden="true"
-      />
-
       <div className="relative flex flex-col items-center gap-10 animate-fade-in">
         {/* Logo + brand */}
-        <div className="flex flex-col items-center gap-4">
-          <AviaryLogo size={96} />
-          <div className="flex flex-col items-center gap-1">
-            <h1 className="type-card-heading text-fg-primary">Aviary</h1>
-            <p className="type-caption text-fg-muted">AI Agent Platform</p>
+        <div className="flex flex-col items-center gap-5">
+          <div className="relative">
+            <AviaryLogo size={104} />
+            <div
+              aria-hidden="true"
+              className="absolute inset-0 -z-10 rounded-full bg-aurora-a blur-3xl opacity-40"
+            />
+          </div>
+          <div className="flex flex-col items-center gap-2">
+            <h1 className="type-display text-aurora-a">Aviary</h1>
+            <p className="type-caption text-fg-muted tracking-[0.18em] uppercase">
+              AI Agent Platform
+            </p>
           </div>
         </div>
 
-        {/* Sign-in card */}
-        <div className="w-full max-w-sm rounded-xl bg-elevated shadow-2 glow-warm p-8">
-          <Button
-            variant="cta"
-            size="lg"
-            onClick={login}
-            disabled={isLoading}
-            className="w-full"
-          >
-            {isLoading ? (
-              <>
-                <Spinner size={16} className="text-fg-on-light" />
-                Connecting…
-              </>
-            ) : (
-              "Sign in with SSO"
-            )}
-          </Button>
-          <p className="mt-4 text-center type-caption text-fg-muted">
-            Authenticate via your organization&apos;s identity provider
-          </p>
+        {/* Sign-in card — deep glass + aurora hairline border */}
+        <div className="w-full max-w-sm gradient-border-a rounded-xl">
+          <div className="glass-deep rounded-xl shadow-4 p-8">
+            <Button
+              variant="cta"
+              size="lg"
+              onClick={login}
+              disabled={isLoading}
+              className="w-full"
+            >
+              {isLoading ? (
+                <>
+                  <Spinner size={16} className="text-white" />
+                  Connecting…
+                </>
+              ) : (
+                "Sign in with SSO"
+              )}
+            </Button>
+            <p className="mt-5 text-center type-caption text-fg-muted">
+              Authenticate via your organization&apos;s identity provider
+            </p>
+          </div>
         </div>
       </div>
     </div>
