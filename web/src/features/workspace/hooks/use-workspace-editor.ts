@@ -17,6 +17,7 @@ export interface EditorTab {
   draft: string | null;
   isBinary: boolean;
   size: number;
+  pinned: boolean;
 }
 
 export type SaveResult =
@@ -29,8 +30,10 @@ interface UseWorkspaceEditorResult {
   tabs: EditorTab[];
   activeTabPath: string | null;
   activeTab: EditorTab | null;
-  openFile: (path: string) => Promise<void>;
+  openFile: (path: string, opts?: { pin?: boolean }) => Promise<void>;
+  pinTab: (path: string) => void;
   closeTab: (path: string) => void;
+  closePaths: (paths: string[]) => void;
   activate: (path: string) => void;
   setDraft: (path: string, value: string) => void;
   save: (path: string, overrideOverwrite?: { expectedMtime: number | null }) => Promise<SaveResult>;
@@ -40,7 +43,7 @@ interface UseWorkspaceEditorResult {
   isTabDirty: (path: string) => boolean;
 }
 
-const emptyTab = (path: string): EditorTab => ({
+const emptyTab = (path: string, pinned: boolean): EditorTab => ({
   path,
   loading: true,
   error: null,
@@ -49,6 +52,7 @@ const emptyTab = (path: string): EditorTab => ({
   draft: null,
   isBinary: false,
   size: 0,
+  pinned,
 });
 
 export function useWorkspaceEditor(sessionId: string): UseWorkspaceEditorResult {
@@ -106,16 +110,42 @@ export function useWorkspaceEditor(sessionId: string): UseWorkspaceEditorResult 
   );
 
   const openFile = useCallback(
-    async (path: string) => {
+    async (path: string, opts?: { pin?: boolean }) => {
+      const pin = !!opts?.pin;
+      let shouldLoad = true;
       setTabs((prev) => {
-        if (prev.some((t) => t.path === path)) return prev;
-        return [...prev, emptyTab(path)];
+        const existing = prev.find((t) => t.path === path);
+        if (existing) {
+          shouldLoad = false;
+          if (pin && !existing.pinned) {
+            return prev.map((t) => (t.path === path ? { ...t, pinned: true } : t));
+          }
+          return prev;
+        }
+        const newTab = emptyTab(path, pin);
+        // Preview mode: replace the single unpinned tab if present.
+        if (!pin) {
+          const previewIdx = prev.findIndex((t) => !t.pinned);
+          if (previewIdx >= 0) {
+            const next = [...prev];
+            next[previewIdx] = newTab;
+            generationsRef.current.delete(prev[previewIdx].path);
+            return next;
+          }
+        }
+        return [...prev, newTab];
       });
       setActiveTabPath(path);
-      await loadFile(path);
+      if (shouldLoad) await loadFile(path);
     },
     [loadFile],
   );
+
+  const pinTab = useCallback((path: string) => {
+    setTabs((prev) =>
+      prev.map((t) => (t.path === path && !t.pinned ? { ...t, pinned: true } : t)),
+    );
+  }, []);
 
   const closeTab = useCallback((path: string) => {
     setTabs((prev) => {
@@ -131,16 +161,38 @@ export function useWorkspaceEditor(sessionId: string): UseWorkspaceEditorResult 
     generationsRef.current.delete(path);
   }, [activeTabPath]);
 
+  const closePaths = useCallback((paths: string[]) => {
+    if (paths.length === 0) return;
+    const pathSet = new Set(paths);
+    setTabs((prev) => {
+      const next = prev.filter((t) => !pathSet.has(t.path));
+      if (activeTabPath && pathSet.has(activeTabPath)) {
+        const activeIdx = prev.findIndex((t) => t.path === activeTabPath);
+        // Nearest surviving tab: prefer the one to the right, else left.
+        const nextActive =
+          prev.slice(activeIdx + 1).find((t) => !pathSet.has(t.path)) ??
+          prev.slice(0, activeIdx).reverse().find((t) => !pathSet.has(t.path)) ??
+          null;
+        setActiveTabPath(nextActive ? nextActive.path : null);
+      }
+      return next;
+    });
+    for (const p of paths) generationsRef.current.delete(p);
+  }, [activeTabPath]);
+
   const activate = useCallback((path: string) => {
     setActiveTabPath(path);
   }, []);
 
+  // Auto-pin on first edit: once the tab has uncommitted content the user
+  // clearly cares about it, so it shouldn't be replaced by the next preview.
   const setDraft = useCallback((path: string, value: string) => {
     setTabs((prev) =>
       prev.map((t) => {
         if (t.path !== path) return t;
         const draft = value === t.savedContent ? null : value;
-        return { ...t, draft };
+        const pinned = t.pinned || draft !== null;
+        return { ...t, draft, pinned };
       }),
     );
   }, []);
@@ -215,7 +267,9 @@ export function useWorkspaceEditor(sessionId: string): UseWorkspaceEditorResult 
     activeTabPath,
     activeTab,
     openFile,
+    pinTab,
     closeTab,
+    closePaths,
     activate,
     setDraft,
     save,

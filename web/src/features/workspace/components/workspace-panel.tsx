@@ -85,9 +85,9 @@ export function WorkspacePanel({ sessionId, onClose, refreshSignal = 0 }: Worksp
   const hasOpenTabs = editor.tabs.length > 0;
 
   const openFile = useCallback(
-    (path: string) => {
+    (path: string, opts?: { pin?: boolean }) => {
       setEditorCollapsed(false);
-      void editor.openFile(path);
+      void editor.openFile(path, opts);
     },
     [editor],
   );
@@ -186,6 +186,72 @@ export function WorkspacePanel({ sessionId, onClose, refreshSignal = 0 }: Worksp
       });
     },
     [editor, doSave],
+  );
+
+  const handleCloseMany = useCallback(
+    (paths: string[]) => {
+      if (paths.length === 0) return;
+      const dirty = paths.filter((p) => editor.isTabDirty(p));
+      if (dirty.length === 0) {
+        editor.closePaths(paths);
+        return;
+      }
+      setConfirmState({
+        title: "Discard unsaved changes?",
+        body: `${dirty.length} file${dirty.length > 1 ? "s have" : " has"} unsaved changes:\n${dirty.map((p) => basename(p)).join(", ")}`,
+        confirmLabel: "Discard & Close",
+        danger: true,
+        onConfirm: () => {
+          setConfirmState(null);
+          editor.closePaths(paths);
+        },
+      });
+    },
+    [editor],
+  );
+
+  const handleTabContextMenu = useCallback(
+    (e: React.MouseEvent, path: string) => {
+      const idx = editor.tabs.findIndex((t) => t.path === path);
+      if (idx === -1) return;
+      const allPaths = editor.tabs.map((t) => t.path);
+      const others = allPaths.filter((p) => p !== path);
+      const rightPaths = allPaths.slice(idx + 1);
+      const leftPaths = allPaths.slice(0, idx);
+      const tab = editor.tabs[idx];
+      const items: ContextMenuItem[] = [
+        { id: "close", label: "Close", onSelect: () => handleCloseTab(path) },
+        { id: "close-others", label: "Close Others", onSelect: () => handleCloseMany(others) },
+      ];
+      if (rightPaths.length > 0) {
+        items.push({
+          id: "close-right",
+          label: "Close to the Right",
+          onSelect: () => handleCloseMany(rightPaths),
+        });
+      }
+      if (leftPaths.length > 0) {
+        items.push({
+          id: "close-left",
+          label: "Close to the Left",
+          onSelect: () => handleCloseMany(leftPaths),
+        });
+      }
+      items.push({
+        id: "close-all",
+        label: "Close All",
+        onSelect: () => handleCloseMany(allPaths),
+      });
+      if (!tab.pinned) {
+        items.push({
+          id: "pin",
+          label: "Keep Open",
+          onSelect: () => editor.pinTab(path),
+        });
+      }
+      setContextMenu({ x: e.clientX, y: e.clientY, items });
+    },
+    [editor, handleCloseTab, handleCloseMany],
   );
 
   const refreshParent = useCallback(
@@ -363,7 +429,7 @@ export function WorkspacePanel({ sessionId, onClose, refreshSignal = 0 }: Worksp
           id: "open",
           label: "Open",
           icon: "open",
-          onSelect: () => openFile(path),
+          onSelect: () => openFile(path, { pin: true }),
         });
       }
       if (isDir) {
@@ -399,6 +465,7 @@ export function WorkspacePanel({ sessionId, onClose, refreshSignal = 0 }: Worksp
   const ui: TreeInteractions = {
     activeFilePath: editor.activeTabPath,
     onFileClick: openFile,
+    onFileDoubleClick: (p) => openFile(p, { pin: true }),
     onContextMenu: handleContextMenu,
     renamingPath,
     onSubmitRename: (p, v) => void submitRename(p, v),
@@ -442,6 +509,8 @@ export function WorkspacePanel({ sessionId, onClose, refreshSignal = 0 }: Worksp
             activeTabPath={editor.activeTabPath}
             onActivate={editor.activate}
             onClose={handleCloseTab}
+            onPin={editor.pinTab}
+            onContextMenu={handleTabContextMenu}
             onCollapseEditor={() => setEditorCollapsed(true)}
           />
           {error && (

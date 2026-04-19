@@ -13,6 +13,7 @@ export type PendingNew = { parent: string; mode: "file" | "dir" } | null;
 export interface TreeInteractions {
   activeFilePath: string | null;
   onFileClick: (path: string) => void;
+  onFileDoubleClick: (path: string) => void;
   onContextMenu: (e: React.MouseEvent, payload: {
     path: string;
     entry: TreeEntry | null; // null for root
@@ -71,6 +72,9 @@ export const TreeNode = memo(function TreeNode({
         role="button"
         tabIndex={0}
         onClick={handleClick}
+        onDoubleClick={() => {
+          if (!isDir) ui.onFileDoubleClick(path);
+        }}
         onKeyDown={(e) => {
           if (e.key === "Enter" || e.key === " ") {
             e.preventDefault();

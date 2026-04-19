@@ -10,16 +10,21 @@ interface EditorTabsProps {
   activeTabPath: string | null;
   onActivate: (path: string) => void;
   onClose: (path: string) => void;
+  onPin: (path: string) => void;
+  onContextMenu: (e: React.MouseEvent, path: string) => void;
   onCollapseEditor: () => void;
 }
 
-export function EditorTabs({ tabs, activeTabPath, onActivate, onClose, onCollapseEditor }: EditorTabsProps) {
+export function EditorTabs({
+  tabs, activeTabPath, onActivate, onClose, onPin, onContextMenu, onCollapseEditor,
+}: EditorTabsProps) {
   return (
     <div className="flex shrink-0 items-stretch border-b border-white/[0.06] bg-base">
       <div className="flex min-w-0 flex-1 items-stretch overflow-x-auto">
       {tabs.map((tab) => {
         const active = tab.path === activeTabPath;
         const dirty = tab.draft !== null;
+        const preview = !tab.pinned;
         return (
           <div
             key={tab.path}
@@ -27,6 +32,11 @@ export function EditorTabs({ tabs, activeTabPath, onActivate, onClose, onCollaps
             aria-selected={active}
             tabIndex={0}
             onClick={() => onActivate(tab.path)}
+            onDoubleClick={() => onPin(tab.path)}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              onContextMenu(e, tab.path);
+            }}
             onAuxClick={(e) => {
               if (e.button === 1) {
                 e.preventDefault();
@@ -41,7 +51,14 @@ export function EditorTabs({ tabs, activeTabPath, onActivate, onClose, onCollaps
             )}
             title={sandboxPath(tab.path)}
           >
-            <span className="truncate max-w-[160px] font-mono">{basename(tab.path)}</span>
+            <span
+              className={cn(
+                "truncate max-w-[160px] font-mono",
+                preview && "italic",
+              )}
+            >
+              {basename(tab.path)}
+            </span>
             {dirty && (
               <span
                 aria-label="Unsaved changes"
