@@ -63,7 +63,7 @@ export function WorkspaceContextMenu({ x, y, items, onClose }: WorkspaceContextM
     <div
       ref={ref}
       role="menu"
-      className="fixed z-50 min-w-[180px] rounded-md border border-white/10 bg-base py-1 shadow-xl"
+      className="fixed z-50 min-w-[180px] rounded-md border border-white/10 bg-elevated py-1 shadow-xl"
       style={{ left: pos.left, top: pos.top }}
     >
       {items.map((item) => (

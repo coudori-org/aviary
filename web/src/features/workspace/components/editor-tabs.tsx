@@ -19,7 +19,7 @@ export function EditorTabs({
   tabs, activeTabPath, onActivate, onClose, onPin, onContextMenu, onCollapseEditor,
 }: EditorTabsProps) {
   return (
-    <div className="flex shrink-0 items-stretch border-b border-white/[0.06] bg-base">
+    <div className="flex shrink-0 items-stretch border-b border-white/[0.06] bg-elevated">
       <div className="flex min-w-0 flex-1 items-stretch overflow-x-auto">
       {tabs.map((tab) => {
         const active = tab.path === activeTabPath;

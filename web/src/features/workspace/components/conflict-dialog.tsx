@@ -43,7 +43,7 @@ export function ConflictDialog({
       aria-modal="true"
     >
       <div
-        className="w-[min(420px,90vw)] rounded-md border border-white/10 bg-base p-4 shadow-xl"
+        className="w-[min(420px,90vw)] rounded-md border border-white/10 bg-elevated p-4 shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
         <h2 className="type-body font-semibold text-fg-primary">{title}</h2>

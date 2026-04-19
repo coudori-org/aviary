@@ -477,7 +477,7 @@ export function WorkspacePanel({ sessionId, onClose, refreshSignal = 0 }: Worksp
 
   return (
     <aside
-      className="relative flex h-full shrink-0 bg-base"
+      className="relative flex h-full shrink-0 bg-canvas"
       style={{ width: panelWidth }}
     >
       <ResizeHandle onMouseDown={onMouseDown} active={isResizing} />
