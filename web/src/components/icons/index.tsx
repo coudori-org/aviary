@@ -30,12 +30,18 @@ export {
 
   // Files / IO
   FileText,
+  File,
+  FileCode,
+  FileJson,
+  FileImage,
   ImagePlus,
   Printer,
   Download,
   Upload,
   Folder,
   FolderOpen,
+  FolderTree,
+  EyeOff,
 
   // Communication
   MessageSquare,

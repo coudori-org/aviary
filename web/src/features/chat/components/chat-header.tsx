@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowLeft, Pencil, Printer, FileText } from "@/components/icons";
+import { ArrowLeft, Pencil, Printer, FileText, FolderTree } from "@/components/icons";
 import { routes } from "@/lib/constants/routes";
 import { STATUS_LABELS } from "./chat-status-banner";
 import { ChatWidthToggle } from "./chat-width-toggle";
@@ -40,6 +40,8 @@ interface ChatHeaderProps {
   onPrintVisual: () => void;
   onExportText: () => void;
   titleEditor: ReturnType<typeof useTitleEditor>;
+  workspaceOpen: boolean;
+  onToggleWorkspace: () => void;
 }
 
 /**
@@ -53,6 +55,8 @@ export function ChatHeader({
   onPrintVisual,
   onExportText,
   titleEditor,
+  workspaceOpen,
+  onToggleWorkspace,
 }: ChatHeaderProps) {
   const { isEditing, draft, setDraft, inputRef, startEditing, save, handleKeyDown } = titleEditor;
   const { widthClass } = useChatWidth();
@@ -117,6 +121,22 @@ export function ChatHeader({
             aria-label="Export chat as text"
           >
             <FileText size={14} strokeWidth={1.75} />
+          </button>
+
+          <button
+            type="button"
+            onClick={onToggleWorkspace}
+            className={cn(
+              "flex h-7 w-7 items-center justify-center rounded-xs transition-colors",
+              workspaceOpen
+                ? "bg-raised text-fg-primary"
+                : "text-fg-muted hover:bg-raised hover:text-fg-primary",
+            )}
+            title={workspaceOpen ? "Hide workspace panel" : "Show workspace panel"}
+            aria-label="Toggle workspace panel"
+            aria-pressed={workspaceOpen}
+          >
+            <FolderTree size={14} strokeWidth={1.75} />
           </button>
 
           <div className="flex items-center gap-2">

@@ -69,6 +69,7 @@ def test_tree_proxies_payload_and_forwards_params(client):
             headers=_AUTH,
             json={
                 "runtime_endpoint": "http://runtime-x:3000",
+                "agent_id": "agent-1",
                 "path": "/src",
                 "include_hidden": True,
             },
@@ -80,7 +81,22 @@ def test_tree_proxies_payload_and_forwards_params(client):
         "session_id": "s-1",
         "path": "/src",
         "include_hidden": "1",
+        "agent_id": "agent-1",
     }
+
+
+def test_tree_omits_agent_id_when_missing(client):
+    """Supervisor lets the runtime enforce agent_id requirements; it doesn't
+    second-guess when the caller leaves it null (root listings don't need it)."""
+    captured: dict = {}
+    with _patch_auth(), _patch_runtime({"path": "/", "entries": []}, captured=captured):
+        resp = client.post(
+            "/v1/sessions/s-1/workspace/tree",
+            headers=_AUTH,
+            json={"path": "/"},
+        )
+    assert resp.status_code == 200
+    assert "agent_id" not in captured["params"]
 
 
 def test_tree_propagates_runtime_4xx(client):
@@ -121,11 +137,15 @@ def test_file_proxies_payload(client):
         resp = client.post(
             "/v1/sessions/s-1/workspace/file",
             headers=_AUTH,
-            json={"path": "/hello.txt"},
+            json={"agent_id": "agent-1", "path": "/hello.txt"},
         )
     assert resp.status_code == 200
     assert resp.json() == payload
-    assert captured["params"] == {"session_id": "s-1", "path": "/hello.txt"}
+    assert captured["params"] == {
+        "session_id": "s-1",
+        "path": "/hello.txt",
+        "agent_id": "agent-1",
+    }
 
 
 def test_file_requires_path(client):
@@ -133,7 +153,6 @@ def test_file_requires_path(client):
         resp = client.post(
             "/v1/sessions/s-1/workspace/file", headers=_AUTH, json={},
         )
-    # Missing required `path` → FastAPI 422.
     assert resp.status_code == 422
 
 

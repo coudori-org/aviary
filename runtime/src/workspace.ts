@@ -1,20 +1,16 @@
 /**
- * Session workspace browse — read-only directory listing + file read for the
- * Web UI's file-tree panel. Operates on the per-session shared dir
- * (`/workspace-root/sessions/{sid}/shared`) that every agent in the session
- * sees as `/workspace` inside bubblewrap.
+ * Read-only workspace browse for the Web UI's file-tree panel.
  *
- * Security: every caller-supplied path is resolved against the session base
- * dir; results that escape that base (via `..`, absolute paths, or symlinks
- * pointing outside) are rejected. Runtime trusts the supervisor for auth.
+ * `/.claude` and `/.venv` are bind-mounted per-agent inside the bubblewrap
+ * sandbox; on the pod those copies in `sessions/{sid}/shared/` are empty
+ * mount points. Reads of those virtual prefixes redirect to
+ * `sessions/{sid}/agents/{aid}/` so the tree shows the real contents.
  */
 
 import * as fs from "node:fs";
 import * as path from "node:path";
 
-import { sessionSharedDir } from "./constants.js";
-
-export const DEFAULT_HIDDEN_NAMES = new Set([".claude", ".venv", ".cache"]);
+import { sessionClaudeDir, sessionSharedDir, sessionVenvDir } from "./constants.js";
 
 const DEFAULT_MAX_FILE_BYTES = 2 * 1024 * 1024; // 2 MiB
 
@@ -54,11 +50,13 @@ export class WorkspaceError extends Error {
   }
 }
 
-/** Normalize a caller-supplied relative path. "/", "", ".", and "./" all mean
- *  the session root. Anything absolute is rebased — we treat `/foo/bar` and
- *  `foo/bar` the same. The returned value is always resolved strictly under
- *  `base`; traversal attempts throw WorkspaceError("invalid_path"). */
-export function resolveInsideBase(base: string, rel: string): string {
+// Dot-prefix directories are hidden by default; dot-files (.gitignore, .env)
+// stay visible. `include_hidden` surfaces hidden dirs with hidden:true.
+function isHiddenEntry(name: string, isDir: boolean): boolean {
+  return isDir && name.startsWith(".");
+}
+
+function resolveInsideBase(base: string, rel: string): string {
   const stripped = (rel ?? "").replace(/^\/+/, "");
   const joined = path.resolve(base, stripped);
   const baseResolved = path.resolve(base);
@@ -68,23 +66,67 @@ export function resolveInsideBase(base: string, rel: string): string {
   return joined;
 }
 
-/** 1-depth directory listing. Default-hidden names are filtered unless
- *  `includeHidden` is true, in which case they appear with `hidden: true`. */
+interface ResolvedPath {
+  /** Base dir on the pod filesystem — used for traversal check + relativizing. */
+  diskBase: string;
+  /** Prefix in the user-facing virtual layout ("/", "/.claude", "/.venv"). */
+  virtualBase: string;
+  abs: string;
+}
+
+function resolvePath(
+  sessionId: string,
+  agentId: string | null,
+  rel: string,
+): ResolvedPath {
+  const stripped = (rel ?? "").replace(/^\/+/, "");
+  const firstSlash = stripped.indexOf("/");
+  const head = firstSlash === -1 ? stripped : stripped.slice(0, firstSlash);
+  const tail = firstSlash === -1 ? "" : stripped.slice(firstSlash + 1);
+
+  if (head === ".claude" || head === ".venv") {
+    if (!agentId) {
+      throw new WorkspaceError(
+        "invalid_path",
+        `agent_id is required to read ${head}`,
+      );
+    }
+    const diskBase = head === ".claude"
+      ? sessionClaudeDir(sessionId, agentId)
+      : sessionVenvDir(sessionId, agentId);
+    fs.mkdirSync(diskBase, { recursive: true });
+    const abs = tail ? resolveInsideBase(diskBase, tail) : path.resolve(diskBase);
+    return { diskBase, virtualBase: "/" + head, abs };
+  }
+
+  const diskBase = sessionSharedDir(sessionId);
+  fs.mkdirSync(diskBase, { recursive: true });
+  const abs = resolveInsideBase(diskBase, stripped);
+  return { diskBase, virtualBase: "/", abs };
+}
+
+function toVirtualPath(resolved: ResolvedPath): string {
+  const rel = path.relative(resolved.diskBase, resolved.abs);
+  const segments = rel.split(path.sep).filter(Boolean);
+  if (resolved.virtualBase === "/") {
+    return segments.length === 0 ? "/" : "/" + segments.join("/");
+  }
+  return segments.length === 0
+    ? resolved.virtualBase
+    : resolved.virtualBase + "/" + segments.join("/");
+}
+
 export function listTree(
   sessionId: string,
+  agentId: string | null,
   relPath: string,
   includeHidden: boolean,
 ): TreeListing {
-  const base = sessionSharedDir(sessionId);
-  // Ensure the session base exists — callers expect a clean empty tree on a
-  // fresh session rather than 404.
-  fs.mkdirSync(base, { recursive: true });
-
-  const abs = resolveInsideBase(base, relPath);
+  const resolved = resolvePath(sessionId, agentId, relPath);
 
   let stat: fs.Stats;
   try {
-    stat = fs.lstatSync(abs);
+    stat = fs.lstatSync(resolved.abs);
   } catch {
     throw new WorkspaceError("not_found", "path not found");
   }
@@ -95,27 +137,27 @@ export function listTree(
     throw new WorkspaceError("not_a_directory", "path is not a directory");
   }
 
-  const names = fs.readdirSync(abs);
   const entries: TreeEntry[] = [];
-  for (const name of names) {
-    const isHidden = DEFAULT_HIDDEN_NAMES.has(name);
-    if (isHidden && !includeHidden) continue;
-
+  for (const name of fs.readdirSync(resolved.abs)) {
     let child: fs.Stats;
     try {
-      child = fs.lstatSync(path.join(abs, name));
+      child = fs.lstatSync(path.join(resolved.abs, name));
     } catch {
       continue;
     }
     if (child.isSymbolicLink()) continue;
     if (!child.isFile() && !child.isDirectory()) continue;
 
+    const isDir = child.isDirectory();
+    const isHidden = isHiddenEntry(name, isDir);
+    if (isHidden && !includeHidden) continue;
+
     const entry: TreeEntry = {
       name,
-      type: child.isDirectory() ? "dir" : "file",
+      type: isDir ? "dir" : "file",
       mtime: Math.floor(child.mtimeMs),
     };
-    if (child.isFile()) entry.size = child.size;
+    if (!isDir) entry.size = child.size;
     if (isHidden) entry.hidden = true;
     entries.push(entry);
   }
@@ -125,22 +167,19 @@ export function listTree(
     return a.name.localeCompare(b.name);
   });
 
-  const normalized = "/" + path.relative(base, abs).split(path.sep).filter(Boolean).join("/");
-  return { path: normalized === "/" ? "/" : normalized, entries };
+  return { path: toVirtualPath(resolved), entries };
 }
 
-/** Read a single file under the session workspace. Binary files return
- *  `isBinary: true` with empty `content`. Files over the size cap are
- *  refused with `too_large`. */
-export function readFile(sessionId: string, relPath: string): FileContents {
-  const base = sessionSharedDir(sessionId);
-  fs.mkdirSync(base, { recursive: true });
-
-  const abs = resolveInsideBase(base, relPath);
+export function readFile(
+  sessionId: string,
+  agentId: string | null,
+  relPath: string,
+): FileContents {
+  const resolved = resolvePath(sessionId, agentId, relPath);
 
   let stat: fs.Stats;
   try {
-    stat = fs.lstatSync(abs);
+    stat = fs.lstatSync(resolved.abs);
   } catch {
     throw new WorkspaceError("not_found", "file not found");
   }
@@ -156,12 +195,11 @@ export function readFile(sessionId: string, relPath: string): FileContents {
     throw new WorkspaceError("too_large", `file exceeds ${max} bytes`);
   }
 
-  const buf = fs.readFileSync(abs);
+  const buf = fs.readFileSync(resolved.abs);
   const isBinary = looksBinary(buf);
 
-  const normalized = "/" + path.relative(base, abs).split(path.sep).filter(Boolean).join("/");
   return {
-    path: normalized,
+    path: toVirtualPath(resolved),
     content: isBinary ? "" : buf.toString("utf8"),
     encoding: "utf8",
     size: stat.size,
@@ -171,9 +209,7 @@ export function readFile(sessionId: string, relPath: string): FileContents {
   };
 }
 
-// A NUL byte in the first ~8KB is the classic heuristic git/grep use to
-// classify a file as binary. Good enough for "should the editor try to
-// render this as text?" — callers that really need precision can re-check.
+// NUL byte in the first 8 KB — same heuristic git/grep use for binary detection.
 function looksBinary(buf: Buffer): boolean {
   const n = Math.min(buf.length, 8192);
   for (let i = 0; i < n; i++) {

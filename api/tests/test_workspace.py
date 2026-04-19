@@ -23,7 +23,7 @@ async def _create_session(client: AsyncClient) -> tuple[str, str]:
 
 @pytest.mark.asyncio
 async def test_tree_owner_sees_runtime_payload(user1_client: AsyncClient):
-    _, session_id = await _create_session(user1_client)
+    agent_id, session_id = await _create_session(user1_client)
 
     payload = {"path": "/", "entries": [{"name": "README.md", "type": "file"}]}
     mock = AsyncMock(return_value=(200, payload))
@@ -33,16 +33,17 @@ async def test_tree_owner_sees_runtime_payload(user1_client: AsyncClient):
     assert resp.status_code == 200
     assert resp.json() == payload
     assert mock.await_count == 1
-    args, kwargs = mock.await_args
-    # Positional: (session_id, user_token, runtime_endpoint, path, include_hidden)
+    args, _ = mock.await_args
+    # Positional: (session_id, user_token, runtime_endpoint, agent_id, path, include_hidden)
     assert args[0] == session_id
-    assert args[3] == "/"
-    assert args[4] is False
+    assert args[3] == agent_id
+    assert args[4] == "/"
+    assert args[5] is False
 
 
 @pytest.mark.asyncio
 async def test_tree_forwards_query_params(user1_client: AsyncClient):
-    _, session_id = await _create_session(user1_client)
+    agent_id, session_id = await _create_session(user1_client)
 
     mock = AsyncMock(return_value=(200, {"path": "/src", "entries": []}))
     with patch("app.services.agent_supervisor.fetch_workspace_tree", mock):
@@ -52,8 +53,9 @@ async def test_tree_forwards_query_params(user1_client: AsyncClient):
         )
     assert resp.status_code == 200
     args, _ = mock.await_args
-    assert args[3] == "/src"
-    assert args[4] is True
+    assert args[3] == agent_id
+    assert args[4] == "/src"
+    assert args[5] is True
 
 
 @pytest.mark.asyncio

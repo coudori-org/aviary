@@ -34,4 +34,6 @@ WORKDIR /workspace/agent-supervisor
 
 EXPOSE 9000
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "9000"]
+# `--reload` pairs with the bind-mounted source in docker-compose.yml so code
+# edits land without a container restart. Prod deployments override CMD.
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "9000", "--reload"]

@@ -1,9 +1,16 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { StreamBlock, TextBlock, ThinkingBlock, ToolCallBlock, TodoItem } from "@/types";
 import type { WSMessage } from "@/lib/ws";
 import { buildBlockTree } from "@/features/chat/lib/build-block-tree";
+
+interface UseStreamingBlocksOptions {
+  /** Fired once per tool_result with the completed tool's name. Consumers
+   *  use this to detect filesystem-touching tools (Bash/Edit/Write/…) and
+   *  nudge dependent UI (e.g. the workspace file tree) to refresh. */
+  onToolCompleted?: (toolName: string) => void;
+}
 
 /**
  * useStreamingBlocks — accumulates streaming WS deltas into a structured
@@ -13,11 +20,17 @@ import { buildBlockTree } from "@/features/chat/lib/build-block-tree";
  * Render scheduling uses requestAnimationFrame so a burst of high-frequency
  * deltas only triggers a single React re-render per frame.
  */
-export function useStreamingBlocks() {
+export function useStreamingBlocks(options: UseStreamingBlocksOptions = {}) {
   const [blocks, setBlocks] = useState<StreamBlock[]>([]);
   const [todos, setTodos] = useState<TodoItem[]>([]);
   const blocksRef = useRef<StreamBlock[]>([]);
   const rafRef = useRef<number>(0);
+  // Stable callback ref so handleMessage doesn't re-bind each render — the
+  // WS subscription keys on handleMessage identity.
+  const onToolCompletedRef = useRef(options.onToolCompleted);
+  useEffect(() => {
+    onToolCompletedRef.current = options.onToolCompleted;
+  }, [options.onToolCompleted]);
 
   const scheduleRender = useCallback(() => {
     if (!rafRef.current) {
@@ -91,15 +104,22 @@ export function useStreamingBlocks() {
           break;
         }
 
-        case "tool_result":
+        case "tool_result": {
+          let completedName: string | null = null;
           updateBlocks((prev) =>
-            prev.map((b) =>
-              b.type === "tool_call" && b.id === msg.tool_use_id
-                ? { ...b, status: "complete" as const, result: msg.content, is_error: msg.is_error }
-                : b,
-            ),
+            prev.map((b) => {
+              if (b.type === "tool_call" && b.id === msg.tool_use_id) {
+                completedName = b.name;
+                return { ...b, status: "complete" as const, result: msg.content, is_error: msg.is_error };
+              }
+              return b;
+            }),
           );
+          if (completedName && onToolCompletedRef.current) {
+            onToolCompletedRef.current(completedName);
+          }
           break;
+        }
 
         case "tool_progress":
           updateBlocks((prev) =>

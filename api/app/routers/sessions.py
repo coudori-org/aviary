@@ -243,17 +243,13 @@ async def update_session_title(
 
 
 # -- Workspace browse ----------------------------------------------
-#
-# These proxy through the supervisor to the runtime, which holds the PVC.
-# Read-only for now; a PUT/POST pair will land in a follow-up to support
-# in-browser editing and uploads.
+# Proxy through the supervisor to the runtime which holds the PVC.
 
-async def _resolve_session_runtime_endpoint(
+async def _resolve_session_agent_target(
     db: AsyncSession, session_id: uuid.UUID, user: User,
-) -> str | None:
-    """Owner-check then pull the session's agent's runtime_endpoint. Sessions
-    whose agent row is missing (workflow transcripts, etc.) are workspace-
-    inaccessible — those transcripts aren't bound to any runtime environment."""
+) -> tuple[str, str | None]:
+    """Owner-check and return (agent_id, runtime_endpoint). Workflow-transcript
+    sessions (agent_id IS NULL) have no runtime workspace → 409."""
     session = await _require_session_owner(db, session_id, user)
     if session.agent_id is None:
         raise HTTPException(status_code=409, detail="Session has no agent workspace")
@@ -262,7 +258,7 @@ async def _resolve_session_runtime_endpoint(
     )).scalar_one_or_none()
     if agent is None:
         raise HTTPException(status_code=404, detail="Agent not found")
-    return agent.runtime_endpoint
+    return str(agent.id), agent.runtime_endpoint
 
 
 @router.get("/sessions/{session_id}/workspace/tree")
@@ -274,9 +270,9 @@ async def get_workspace_tree(
     session_data: SessionData = Depends(get_session_data),
     db: AsyncSession = Depends(get_db),
 ):
-    runtime_endpoint = await _resolve_session_runtime_endpoint(db, session_id, user)
+    agent_id, runtime_endpoint = await _resolve_session_agent_target(db, session_id, user)
     status_code, payload = await agent_supervisor.fetch_workspace_tree(
-        str(session_id), session_data.access_token, runtime_endpoint, path, include_hidden,
+        str(session_id), session_data.access_token, runtime_endpoint, agent_id, path, include_hidden,
     )
     return JSONResponse(status_code=status_code, content=payload)
 
@@ -289,9 +285,9 @@ async def get_workspace_file(
     session_data: SessionData = Depends(get_session_data),
     db: AsyncSession = Depends(get_db),
 ):
-    runtime_endpoint = await _resolve_session_runtime_endpoint(db, session_id, user)
+    agent_id, runtime_endpoint = await _resolve_session_agent_target(db, session_id, user)
     status_code, payload = await agent_supervisor.fetch_workspace_file(
-        str(session_id), session_data.access_token, runtime_endpoint, path,
+        str(session_id), session_data.access_token, runtime_endpoint, agent_id, path,
     )
     return JSONResponse(status_code=status_code, content=payload)
 

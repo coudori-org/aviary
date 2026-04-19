@@ -266,12 +266,15 @@ async def cleanup_session(session_id: str, body: _CleanupBody):
 
 class _WorkspaceTreeBody(BaseModel):
     runtime_endpoint: str | None = None
+    # Runtime rejects `.claude` / `.venv` paths (per-agent) when this is null.
+    agent_id: str | None = None
     path: str = "/"
     include_hidden: bool = False
 
 
 class _WorkspaceFileBody(BaseModel):
     runtime_endpoint: str | None = None
+    agent_id: str | None = None
     path: str
 
 
@@ -299,13 +302,15 @@ async def workspace_tree(
 ):
     await resolve_identity(request, body.model_dump())
     base = resolve_runtime_base(body.runtime_endpoint)
+    params = {
+        "session_id": session_id,
+        "path": body.path,
+        "include_hidden": "1" if body.include_hidden else "0",
+    }
+    if body.agent_id:
+        params["agent_id"] = body.agent_id
     status_code, payload = await _proxy_workspace_get(
-        base, "/workspace/tree",
-        {
-            "session_id": session_id,
-            "path": body.path,
-            "include_hidden": "1" if body.include_hidden else "0",
-        },
+        base, "/workspace/tree", params,
     )
     return JSONResponse(status_code=status_code, content=payload)
 
@@ -316,9 +321,11 @@ async def workspace_file(
 ):
     await resolve_identity(request, body.model_dump())
     base = resolve_runtime_base(body.runtime_endpoint)
+    params = {"session_id": session_id, "path": body.path}
+    if body.agent_id:
+        params["agent_id"] = body.agent_id
     status_code, payload = await _proxy_workspace_get(
-        base, "/workspace/file",
-        {"session_id": session_id, "path": body.path},
+        base, "/workspace/file", params,
     )
     return JSONResponse(status_code=status_code, content=payload)
 

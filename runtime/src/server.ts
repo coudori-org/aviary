@@ -177,11 +177,6 @@ app.delete("/sessions/:sessionId", (req, res) => {
   res.json({ status: "removed" });
 });
 
-// ── Workspace browse (Web UI file-tree panel) ──────────────────────────────
-// Read-only: list a single directory level, or read one file's contents.
-// Paths are interpreted relative to the session's shared workspace dir.
-// No auth — the supervisor is the trust boundary for these routes.
-
 function handleWorkspaceError(err: unknown, res: express.Response): void {
   if (err instanceof WorkspaceError) {
     const status = err.code === "invalid_path"
@@ -200,6 +195,7 @@ function handleWorkspaceError(err: unknown, res: express.Response): void {
 
 app.get("/workspace/tree", (req, res) => {
   const sessionId = (req.query.session_id as string | undefined) ?? "";
+  const agentId = (req.query.agent_id as string | undefined) || null;
   const relPath = (req.query.path as string | undefined) ?? "/";
   const includeHidden = req.query.include_hidden === "1" || req.query.include_hidden === "true";
   if (!sessionId) {
@@ -207,7 +203,7 @@ app.get("/workspace/tree", (req, res) => {
     return;
   }
   try {
-    res.json(listTree(sessionId, relPath, includeHidden));
+    res.json(listTree(sessionId, agentId, relPath, includeHidden));
   } catch (err) {
     handleWorkspaceError(err, res);
   }
@@ -215,13 +211,14 @@ app.get("/workspace/tree", (req, res) => {
 
 app.get("/workspace/file", (req, res) => {
   const sessionId = (req.query.session_id as string | undefined) ?? "";
+  const agentId = (req.query.agent_id as string | undefined) || null;
   const relPath = (req.query.path as string | undefined) ?? "";
   if (!sessionId || !relPath) {
     res.status(400).json({ error: "session_id and path are required" });
     return;
   }
   try {
-    res.json(readWorkspaceFile(sessionId, relPath));
+    res.json(readWorkspaceFile(sessionId, agentId, relPath));
   } catch (err) {
     handleWorkspaceError(err, res);
   }

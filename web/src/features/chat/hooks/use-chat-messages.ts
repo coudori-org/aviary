@@ -36,6 +36,9 @@ interface UseChatMessagesOptions {
    *  when the caller knows the session is terminal (e.g. workflow
    *  inspector viewing a completed step) — skips the reconnect loop. */
   live?: boolean;
+  /** Notified when any tool completes. The workspace file-tree panel uses
+   *  this to auto-refresh after filesystem-touching tools (Bash/Edit/Write/…). */
+  onToolCompleted?: (toolName: string) => void;
 }
 
 /**
@@ -50,7 +53,7 @@ export function useChatMessages(
   const live = options.live ?? true;
   const { refreshUser } = useAuth();
   const history = useChatHistory(sessionId);
-  const blockState = useStreamingBlocks();
+  const blockState = useStreamingBlocks({ onToolCompleted: options.onToolCompleted });
   const [isStreaming, setIsStreaming] = useState(false);
   // Set when supervisor publishes ``stream_started`` — confirms the request
   // was accepted. Abort button needs this id to target the specific stream.
