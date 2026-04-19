@@ -1,19 +1,8 @@
 "use client";
 
 import {
-  DndContext,
-  KeyboardSensor,
-  PointerSensor,
-  closestCenter,
-  useSensor,
-  useSensors,
-  type DragEndEvent,
-} from "@dnd-kit/core";
-import {
   SortableContext,
-  arrayMove,
   horizontalListSortingStrategy,
-  sortableKeyboardCoordinates,
   useSortable,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
@@ -22,68 +11,66 @@ import { cn } from "@/lib/utils";
 import type { EditorTab } from "../hooks/use-workspace-editor";
 import { basename, sandboxPath } from "../lib/paths";
 
+export function tabSortId(paneId: string, path: string): string {
+  return `${paneId}::${path}`;
+}
+
+export function parseTabSortId(id: string): { paneId: string; path: string } | null {
+  const sep = id.indexOf("::");
+  if (sep === -1) return null;
+  return { paneId: id.slice(0, sep), path: id.slice(sep + 2) };
+}
+
 interface EditorTabsProps {
+  paneId: string;
   tabs: EditorTab[];
   activeTabPath: string | null;
   onActivate: (path: string) => void;
   onClose: (path: string) => void;
   onPin: (path: string) => void;
   onContextMenu: (e: React.MouseEvent, path: string) => void;
-  onReorder: (orderedPaths: string[]) => void;
-  onCollapseEditor: () => void;
+  onCollapseEditor?: () => void;
 }
 
 export function EditorTabs({
-  tabs, activeTabPath, onActivate, onClose, onPin, onContextMenu, onReorder, onCollapseEditor,
+  paneId, tabs, activeTabPath, onActivate, onClose, onPin, onContextMenu, onCollapseEditor,
 }: EditorTabsProps) {
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
-  );
-
-  const handleDragEnd = (e: DragEndEvent) => {
-    const { active, over } = e;
-    if (!over || active.id === over.id) return;
-    const ids = tabs.map((t) => t.path);
-    const oldIdx = ids.indexOf(active.id as string);
-    const newIdx = ids.indexOf(over.id as string);
-    if (oldIdx === -1 || newIdx === -1) return;
-    onReorder(arrayMove(ids, oldIdx, newIdx));
-  };
-
+  const items = tabs.map((t) => tabSortId(paneId, t.path));
   return (
     <div className="flex shrink-0 items-stretch border-b border-white/[0.06] bg-elevated">
       <div className="flex min-w-0 flex-1 items-stretch overflow-x-auto">
-        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-          <SortableContext items={tabs.map((t) => t.path)} strategy={horizontalListSortingStrategy}>
-            {tabs.map((tab) => (
-              <SortableTab
-                key={tab.path}
-                tab={tab}
-                active={tab.path === activeTabPath}
-                onActivate={onActivate}
-                onClose={onClose}
-                onPin={onPin}
-                onContextMenu={onContextMenu}
-              />
-            ))}
-          </SortableContext>
-        </DndContext>
+        <SortableContext items={items} strategy={horizontalListSortingStrategy}>
+          {tabs.map((tab) => (
+            <SortableTab
+              key={tab.path}
+              paneId={paneId}
+              tab={tab}
+              active={tab.path === activeTabPath}
+              onActivate={onActivate}
+              onClose={onClose}
+              onPin={onPin}
+              onContextMenu={onContextMenu}
+            />
+          ))}
+        </SortableContext>
       </div>
-      <button
-        type="button"
-        onClick={onCollapseEditor}
-        aria-label="Collapse editor"
-        title="Collapse editor"
-        className="flex h-auto w-8 shrink-0 items-center justify-center border-l border-white/[0.06] text-fg-muted hover:bg-raised hover:text-fg-primary"
-      >
-        <PanelRightClose size={14} strokeWidth={2} />
-      </button>
+      {onCollapseEditor && (
+        <button
+          type="button"
+          onClick={onCollapseEditor}
+          aria-label="Collapse editor"
+          title="Collapse editor"
+          className="flex h-auto w-8 shrink-0 items-center justify-center border-l border-white/[0.06] text-fg-muted hover:bg-raised hover:text-fg-primary"
+        >
+          <PanelRightClose size={14} strokeWidth={2} />
+        </button>
+      )}
     </div>
   );
 }
 
 interface SortableTabProps {
+  paneId: string;
   tab: EditorTab;
   active: boolean;
   onActivate: (path: string) => void;
@@ -92,9 +79,9 @@ interface SortableTabProps {
   onContextMenu: (e: React.MouseEvent, path: string) => void;
 }
 
-function SortableTab({ tab, active, onActivate, onClose, onPin, onContextMenu }: SortableTabProps) {
+function SortableTab({ paneId, tab, active, onActivate, onClose, onPin, onContextMenu }: SortableTabProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
-    id: tab.path,
+    id: tabSortId(paneId, tab.path),
   });
   const dirty = tab.draft !== null;
   const preview = !tab.pinned;

@@ -1,9 +1,22 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  arrayMove,
+  sortableKeyboardCoordinates,
+} from "@dnd-kit/sortable";
 import { cn } from "@/lib/utils";
 import { useWorkspaceTree } from "../hooks/use-workspace-tree";
-import { useWorkspaceEditor } from "../hooks/use-workspace-editor";
+import { useWorkspaceEditor, type EditorPane } from "../hooks/use-workspace-editor";
 import { usePanelResize } from "../hooks/use-panel-resize";
 import {
   MAX_UPLOAD_BYTES,
@@ -18,7 +31,7 @@ import {
 import { FileTree } from "./file-tree";
 import { WorkspaceToolbar } from "./workspace-toolbar";
 import { FileEditor } from "./file-editor";
-import { EditorTabs } from "./editor-tabs";
+import { EditorTabs, parseTabSortId } from "./editor-tabs";
 import { ConflictDialog } from "./conflict-dialog";
 import { ConfirmDialog } from "./confirm-dialog";
 import {
@@ -52,6 +65,7 @@ type ContextMenuState = {
 } | null;
 
 type ConflictState = {
+  paneId: string;
   path: string;
   code: "stale" | "exists";
   retryOverwrite: () => Promise<void>;
@@ -81,11 +95,14 @@ export function WorkspacePanel({ sessionId, onClose, refreshSignal = 0 }: Worksp
   const [pendingNew, setPendingNew] = useState<PendingNew>(null);
   const [editorCollapsed, setEditorCollapsed] = useState(false);
 
-  const editorOpen = editor.activeTabPath !== null && !editorCollapsed;
-  const hasOpenTabs = editor.tabs.length > 0;
+  const hasAnyTab = useMemo(
+    () => editor.rows.some((r) => r.panes.some((p) => p.tabs.length > 0)),
+    [editor.rows],
+  );
+  const editorOpen = hasAnyTab && !editorCollapsed;
 
   const openFile = useCallback(
-    (path: string, opts?: { pin?: boolean }) => {
+    (path: string, opts?: { pin?: boolean; targetPaneId?: string }) => {
       setEditorCollapsed(false);
       void editor.openFile(path, opts);
     },
@@ -116,7 +133,13 @@ export function WorkspacePanel({ sessionId, onClose, refreshSignal = 0 }: Worksp
     setRefreshing(true);
     try {
       await tree.refreshAll();
-      if (editor.activeTabPath) await editor.reloadTab(editor.activeTabPath);
+      for (const row of editor.rows) {
+        for (const pane of row.panes) {
+          if (pane.activeTabPath) {
+            await editor.reloadTab(pane.id, pane.activeTabPath);
+          }
+        }
+      }
     } finally {
       setRefreshing(false);
     }
@@ -130,25 +153,27 @@ export function WorkspacePanel({ sessionId, onClose, refreshSignal = 0 }: Worksp
   }, [refreshSignal, refresh]);
 
   const doSave = useCallback(
-    async (path: string, overrideExpected?: number | null) => {
+    async (paneId: string, path: string, overrideExpected?: number | null) => {
       setSaving(true);
       setError(null);
       try {
         const result = await editor.save(
+          paneId,
           path,
           overrideExpected !== undefined ? { expectedMtime: overrideExpected } : undefined,
         );
         if (result.status === "conflict") {
           setConflict({
+            paneId,
             path,
             code: result.code,
             retryOverwrite: async () => {
               setConflict(null);
-              await doSave(path, result.currentMtime);
+              await doSave(paneId, path, result.currentMtime);
             },
             onReload: async () => {
               setConflict(null);
-              await editor.reloadTab(path);
+              await editor.reloadTab(paneId, path);
             },
           });
         } else if (result.status === "error") {
@@ -162,9 +187,9 @@ export function WorkspacePanel({ sessionId, onClose, refreshSignal = 0 }: Worksp
   );
 
   const handleCloseTab = useCallback(
-    (path: string) => {
-      if (!editor.isTabDirty(path)) {
-        editor.closeTab(path);
+    (paneId: string, path: string) => {
+      if (!editor.isTabDirty(paneId, path)) {
+        editor.closeTab(paneId, path);
         return;
       }
       setConfirmState({
@@ -173,14 +198,14 @@ export function WorkspacePanel({ sessionId, onClose, refreshSignal = 0 }: Worksp
         confirmLabel: "Save",
         onConfirm: async () => {
           setConfirmState(null);
-          await doSave(path);
-          if (!editor.isTabDirty(path)) editor.closeTab(path);
+          await doSave(paneId, path);
+          if (!editor.isTabDirty(paneId, path)) editor.closeTab(paneId, path);
         },
         thirdAction: {
           label: "Discard",
           onClick: () => {
             setConfirmState(null);
-            editor.closeTab(path);
+            editor.closeTab(paneId, path);
           },
         },
       });
@@ -189,11 +214,11 @@ export function WorkspacePanel({ sessionId, onClose, refreshSignal = 0 }: Worksp
   );
 
   const handleCloseMany = useCallback(
-    (paths: string[]) => {
+    (paneId: string, paths: string[]) => {
       if (paths.length === 0) return;
-      const dirty = paths.filter((p) => editor.isTabDirty(p));
+      const dirty = paths.filter((p) => editor.isTabDirty(paneId, p));
       if (dirty.length === 0) {
-        editor.closePaths(paths);
+        editor.closePaths(paneId, paths);
         return;
       }
       setConfirmState({
@@ -203,55 +228,80 @@ export function WorkspacePanel({ sessionId, onClose, refreshSignal = 0 }: Worksp
         danger: true,
         onConfirm: () => {
           setConfirmState(null);
-          editor.closePaths(paths);
+          editor.closePaths(paneId, paths);
         },
       });
     },
     [editor],
   );
 
+  const handleSplit = useCallback(
+    (paneId: string, path: string, direction: "horizontal" | "vertical") => {
+      const result = editor.splitTab(paneId, path, direction);
+      if (result === "max-cols") setError("Can't split further — already at 3 columns");
+      else if (result === "max-rows") setError("Can't split further — already at 2 rows");
+    },
+    [editor],
+  );
+
   const handleTabContextMenu = useCallback(
-    (e: React.MouseEvent, path: string) => {
-      const idx = editor.tabs.findIndex((t) => t.path === path);
+    (paneId: string, e: React.MouseEvent, path: string) => {
+      const pane = editor.rows.flatMap((r) => r.panes).find((p) => p.id === paneId);
+      if (!pane) return;
+      const idx = pane.tabs.findIndex((t) => t.path === path);
       if (idx === -1) return;
-      const allPaths = editor.tabs.map((t) => t.path);
+      const allPaths = pane.tabs.map((t) => t.path);
       const others = allPaths.filter((p) => p !== path);
       const rightPaths = allPaths.slice(idx + 1);
       const leftPaths = allPaths.slice(0, idx);
-      const tab = editor.tabs[idx];
+      const tab = pane.tabs[idx];
       const items: ContextMenuItem[] = [
-        { id: "close", label: "Close", onSelect: () => handleCloseTab(path) },
-        { id: "close-others", label: "Close Others", onSelect: () => handleCloseMany(others) },
+        { id: "close", label: "Close", onSelect: () => handleCloseTab(paneId, path) },
+        { id: "close-others", label: "Close Others", onSelect: () => handleCloseMany(paneId, others) },
       ];
       if (rightPaths.length > 0) {
         items.push({
           id: "close-right",
           label: "Close to the Right",
-          onSelect: () => handleCloseMany(rightPaths),
+          onSelect: () => handleCloseMany(paneId, rightPaths),
         });
       }
       if (leftPaths.length > 0) {
         items.push({
           id: "close-left",
           label: "Close to the Left",
-          onSelect: () => handleCloseMany(leftPaths),
+          onSelect: () => handleCloseMany(paneId, leftPaths),
         });
       }
       items.push({
         id: "close-all",
         label: "Close All",
-        onSelect: () => handleCloseMany(allPaths),
+        onSelect: () => handleCloseMany(paneId, allPaths),
       });
       if (!tab.pinned) {
         items.push({
           id: "pin",
           label: "Keep Open",
-          onSelect: () => editor.pinTab(path),
+          onSelect: () => editor.pinTab(paneId, path),
+        });
+      }
+      if (editor.canSplitHorizontal(paneId)) {
+        items.push({
+          id: "split-h",
+          label: "Split Right",
+          onSelect: () => handleSplit(paneId, path, "horizontal"),
+        });
+      }
+      if (editor.canSplitVertical()) {
+        items.push({
+          id: "split-v",
+          label: "Split Down",
+          onSelect: () => handleSplit(paneId, path, "vertical"),
         });
       }
       setContextMenu({ x: e.clientX, y: e.clientY, items });
     },
-    [editor, handleCloseTab, handleCloseMany],
+    [editor, handleCloseTab, handleCloseMany, handleSplit],
   );
 
   const refreshParent = useCallback(
@@ -320,9 +370,13 @@ export function WorkspacePanel({ sessionId, onClose, refreshSignal = 0 }: Worksp
           setError(null);
           try {
             await deleteEntry(sessionId, path, isDir);
-            for (const tab of editor.tabs) {
-              if (tab.path === path || tab.path.startsWith(path + "/")) {
-                editor.closeTab(tab.path);
+            for (const row of editor.rows) {
+              for (const pane of row.panes) {
+                for (const tab of pane.tabs) {
+                  if (tab.path === path || tab.path.startsWith(path + "/")) {
+                    editor.closeTab(pane.id, tab.path);
+                  }
+                }
               }
             }
             await refreshParent(parentOf(path));
@@ -367,9 +421,6 @@ export function WorkspacePanel({ sessionId, onClose, refreshSignal = 0 }: Worksp
     [sessionId, refreshParent],
   );
 
-  // Fresh <input> per invocation — a static hidden ref-clicked input was
-  // silently failing in some paths; creating one on-demand mirrors how
-  // triggerDownload works and sidesteps the issue.
   const triggerUpload = useCallback(
     (parent: string) => {
       const input = document.createElement("input");
@@ -393,8 +444,6 @@ export function WorkspacePanel({ sessionId, onClose, refreshSignal = 0 }: Worksp
           void uploadFiles(parent, files);
         }
       });
-      // Firefox doesn't reliably emit `cancel`; schedule a backstop sweep
-      // on the next focus so an unused input doesn't linger in the DOM.
       input.addEventListener("cancel", cleanup);
       window.addEventListener("focus", () => {
         setTimeout(cleanup, 1000);
@@ -417,7 +466,7 @@ export function WorkspacePanel({ sessionId, onClose, refreshSignal = 0 }: Worksp
     [sessionId],
   );
 
-  const handleContextMenu = useCallback(
+  const handleTreeContextMenu = useCallback(
     (e: React.MouseEvent, payload: { path: string; entry: TreeEntry | null }) => {
       const { path, entry } = payload;
       const isRoot = path === "/";
@@ -459,14 +508,14 @@ export function WorkspacePanel({ sessionId, onClose, refreshSignal = 0 }: Worksp
       }
       setContextMenu({ x: e.clientX, y: e.clientY, items });
     },
-    [editor, startNew, triggerUpload, triggerDownload, confirmDelete],
+    [openFile, startNew, triggerUpload, triggerDownload, confirmDelete],
   );
 
   const ui: TreeInteractions = {
-    activeFilePath: editor.activeTabPath,
-    onFileClick: openFile,
+    activeFilePath: editor.activeTab?.path ?? null,
+    onFileClick: (p) => openFile(p),
     onFileDoubleClick: (p) => openFile(p, { pin: true }),
-    onContextMenu: handleContextMenu,
+    onContextMenu: handleTreeContextMenu,
     renamingPath,
     onSubmitRename: (p, v) => void submitRename(p, v),
     onCancelRename: () => setRenamingPath(null),
@@ -474,6 +523,37 @@ export function WorkspacePanel({ sessionId, onClose, refreshSignal = 0 }: Worksp
     onSubmitNew: (parent, mode, name) => void submitNew(parent, mode, name),
     onCancelNew: () => setPendingNew(null),
   };
+
+  // --- Cross-pane drag-drop ---
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+
+  const handleDragEnd = useCallback(
+    (e: DragEndEvent) => {
+      const { active, over } = e;
+      if (!over) return;
+      const src = parseTabSortId(String(active.id));
+      const dst = parseTabSortId(String(over.id));
+      if (!src || !dst) return;
+      if (src.paneId === dst.paneId) {
+        if (src.path === dst.path) return;
+        const pane = editor.rows.flatMap((r) => r.panes).find((p) => p.id === src.paneId);
+        if (!pane) return;
+        const ids = pane.tabs.map((t) => t.path);
+        const oldIdx = ids.indexOf(src.path);
+        const newIdx = ids.indexOf(dst.path);
+        if (oldIdx === -1 || newIdx === -1) return;
+        editor.reorderTabs(src.paneId, arrayMove(ids, oldIdx, newIdx));
+      } else {
+        const dstPane = editor.rows.flatMap((r) => r.panes).find((p) => p.id === dst.paneId);
+        const toIndex = dstPane ? dstPane.tabs.findIndex((t) => t.path === dst.path) : null;
+        editor.moveTab(src.paneId, dst.paneId, src.path, toIndex);
+      }
+    },
+    [editor],
+  );
 
   return (
     <aside
@@ -496,45 +576,47 @@ export function WorkspacePanel({ sessionId, onClose, refreshSignal = 0 }: Worksp
           onToggleHidden={tree.toggleHidden}
           onCollapseAll={tree.collapseAll}
           onClosePanel={onClose}
-          showExpandEditor={hasOpenTabs && editorCollapsed}
+          showExpandEditor={hasAnyTab && editorCollapsed}
           onExpandEditor={() => setEditorCollapsed(false)}
         />
         <FileTree tree={tree} ui={ui} />
       </div>
 
       {editorOpen && (
-        <div className="flex h-full flex-1 min-w-0 flex-col">
-          <EditorTabs
-            tabs={editor.tabs}
-            activeTabPath={editor.activeTabPath}
-            onActivate={editor.activate}
-            onClose={handleCloseTab}
-            onPin={editor.pinTab}
-            onContextMenu={handleTabContextMenu}
-            onReorder={editor.reorderTabs}
-            onCollapseEditor={() => setEditorCollapsed(true)}
-          />
-          {error && (
-            <div className="shrink-0 border-b border-danger/30 bg-danger/10 px-3 py-1 type-caption text-danger">
-              {error}
-              <button
-                type="button"
-                onClick={() => setError(null)}
-                className="ml-2 text-danger/80 hover:text-danger underline"
+        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+          <div className="flex h-full flex-1 min-w-0 flex-col">
+            {editor.rows.map((row, rowIdx) => (
+              <div
+                key={row.id}
+                className={cn(
+                  "flex min-h-0 flex-1 min-w-0",
+                  rowIdx > 0 && "border-t border-white/[0.06]",
+                )}
               >
-                dismiss
-              </button>
-            </div>
-          )}
-          {editor.activeTab && (
-            <FileEditor
-              tab={editor.activeTab}
-              onDraftChange={editor.setDraft}
-              onSave={(p) => void doSave(p)}
-              saving={saving}
-            />
-          )}
-        </div>
+                {row.panes.map((pane, paneIdx) => (
+                  <PaneView
+                    key={pane.id}
+                    pane={pane}
+                    isFirstInRow={paneIdx === 0}
+                    isActive={pane.id === editor.activePaneId}
+                    showCollapse={rowIdx === 0 && paneIdx === row.panes.length - 1}
+                    onCollapseEditor={() => setEditorCollapsed(true)}
+                    onFocus={() => editor.focusPane(pane.id)}
+                    onActivateTab={(path) => editor.activate(pane.id, path)}
+                    onCloseTab={(path) => handleCloseTab(pane.id, path)}
+                    onPinTab={(path) => editor.pinTab(pane.id, path)}
+                    onTabContextMenu={(e, path) => handleTabContextMenu(pane.id, e, path)}
+                    onDraftChange={(path, value) => editor.setDraft(pane.id, path, value)}
+                    onSave={(path) => void doSave(pane.id, path)}
+                    saving={saving}
+                    errorBanner={pane.id === editor.activePaneId ? error : null}
+                    onDismissError={() => setError(null)}
+                  />
+                ))}
+              </div>
+            ))}
+          </div>
+        </DndContext>
       )}
 
       {contextMenu && (
@@ -568,6 +650,73 @@ export function WorkspacePanel({ sessionId, onClose, refreshSignal = 0 }: Worksp
         />
       )}
     </aside>
+  );
+}
+
+interface PaneViewProps {
+  pane: EditorPane;
+  isFirstInRow: boolean;
+  isActive: boolean;
+  showCollapse: boolean;
+  onCollapseEditor: () => void;
+  onFocus: () => void;
+  onActivateTab: (path: string) => void;
+  onCloseTab: (path: string) => void;
+  onPinTab: (path: string) => void;
+  onTabContextMenu: (e: React.MouseEvent, path: string) => void;
+  onDraftChange: (path: string, value: string) => void;
+  onSave: (path: string) => void;
+  saving: boolean;
+  errorBanner: string | null;
+  onDismissError: () => void;
+}
+
+function PaneView({
+  pane, isFirstInRow, isActive, showCollapse, onCollapseEditor, onFocus,
+  onActivateTab, onCloseTab, onPinTab, onTabContextMenu,
+  onDraftChange, onSave, saving, errorBanner, onDismissError,
+}: PaneViewProps) {
+  const activeTab = pane.tabs.find((t) => t.path === pane.activeTabPath) ?? null;
+  return (
+    <div
+      className={cn(
+        "flex min-w-0 min-h-0 flex-1 flex-col",
+        !isFirstInRow && "border-l border-white/[0.06]",
+        isActive && "ring-1 ring-inset ring-info/20",
+      )}
+      onClick={onFocus}
+    >
+      <EditorTabs
+        paneId={pane.id}
+        tabs={pane.tabs}
+        activeTabPath={pane.activeTabPath}
+        onActivate={onActivateTab}
+        onClose={onCloseTab}
+        onPin={onPinTab}
+        onContextMenu={onTabContextMenu}
+        onCollapseEditor={showCollapse ? onCollapseEditor : undefined}
+      />
+      {errorBanner && (
+        <div className="shrink-0 border-b border-danger/30 bg-danger/10 px-3 py-1 type-caption text-danger">
+          {errorBanner}
+          <button
+            type="button"
+            onClick={onDismissError}
+            className="ml-2 text-danger/80 hover:text-danger underline"
+          >
+            dismiss
+          </button>
+        </div>
+      )}
+      {activeTab && (
+        <FileEditor
+          tab={activeTab}
+          onDraftChange={onDraftChange}
+          onSave={onSave}
+          saving={saving}
+        />
+      )}
+    </div>
   );
 }
 
