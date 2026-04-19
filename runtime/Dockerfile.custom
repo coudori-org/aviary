@@ -1,22 +1,16 @@
 # Template for building a customized runtime image on top of the base.
 # Used by the `custom` Helm environment; copy + edit this file (and the
 # corresponding values-<name>.yaml) when you need a differently-provisioned
-# environment (extra CLI tools, language toolchains, proprietary binaries,
-# etc). Everything else — sandbox wrapper, Claude SDK, Python venv
+# environment. Everything else — sandbox wrapper, Claude SDK, Python venv
 # bootstrap — is inherited verbatim from the base image.
 #
-# The example below adds GitHub CLI (`gh`); replace with whatever your
-# environment needs.
+# Add whatever your environment needs the same way `cowsay` is installed
+# below.
 
 FROM aviary-runtime:latest
 
 USER root
-RUN apt-get update && apt-get install -y --no-install-recommends \
-      curl ca-certificates \
-    && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
-       -o /usr/share/keyrings/githubcli-archive-keyring.gpg \
-    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
-       > /etc/apt/sources.list.d/github-cli.list \
-    && apt-get update && apt-get install -y --no-install-recommends gh \
-    && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends cowsay \
+    && rm -rf /var/lib/apt/lists/* \
+    && ln -s /usr/games/cowsay /usr/local/bin/cowsay
 USER node

@@ -52,11 +52,11 @@ Agent routing:
 
 Environments shipped out of the box (both `charts/aviary-environment` releases):
   default — locked-down egress (DNS + platform only), base `aviary-runtime`
-            image (git, no gh). NodePort 30300 — the supervisor's default.
+            image (git + gh). NodePort 30300 — the supervisor's default.
   custom  — worked example of a per-env customization: open internet via
             `extraEgress: 0.0.0.0/0` and `aviary-runtime-custom` image
-            (base + gh CLI, see runtime/Dockerfile.custom). NodePort 30301.
-            Point an agent at this env by setting
+            (base + `cowsay` as a demo marker, see runtime/Dockerfile.custom).
+            NodePort 30301. Point an agent at this env by setting
             agent.runtime_endpoint = http://k8s:30301 in the admin console
             (dev) or the env's in-cluster Service DNS (prod).
 ```
@@ -165,7 +165,7 @@ When the SDK invokes `claude`, the wrapper reads `SESSION_WORKSPACE` / `SESSION_
 Other agents' / sessions' files are invisible inside the bwrap view.
 
 ### GitHub Token Injection
-The supervisor fetches the user's GitHub token from Vault (`secret/aviary/credentials/{sub}/github-token`) on every `/message` and `/a2a` call, keyed by the `sub` of the validated Bearer JWT, and injects it as `agent_config.credentials.github_token` into the outbound runtime request. The runtime exposes it as `GITHUB_TOKEN` / `GH_TOKEN` env vars and configures a git credential helper (`scripts/git-credential-github.sh`) via `GIT_CONFIG_*` env vars. Inside the sandbox `git` is pre-authenticated on every env; `gh` CLI is only present in the `aviary-runtime-custom` image (runtime/Dockerfile.custom) that the `custom` env uses. Callers (API, parent runtime) MUST NOT put `credentials` / `user_token` / `user_external_id` in the body — the supervisor overwrites them with the authoritative validated identity.
+The supervisor fetches the user's GitHub token from Vault (`secret/aviary/credentials/{sub}/github-token`) on every `/message` and `/a2a` call, keyed by the `sub` of the validated Bearer JWT, and injects it as `agent_config.credentials.github_token` into the outbound runtime request. The runtime exposes it as `GITHUB_TOKEN` / `GH_TOKEN` env vars and configures a git credential helper (`scripts/git-credential-github.sh`) via `GIT_CONFIG_*` env vars. Inside the sandbox both `git` and `gh` are available on every env and authenticated via `GITHUB_TOKEN` / `GH_TOKEN` env vars + git credential helper. Callers (API, parent runtime) MUST NOT put `credentials` / `user_token` / `user_external_id` in the body — the supervisor overwrites them with the authoritative validated identity.
 
 ### Egress Enforcement
 Baseline NetworkPolicy (`charts/aviary-platform/templates/default-egress.yaml`) is always applied to every agent-runtime pod in the agents namespace. Environments can opt into additional egress rules via `charts/aviary-environment` values (`extraEgress`). K3s enforces NetworkPolicies via bundled kube-router.
