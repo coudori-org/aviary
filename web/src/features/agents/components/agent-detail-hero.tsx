@@ -27,13 +27,21 @@ export function AgentDetailHero({ agent }: AgentDetailHeroProps) {
   return (
     <header className="mb-8">
       <div className="flex flex-col gap-5 sm:flex-row sm:items-start">
-        <div
-          className={cn(
-            "flex h-16 w-16 shrink-0 items-center justify-center rounded-xl bg-elevated shadow-2 text-3xl",
-            isDeleted && "grayscale",
+        <div className="relative shrink-0">
+          <div
+            className={cn(
+              "flex h-16 w-16 items-center justify-center rounded-xl glass-raised shadow-2 text-3xl",
+              isDeleted && "grayscale",
+            )}
+          >
+            {agent.icon || "🤖"}
+          </div>
+          {!isDeleted && (
+            <div
+              aria-hidden="true"
+              className="absolute inset-0 -z-10 rounded-xl bg-aurora-a blur-2xl opacity-30"
+            />
           )}
-        >
-          {agent.icon || "🤖"}
         </div>
 
         <div className="min-w-0 flex-1">
@@ -57,15 +65,17 @@ export function AgentDetailHero({ agent }: AgentDetailHeroProps) {
               aria-label={`Start chat with ${agent.name}`}
               className={cn(
                 "mt-5 inline-flex h-11 items-center gap-2 rounded-pill px-6 type-button",
-                "bg-white/[0.92] text-fg-on-light shadow-3",
-                "transition-colors hover:bg-white",
-                "disabled:opacity-60 disabled:cursor-not-allowed",
-                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40",
+                "bg-aurora-a animate-aurora-sheen text-white",
+                "shadow-[0_0_32px_rgba(123,92,255,0.4),inset_0_1px_0_rgba(255,255,255,0.2)]",
+                "transition-all duration-[320ms] ease-[cubic-bezier(0.16,1,0.3,1)]",
+                "hover:-translate-y-[1px] hover:shadow-[0_0_44px_rgba(123,92,255,0.55),inset_0_1px_0_rgba(255,255,255,0.25)]",
+                "disabled:opacity-60 disabled:cursor-not-allowed disabled:translate-y-0",
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-aurora-violet/50 focus-visible:ring-offset-2 focus-visible:ring-offset-canvas",
               )}
             >
               {creating ? (
                 <>
-                  <Spinner size={14} className="text-fg-on-light" />
+                  <Spinner size={14} className="text-white" />
                   Starting…
                 </>
               ) : (
