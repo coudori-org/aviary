@@ -1,11 +1,11 @@
 import type { Config } from "tailwindcss";
 
 /**
- * Tailwind config — wired to the design tokens defined in src/styles/tokens.css.
+ * Tailwind config — wired to the Aurora Glass tokens in globals.css.
  *
  * Color tokens are exposed both as semantic names (canvas, fg, brand) and via
  * the `rgb(var(--token) / <alpha>)` pattern so utilities like `bg-canvas/50`
- * work for translucency.
+ * work for translucency over the aurora backdrop.
  */
 const config: Config = {
   darkMode: "class",
@@ -17,12 +17,17 @@ const config: Config = {
         mono: ["var(--font-geist-mono)", "ui-monospace", "SFMono-Regular", "Menlo", "monospace"],
       },
       colors: {
-        // Surfaces
         canvas: "rgb(var(--bg-canvas) / <alpha-value>)",
-        elevated: "rgb(var(--bg-elevated) / <alpha-value>)",
-        raised: "rgb(var(--bg-raised) / <alpha-value>)",
+        sunk: "rgb(var(--bg-sunk) / <alpha-value>)",
+        // Elevated / raised are semi-transparent glass panes. Expose them
+        // at their default alpha so `bg-elevated` feels "right" out of the
+        // box; components can opt into <alpha-value> syntax by using the
+        // /n suffix, which multiplies the tailwind alpha with the
+        // translucency already baked into the token.
+        elevated: "rgba(255, 255, 255, 0.04)",
+        raised: "rgba(255, 255, 255, 0.07)",
+        hover: "rgba(255, 255, 255, 0.10)",
 
-        // Foreground (text)
         fg: {
           DEFAULT: "rgb(var(--fg-primary) / <alpha-value>)",
           primary: "rgb(var(--fg-primary) / <alpha-value>)",
@@ -33,14 +38,22 @@ const config: Config = {
           "on-light": "rgb(var(--fg-on-light) / <alpha-value>)",
         },
 
-        // Brand & intents
         brand: "rgb(var(--brand-accent) / <alpha-value>)",
         info: "rgb(var(--intent-info) / <alpha-value>)",
         success: "rgb(var(--intent-success) / <alpha-value>)",
         warning: "rgb(var(--intent-warning) / <alpha-value>)",
         danger: "rgb(var(--intent-danger) / <alpha-value>)",
 
-        // Borders
+        aurora: {
+          violet: "rgb(var(--color-aurora-violet) / <alpha-value>)",
+          pink: "rgb(var(--color-aurora-pink) / <alpha-value>)",
+          amber: "rgb(var(--color-aurora-amber) / <alpha-value>)",
+          cyan: "rgb(var(--color-aurora-cyan) / <alpha-value>)",
+          mint: "rgb(var(--color-aurora-mint) / <alpha-value>)",
+          coral: "rgb(var(--color-aurora-coral) / <alpha-value>)",
+          gold: "rgb(var(--color-aurora-gold) / <alpha-value>)",
+        },
+
         "border-base": "rgb(var(--border-base) / <alpha-value>)",
         "border-strong": "rgb(var(--border-strong) / <alpha-value>)",
       },
@@ -64,8 +77,11 @@ const config: Config = {
         "4": "var(--shadow-4)",
         "5": "var(--shadow-5)",
       },
+      backdropBlur: {
+        glass: "var(--glass-blur)",
+      },
       maxWidth: {
-        "container": "1200px",
+        container: "1200px",
         "container-sm": "960px",
         "container-prose": "768px",
       },

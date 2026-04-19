@@ -3,114 +3,128 @@
 @tailwind utilities;
 
 /**
- * All design-system layers live in this single file because the project's
- * PostCSS pipeline does not include `postcss-import`, so @import-ed CSS
- * cannot reference @layer directives. Keeping everything inline is the
- * simplest fix and avoids adding a build dependency.
+ * Aurora Glass design system.
+ *
+ * Deep cinematic navy canvas, translucent frosted surfaces layered over a
+ * site-wide aurora backdrop. Every elevated surface uses backdrop-filter
+ * blur + saturate to pick up the coloured bleeds behind it.
  *
  * Sections:
  *   1. Tokens (primitive → semantic)
  *   2. Base (html, body, scrollbar, focus, selection)
- *   3. Shadows (Level 0–5 multi-layer)
- *   4. Typography (DESIGN.md type scale)
- *   5. Animations (keyframes + classes)
- *   6. Components (markdown body)
- *   7. Decorative utilities (stripe pattern, glows)
+ *   3. Component styles (markdown)
+ *   4. Utility layer (type scale, glass, aurora, motion)
  */
 
 /* ============================================================
  * 1. DESIGN TOKENS
- * Primitives are stored as space-separated RGB so they can be used
- * with `rgb(var(--token) / <alpha>)` in Tailwind utilities.
+ * Primitives stored as space-separated RGB so they compose with
+ * rgb(var(--token) / <alpha>) in Tailwind utilities.
  * ============================================================ */
 @layer base {
   :root {
-    /* --- Primitive surfaces --- */
-    --color-near-black-blue: 7 8 10;
-    --color-surface-100: 16 17 17;
-    --color-surface-200: 27 28 30;
-    --color-key-start: 18 18 18;
-    --color-key-end: 13 13 13;
-    --color-button-fg: 24 25 26;
+    /* --- Primitive surfaces (deep navy, NOT neutral black) --- */
+    --color-canvas-deep: 8 9 26;          /* #08091A */
+    --color-canvas-rise: 14 16 38;        /* #0E1026 — slight lift, for sunk inputs */
+    --color-surface-glass-1: 255 255 255; /* used at 4% alpha for frosted pane */
+    --color-surface-glass-2: 255 255 255; /* used at 7% alpha for elevated frosted pane */
+    --color-surface-glass-3: 255 255 255; /* used at 10% alpha for hover / active */
+    --color-button-fg: 14 10 36;
 
     /* --- Primitive text --- */
-    --color-near-white: 249 249 249;
-    --color-light-gray: 206 206 206;
-    --color-silver: 192 192 192;
-    --color-medium-gray: 156 156 157;
-    --color-dim-gray: 106 107 108;
-    --color-dark-gray: 67 67 69;
-    --color-border-base: 37 40 41;
-    --color-border-dark: 47 48 49;
+    --color-fg-hi: 245 246 250;   /* #F5F6FA */
+    --color-fg-mid: 197 200 214;  /* #C5C8D6 */
+    --color-fg-lo: 130 137 161;   /* #8289A1 */
+    --color-fg-dim: 95 101 126;
 
-    /* --- Primitive brand --- */
-    --color-raycast-red: 255 99 99;
-    --color-raycast-blue: 85 179 255;
-    --color-raycast-green: 95 201 146;
-    --color-raycast-yellow: 255 188 51;
+    /* --- Aurora brand primaries (solid fallbacks) --- */
+    --color-aurora-violet: 123 92 255;  /* #7B5CFF */
+    --color-aurora-pink: 255 79 184;    /* #FF4FB8 */
+    --color-aurora-amber: 255 179 71;   /* #FFB347 */
+    --color-aurora-cyan: 79 201 255;    /* #4FC9FF */
+    --color-aurora-mint: 92 255 204;    /* #5CFFCC */
+    --color-aurora-coral: 255 122 89;   /* #FF7A59 */
+    --color-aurora-gold: 255 216 102;   /* #FFD866 */
 
     /* --- Semantic surfaces --- */
-    --bg-canvas: var(--color-near-black-blue);
-    --bg-elevated: var(--color-surface-100);
-    --bg-raised: var(--color-surface-200);
-    --bg-input: var(--color-near-black-blue);
-    --bg-keycap-start: var(--color-key-start);
-    --bg-keycap-end: var(--color-key-end);
+    --bg-canvas: var(--color-canvas-deep);
+    --bg-sunk: var(--color-canvas-rise);
+    --bg-elevated: var(--color-surface-glass-1);
+    --bg-raised: var(--color-surface-glass-2);
+    --bg-hover: var(--color-surface-glass-3);
 
     /* --- Semantic text --- */
-    --fg-primary: var(--color-near-white);
-    --fg-secondary: var(--color-light-gray);
-    --fg-tertiary: var(--color-silver);
-    --fg-muted: var(--color-medium-gray);
-    --fg-disabled: var(--color-dim-gray);
+    --fg-primary: var(--color-fg-hi);
+    --fg-secondary: var(--color-fg-mid);
+    --fg-tertiary: var(--color-fg-mid);
+    --fg-muted: var(--color-fg-lo);
+    --fg-disabled: var(--color-fg-dim);
     --fg-on-light: var(--color-button-fg);
 
-    /* --- Semantic intent --- */
-    --brand-accent: var(--color-raycast-red);
-    --intent-info: var(--color-raycast-blue);
-    --intent-success: var(--color-raycast-green);
-    --intent-warning: var(--color-raycast-yellow);
-    --intent-danger: var(--color-raycast-red);
+    /* --- Semantic intent
+     * brand/accent: aurora violet (picks up the full gradient on CTAs)
+     * info:         aurora cyan
+     * success:      aurora mint
+     * warning:      aurora gold
+     * danger:       aurora pink (warmer, less alarming in a jewel palette)
+     */
+    --brand-accent: var(--color-aurora-violet);
+    --intent-info: var(--color-aurora-cyan);
+    --intent-success: var(--color-aurora-mint);
+    --intent-warning: var(--color-aurora-gold);
+    --intent-danger: var(--color-aurora-pink);
 
-    --border-base: var(--color-border-base);
-    --border-strong: var(--color-border-dark);
+    --border-base: 255 255 255;
+    --border-strong: 255 255 255;
 
-    --glow-info: rgba(85, 179, 255, 0.15);
-    --glow-danger: rgba(255, 99, 99, 0.15);
-    --glow-warm: rgba(215, 201, 175, 0.05);
+    --glow-violet: rgba(123, 92, 255, 0.35);
+    --glow-cyan: rgba(79, 201, 255, 0.28);
+    --glow-pink: rgba(255, 79, 184, 0.28);
+    --glow-amber: rgba(255, 179, 71, 0.22);
 
-    /* --- Radius scale --- */
-    --radius-micro: 2px;
-    --radius-xs: 4px;
-    --radius-sm: 6px;
-    --radius-md: 8px;
-    --radius-lg: 12px;
-    --radius-xl: 16px;
-    --radius-2xl: 20px;
+    /* --- Aurora gradients --- */
+    --aurora-a: linear-gradient(135deg, #7B5CFF 0%, #FF4FB8 50%, #FFB347 100%);
+    --aurora-a-soft: linear-gradient(135deg, rgba(123,92,255,0.25) 0%, rgba(255,79,184,0.18) 50%, rgba(255,179,71,0.15) 100%);
+    --aurora-b: linear-gradient(135deg, #4FC9FF 0%, #5CFFCC 100%);
+    --aurora-b-soft: linear-gradient(135deg, rgba(79,201,255,0.22) 0%, rgba(92,255,204,0.18) 100%);
+    --aurora-c: linear-gradient(135deg, #FF7A59 0%, #FFD866 100%);
+    --aurora-c-soft: linear-gradient(135deg, rgba(255,122,89,0.22) 0%, rgba(255,216,102,0.18) 100%);
+
+    /* --- Radius scale (softer) --- */
+    --radius-micro: 6px;
+    --radius-xs: 8px;
+    --radius-sm: 10px;
+    --radius-md: 14px;
+    --radius-lg: 20px;
+    --radius-xl: 28px;
+    --radius-2xl: 36px;
     --radius-pill: 9999px;
 
-    /* --- Multi-layer shadows (DESIGN.md Level 0–5) --- */
+    /* --- Layered shadows — every elevated surface is a floating pane --- */
     --shadow-0: none;
-    --shadow-1: 0 1.189px 2.377px rgba(0, 0, 0, 0.28);
+    --shadow-1:
+      0 1px 2px rgba(0, 0, 0, 0.35),
+      inset 0 1px 0 rgba(255, 255, 255, 0.05);
     --shadow-2:
-      rgb(27 28 30) 0 0 0 1px,
-      inset rgb(7 8 10) 0 0 0 1px;
+      0 4px 16px rgba(0, 0, 0, 0.35),
+      0 0 0 1px rgba(255, 255, 255, 0.06),
+      inset 0 1px 0 rgba(255, 255, 255, 0.06);
     --shadow-3:
-      inset 0 1px 0 0 rgba(255, 255, 255, 0.05),
-      0 0 0 1px rgba(255, 255, 255, 0.12),
-      inset 0 -1px 0 0 rgba(0, 0, 0, 0.2);
+      0 8px 32px rgba(0, 0, 0, 0.45),
+      0 0 0 1px rgba(255, 255, 255, 0.08),
+      inset 0 1px 0 rgba(255, 255, 255, 0.08);
     --shadow-4:
-      0 1.5px 0.5px 2.5px rgba(0, 0, 0, 0.4),
-      inset 0 1px 0 0 rgba(255, 255, 255, 0.15),
-      inset 0 -1px 0 0 rgba(0, 0, 0, 0.3),
-      0 0 0 1px rgba(0, 0, 0, 0.5),
-      inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+      0 20px 60px rgba(6, 4, 24, 0.6),
+      0 0 0 1px rgba(255, 255, 255, 0.08),
+      inset 0 1px 0 rgba(255, 255, 255, 0.1);
     --shadow-5:
-      0 0 0 2px rgba(0, 0, 0, 0.5),
-      0 0 14px rgba(255, 255, 255, 0.19),
-      0 24px 64px rgba(0, 0, 0, 0.5),
-      inset 0 1px 0 0 rgba(255, 255, 255, 0.1),
-      inset 0 -1px 0 0 rgba(0, 0, 0, 0.3);
+      0 32px 80px rgba(6, 4, 24, 0.75),
+      0 0 0 1px rgba(255, 255, 255, 0.1),
+      inset 0 1px 0 rgba(255, 255, 255, 0.12),
+      0 0 60px rgba(123, 92, 255, 0.2);
+
+    --glass-blur: 24px;
+    --glass-saturate: 140%;
   }
 }
 
@@ -121,12 +135,12 @@
   *,
   *::before,
   *::after {
-    border-color: rgba(255, 255, 255, 0.06);
+    border-color: rgba(255, 255, 255, 0.07);
   }
 
   html {
     font-family: var(--font-inter), 'Inter Fallback', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
-    font-feature-settings: "calt", "kern", "liga", "ss03";
+    font-feature-settings: "calt", "kern", "liga", "ss01", "cv11";
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
@@ -137,9 +151,9 @@
     color: rgb(var(--fg-primary));
     min-height: 100vh;
     font-size: 14px;
-    font-weight: 500;
-    line-height: 1.6;
-    letter-spacing: 0.2px;
+    font-weight: 450;
+    line-height: 1.65;
+    letter-spacing: 0;
   }
 
   code, pre, kbd, samp {
@@ -147,37 +161,35 @@
     font-feature-settings: normal;
   }
 
-  /* Smooth thin scrollbars matching the obsidian aesthetic */
   ::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
+    width: 10px;
+    height: 10px;
   }
   ::-webkit-scrollbar-track {
     background: transparent;
   }
   ::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.06);
-    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 10px;
     border: 2px solid transparent;
     background-clip: padding-box;
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: rgba(255, 255, 255, 0.12);
+    background: rgba(255, 255, 255, 0.18);
     background-clip: padding-box;
     border: 2px solid transparent;
   }
 
-  /* Selection — Raycast Red tinted */
   ::selection {
-    background: rgba(255, 99, 99, 0.30);
+    background: rgba(123, 92, 255, 0.38);
     color: rgb(var(--fg-primary));
   }
 
   :focus { outline: none; }
   :focus-visible {
-    outline: 2px solid rgba(85, 179, 255, 0.6);
+    outline: 2px solid rgba(123, 92, 255, 0.6);
     outline-offset: 2px;
-    border-radius: 4px;
+    border-radius: 6px;
   }
 }
 
@@ -188,11 +200,8 @@
   .markdown-body { color: inherit; }
   .markdown-body > *:first-child { margin-top: 0; }
   .markdown-body > *:last-child { margin-bottom: 0; }
-  .markdown-body p { margin: 0.5rem 0; }
+  .markdown-body p { margin: 0.6rem 0; line-height: 1.7; }
   .markdown-body p:only-child { margin: 0; }
-  /* Heading hierarchy — headings step up in size and use fg-primary so
-     they stand out against the body's fg-secondary. Each level is clearly
-     bigger than the next without spectacle. */
   .markdown-body h1,
   .markdown-body h2,
   .markdown-body h3,
@@ -200,28 +209,28 @@
   .markdown-body h5,
   .markdown-body h6 {
     color: rgb(var(--fg-primary));
-    line-height: 1.35;
+    line-height: 1.3;
+    font-feature-settings: "ss01", "ss03", "cv11";
   }
   .markdown-body h1 {
-    font-size: 20px;
-    font-weight: 700;
-    line-height: 1.3;
+    font-size: 22px;
+    font-weight: 500;
     letter-spacing: -0.01em;
     margin: 1.5rem 0 0.5rem;
   }
   .markdown-body h2 {
-    font-size: 17px;
-    font-weight: 600;
+    font-size: 18px;
+    font-weight: 500;
     margin: 1.25rem 0 0.5rem;
   }
   .markdown-body h3 {
-    font-size: 15px;
-    font-weight: 600;
+    font-size: 16px;
+    font-weight: 500;
     margin: 1rem 0 0.4rem;
   }
   .markdown-body h4 {
     font-size: 14px;
-    font-weight: 700;
+    font-weight: 600;
     margin: 0.85rem 0 0.3rem;
   }
   .markdown-body h5 {
@@ -233,7 +242,7 @@
     font-size: 12px;
     font-weight: 600;
     text-transform: uppercase;
-    letter-spacing: 0.05em;
+    letter-spacing: 0.06em;
     color: rgb(var(--fg-muted));
     margin: 0.75rem 0 0.3rem;
   }
@@ -244,103 +253,111 @@
 }
 
 /* ============================================================
- * 4. UTILITY LAYER — typography, shadows, animations, decorative
+ * 4. UTILITY LAYER — typography, shadows, glass, aurora, motion
  * ============================================================ */
 @layer utilities {
-  /* --- Typography type scale (DESIGN.md) --- */
+  /* --- Typography — tracked-out, breathing room --- */
   .type-display-hero {
     font-size: 64px;
-    font-weight: 600;
-    line-height: 1.10;
-    letter-spacing: 0;
-    font-feature-settings: "ss02", "ss08", "liga" 0;
+    font-weight: 500;
+    line-height: 1.05;
+    letter-spacing: 0em;
+    font-feature-settings: "ss01", "ss03", "cv11", "liga" 0;
   }
   .type-display {
-    font-size: 56px;
+    font-size: 48px;
     font-weight: 400;
-    line-height: 1.17;
-    letter-spacing: 0.2px;
+    line-height: 1.1;
+    letter-spacing: -0.01em;
+    font-feature-settings: "ss01", "ss03", "cv11";
+  }
+  .type-h1 {
+    font-size: 30px;
+    font-weight: 500;
+    line-height: 1.2;
+    letter-spacing: -0.005em;
+    font-feature-settings: "ss01", "ss03", "cv11";
   }
   .type-heading {
     font-size: 24px;
     font-weight: 500;
-    line-height: 1.25;
-    letter-spacing: 0.2px;
+    line-height: 1.3;
+    letter-spacing: -0.003em;
+    font-feature-settings: "ss01", "ss03", "cv11";
   }
   .type-card-heading {
-    font-size: 22px;
-    font-weight: 400;
-    line-height: 1.15;
-    letter-spacing: 0;
-  }
-  .type-subheading {
     font-size: 20px;
     font-weight: 500;
-    line-height: 1.6;
-    letter-spacing: 0.2px;
+    line-height: 1.25;
+    letter-spacing: 0;
+    font-feature-settings: "ss01", "ss03", "cv11";
+  }
+  .type-subheading {
+    font-size: 18px;
+    font-weight: 500;
+    line-height: 1.5;
+    letter-spacing: 0;
   }
   .type-body-lg {
-    font-size: 18px;
-    font-weight: 400;
-    line-height: 1.5;
-    letter-spacing: 0.2px;
+    font-size: 16px;
+    font-weight: 450;
+    line-height: 1.65;
   }
   .type-body {
     font-size: 14px;
-    font-weight: 500;
-    line-height: 1.6;
-    letter-spacing: 0.2px;
+    font-weight: 450;
+    line-height: 1.65;
+    letter-spacing: 0;
   }
   .type-body-tight {
     font-size: 14px;
-    font-weight: 400;
-    line-height: 1.4;
-    letter-spacing: 0.1px;
+    font-weight: 450;
+    line-height: 1.5;
   }
   .type-button {
     font-size: 14px;
-    font-weight: 600;
-    line-height: 1.15;
-    letter-spacing: 0.3px;
+    font-weight: 500;
+    line-height: 1.2;
+    letter-spacing: 0.01em;
   }
   .type-nav {
     font-size: 14px;
-    font-weight: 500;
+    font-weight: 450;
     line-height: 1.4;
-    letter-spacing: 0.3px;
+    letter-spacing: 0;
   }
   .type-caption {
     font-size: 12px;
     font-weight: 500;
-    line-height: 1.3;
-    letter-spacing: 0.2px;
+    line-height: 1.4;
+    letter-spacing: 0.01em;
   }
   .type-caption-bold {
     font-size: 12px;
     font-weight: 600;
     line-height: 1.4;
-    letter-spacing: 0.2px;
+    letter-spacing: 0.01em;
   }
   .type-small {
     font-size: 11px;
     font-weight: 600;
-    line-height: 1.33;
-    letter-spacing: 0.2px;
+    line-height: 1.3;
+    letter-spacing: 0.08em;
     text-transform: uppercase;
   }
   .type-code {
     font-family: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
     font-size: 13px;
-    font-weight: 500;
-    line-height: 1.6;
-    letter-spacing: 0.3px;
+    font-weight: 450;
+    line-height: 1.65;
+    letter-spacing: 0;
   }
   .type-code-sm {
     font-family: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
     font-size: 11px;
     font-weight: 400;
     line-height: 1.6;
-    letter-spacing: 0.2px;
+    letter-spacing: 0;
   }
 
   /* --- Shadow level utilities --- */
@@ -351,21 +368,111 @@
   .shadow-level-4 { box-shadow: var(--shadow-4); }
   .shadow-level-5 { box-shadow: var(--shadow-5); }
 
-  .glow-warm { box-shadow: 0 0 20px 5px var(--glow-warm); }
-  .glow-info { box-shadow: 0 0 12px var(--glow-info); }
-  .glow-danger { box-shadow: 0 0 12px var(--glow-danger); }
+  .glow-violet { box-shadow: 0 0 28px var(--glow-violet); }
+  .glow-cyan { box-shadow: 0 0 24px var(--glow-cyan); }
+  .glow-pink { box-shadow: 0 0 24px var(--glow-pink); }
+  .glow-amber { box-shadow: 0 0 22px var(--glow-amber); }
+  /* legacy alias used by a few components */
+  .glow-warm { box-shadow: 0 0 28px var(--glow-violet); }
+  .glow-info { box-shadow: 0 0 16px var(--glow-cyan); }
+  .glow-danger { box-shadow: 0 0 16px var(--glow-pink); }
 
-  .bg-keycap {
-    background-image: linear-gradient(
-      to bottom,
-      rgb(var(--bg-keycap-start)),
-      rgb(var(--bg-keycap-end))
-    );
+  /* --- Glass surfaces — the heart of Aurora Glass ---
+   * Safari TP + older Chromium lack backdrop-filter; @supports blocks
+   * swap a solid fallback so nothing turns invisible.
+   */
+  .glass-pane {
+    background-color: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+  }
+  .glass-raised {
+    background-color: rgba(255, 255, 255, 0.07);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+  }
+  .glass-deep {
+    background-color: rgba(10, 12, 30, 0.55);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+  }
+  @supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
+    .glass-pane,
+    .glass-raised,
+    .glass-deep {
+      backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+      -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+    }
+  }
+
+  /* --- Aurora gradient utilities --- */
+  .bg-aurora-a { background-image: var(--aurora-a); }
+  .bg-aurora-a-soft { background-image: var(--aurora-a-soft); }
+  .bg-aurora-b { background-image: var(--aurora-b); }
+  .bg-aurora-b-soft { background-image: var(--aurora-b-soft); }
+  .bg-aurora-c { background-image: var(--aurora-c); }
+  .bg-aurora-c-soft { background-image: var(--aurora-c-soft); }
+
+  .text-aurora-a {
+    background-image: var(--aurora-a);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .text-aurora-b {
+    background-image: var(--aurora-b);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  /* --- Gradient border — draws an aurora-A hairline around an element.
+   * Implemented via masked dual background so the interior stays fully
+   * transparent (lets glass + aurora backdrop show through).
+   */
+  .gradient-border-a {
+    position: relative;
+    isolation: isolate;
+  }
+  .gradient-border-a::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    padding: 1px;
+    border-radius: inherit;
+    background: var(--aurora-a);
+    -webkit-mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    pointer-events: none;
+    opacity: 0.7;
+  }
+  .gradient-border-b::before {
+    background: var(--aurora-b);
+  }
+  .gradient-border-c::before {
+    background: var(--aurora-c);
+  }
+
+  /* --- Subtle grain overlay — breaks banding on smooth gradients.
+   * Inline SVG so no asset lookup; stays under 200 bytes.
+   */
+  .grain-overlay {
+    position: relative;
+  }
+  .grain-overlay::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.55'/%3E%3C/svg%3E");
+    opacity: 0.03;
+    mix-blend-mode: overlay;
+    border-radius: inherit;
   }
 
   /* --- Animations --- */
   @keyframes fade-in {
-    from { opacity: 0; transform: translateY(4px); }
+    from { opacity: 0; transform: translateY(6px); }
     to { opacity: 1; transform: translateY(0); }
   }
   @keyframes fade-in-fast {
@@ -373,7 +480,7 @@
     to { opacity: 1; }
   }
   @keyframes slide-up {
-    from { opacity: 0; transform: translateY(12px); }
+    from { opacity: 0; transform: translateY(14px); }
     to { opacity: 1; transform: translateY(0); }
   }
   @keyframes slide-down {
@@ -385,25 +492,30 @@
     50% { opacity: 0.5; }
   }
   @keyframes pulse-bg-info {
-    0%, 100% { background-color: rgb(var(--intent-info) / 0.04); }
-    50%      { background-color: rgb(var(--intent-info) / 0.12); }
+    0%, 100% { background-color: rgb(var(--intent-info) / 0.06); }
+    50%      { background-color: rgb(var(--intent-info) / 0.14); }
   }
   @keyframes shimmer {
     0% { background-position: -200% 0; }
     100% { background-position: 200% 0; }
   }
+  @keyframes aurora-sheen {
+    0%   { background-position: 0% 50%; }
+    50%  { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+  }
 
   .animate-fade-in {
-    animation: fade-in 280ms cubic-bezier(0.16, 1, 0.3, 1);
+    animation: fade-in 320ms cubic-bezier(0.16, 1, 0.3, 1);
   }
   .animate-fade-in-fast {
     animation: fade-in-fast 160ms ease-out;
   }
   .animate-slide-up {
-    animation: slide-up 360ms cubic-bezier(0.16, 1, 0.3, 1);
+    animation: slide-up 400ms cubic-bezier(0.16, 1, 0.3, 1);
   }
   .animate-slide-down {
-    animation: slide-down 240ms cubic-bezier(0.16, 1, 0.3, 1);
+    animation: slide-down 280ms cubic-bezier(0.16, 1, 0.3, 1);
   }
   .animate-pulse-soft {
     animation: pulse-soft 2s ease-in-out infinite;
@@ -414,12 +526,17 @@
   .animate-shimmer {
     background: linear-gradient(
       90deg,
-      rgb(var(--bg-elevated)) 25%,
-      rgb(var(--bg-raised)) 50%,
-      rgb(var(--bg-elevated)) 75%
+      rgba(255, 255, 255, 0.04) 25%,
+      rgba(255, 255, 255, 0.08) 50%,
+      rgba(255, 255, 255, 0.04) 75%
     );
     background-size: 200% 100%;
     animation: shimmer 1.6s ease-in-out infinite;
+  }
+  /* Continuous aurora shimmer on primary gradient buttons — subtle. */
+  .animate-aurora-sheen {
+    background-size: 200% 200%;
+    animation: aurora-sheen 8s ease-in-out infinite;
   }
 
   @media (prefers-reduced-motion: reduce) {
@@ -428,7 +545,8 @@
     .animate-slide-up,
     .animate-slide-down,
     .animate-pulse-soft,
-    .animate-shimmer {
+    .animate-shimmer,
+    .animate-aurora-sheen {
       animation: none !important;
     }
   }
@@ -438,71 +556,116 @@
     text-wrap: balance;
   }
 
-  /* --- Aurora blobs — used on the landing page for a slow, Gen-AI mesh-gradient backdrop --- */
+  /* --- Site-wide aurora backdrop ---
+   * Three blobs drifting at different rates. Fixed, pointer-events-none,
+   * sits behind every app surface via the <AuroraBackdrop> component.
+   * Palette: violet → pink → amber (aurora-A) + cyan accent.
+   */
   @keyframes aurora-drift-a {
     0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
-    50%      { transform: translate3d(60px, 40px, 0) scale(1.08); }
+    33%      { transform: translate3d(80px, 60px, 0) scale(1.08); }
+    66%      { transform: translate3d(-40px, 90px, 0) scale(1.05); }
   }
   @keyframes aurora-drift-b {
     0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
-    50%      { transform: translate3d(-50px, 30px, 0) scale(1.06); }
+    50%      { transform: translate3d(-90px, 50px, 0) scale(1.1); }
   }
   @keyframes aurora-drift-c {
     0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
-    50%      { transform: translate3d(30px, -50px, 0) scale(1.12); }
+    40%      { transform: translate3d(70px, -70px, 0) scale(1.14); }
+    70%      { transform: translate3d(-30px, -40px, 0) scale(1.06); }
   }
   .aurora-blob {
     position: absolute;
     border-radius: 9999px;
-    filter: blur(90px);
+    filter: blur(120px);
     will-change: transform;
+    pointer-events: none;
   }
+  .aurora-blob-violet {
+    top: -12%;
+    left: -8%;
+    width: 720px;
+    height: 720px;
+    background: radial-gradient(circle, rgba(123, 92, 255, 0.42), transparent 68%);
+    animation: aurora-drift-a 48s ease-in-out infinite;
+  }
+  .aurora-blob-pink {
+    top: 18%;
+    right: -12%;
+    width: 640px;
+    height: 640px;
+    background: radial-gradient(circle, rgba(255, 79, 184, 0.32), transparent 70%);
+    animation: aurora-drift-b 56s ease-in-out infinite;
+  }
+  .aurora-blob-cyan {
+    bottom: -14%;
+    left: 22%;
+    width: 680px;
+    height: 680px;
+    background: radial-gradient(circle, rgba(79, 201, 255, 0.26), transparent 70%);
+    animation: aurora-drift-c 62s ease-in-out infinite;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .aurora-blob { animation: none !important; }
+  }
+
+  /* Legacy alias: the old login-specific blob classes still appear in a
+   * few places. Mapping them to the new palette keeps previous imports
+   * working without touching their call sites. */
   .aurora-blob-red {
     top: -10%;
     left: -12%;
     width: 640px;
     height: 640px;
-    background: radial-gradient(circle, rgba(255, 99, 99, 0.24), transparent 68%);
-    animation: aurora-drift-a 22s ease-in-out infinite;
+    background: radial-gradient(circle, rgba(255, 79, 184, 0.3), transparent 68%);
+    animation: aurora-drift-a 48s ease-in-out infinite;
+    filter: blur(120px);
+    border-radius: 9999px;
+    position: absolute;
+    will-change: transform;
   }
   .aurora-blob-blue {
     top: 4%;
     right: -10%;
     width: 600px;
     height: 600px;
-    background: radial-gradient(circle, rgba(85, 179, 255, 0.22), transparent 68%);
-    animation: aurora-drift-b 26s ease-in-out infinite;
+    background: radial-gradient(circle, rgba(79, 201, 255, 0.28), transparent 68%);
+    animation: aurora-drift-b 56s ease-in-out infinite;
+    filter: blur(120px);
+    border-radius: 9999px;
+    position: absolute;
+    will-change: transform;
   }
   .aurora-blob-warm {
     top: 32%;
     left: 34%;
     width: 520px;
     height: 520px;
-    background: radial-gradient(circle, rgba(255, 188, 51, 0.14), transparent 70%);
-    animation: aurora-drift-c 30s ease-in-out infinite;
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .aurora-blob { animation: none !important; }
+    background: radial-gradient(circle, rgba(255, 179, 71, 0.2), transparent 70%);
+    animation: aurora-drift-c 62s ease-in-out infinite;
+    filter: blur(120px);
+    border-radius: 9999px;
+    position: absolute;
+    will-change: transform;
   }
 
-  /* Diagonal stripe pattern — Raycast brand decorative element */
+  /* Diagonal stripe pattern — retained for back-compat, retuned with aurora-A hue. */
   .stripe-pattern {
     background-image: repeating-linear-gradient(
       135deg,
-      rgba(255, 99, 99, 0.18) 0px,
-      rgba(255, 99, 99, 0.18) 2px,
+      rgba(123, 92, 255, 0.16) 0px,
+      rgba(123, 92, 255, 0.16) 2px,
       transparent 2px,
       transparent 12px
     );
   }
 
-  /* In-chat search match. Inline only so prepend-anchor scroll math
-     stays correct when marks are inserted/removed. */
   mark.chat-search-highlight {
-    background-color: rgba(255, 210, 70, 0.55);
+    background-color: rgba(255, 216, 102, 0.5);
     color: rgb(var(--fg-primary));
     border-radius: 2px;
     padding: 0;
-    box-shadow: 0 0 0 1px rgba(255, 210, 70, 0.35);
+    box-shadow: 0 0 0 1px rgba(255, 216, 102, 0.35);
   }
 }
