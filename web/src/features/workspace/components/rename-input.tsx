@@ -41,12 +41,15 @@ export function RenameInput({
         defaultValue={initialValue}
         placeholder={placeholder}
         onKeyDown={(e) => {
+          if (e.key === "Escape") {
+            onCancel();
+            return;
+          }
+          if (e.nativeEvent.isComposing || e.keyCode === 229) return;
           if (e.key === "Enter") {
             const v = (e.currentTarget.value ?? "").trim();
             if (v) onSubmit(v);
             else onCancel();
-          } else if (e.key === "Escape") {
-            onCancel();
           }
         }}
         onBlur={(e) => {

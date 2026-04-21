@@ -30,7 +30,10 @@ export function ConfirmDialog({
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onCancel();
-      if (e.key === "Enter") onConfirm();
+      if (e.key === "Enter") {
+        if (e.isComposing || e.keyCode === 229) return;
+        onConfirm();
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);

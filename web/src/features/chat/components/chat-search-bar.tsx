@@ -32,7 +32,10 @@ export function ChatSearchBar({ search }: ChatSearchBarProps) {
     if (e.key === "Escape") {
       e.preventDefault();
       search.closeSearch();
-    } else if (e.key === "Enter") {
+      return;
+    }
+    if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+    if (e.key === "Enter") {
       e.preventDefault();
       if (e.shiftKey) search.prev();
       else search.next();

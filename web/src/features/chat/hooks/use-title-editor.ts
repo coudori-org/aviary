@@ -49,6 +49,7 @@ export function useTitleEditor({ session, patchSession }: UseTitleEditorOptions)
   }, [session, draft, patchSession, updateSessionTitle]);
 
   const handleKeyDown = useCallback((e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.nativeEvent.isComposing || e.keyCode === 229) return;
     if (e.key === "Enter") e.currentTarget.blur();
     else if (e.key === "Escape") setIsEditing(false);
   }, []);

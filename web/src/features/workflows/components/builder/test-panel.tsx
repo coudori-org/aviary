@@ -156,6 +156,7 @@ function TriggerInputBar({
   }, [inputValue, run, isWebhook, runType]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.nativeEvent.isComposing || (e as React.KeyboardEvent).keyCode === 229) return;
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleSubmit();

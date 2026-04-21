@@ -150,6 +150,7 @@ export function MentionAutocomplete({
         e.stopPropagation();
         setSelectedIndex((i) => Math.max(i - 1, 0));
       } else if (e.key === "Enter" || e.key === "Tab") {
+        if (e.isComposing || e.keyCode === 229) return;
         e.preventDefault();
         e.stopPropagation();
         selectAgent(filtered[selectedIndex]);
