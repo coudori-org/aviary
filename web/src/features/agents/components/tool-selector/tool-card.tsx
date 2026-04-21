@@ -34,12 +34,12 @@ export function ToolCard({ tool, checked, onToggle, onShowDetails }: ToolCardPro
       className={cn(
         "group relative flex flex-col items-start gap-1.5 rounded-md border px-3 py-2.5 text-left transition-colors",
         checked
-          ? "border-info/50 bg-info/[0.05]"
-          : "border-white/[0.06] bg-raised/30 hover:border-white/[0.12] hover:bg-raised/60",
+          ? "border-info/60 bg-info/[0.10] hover:bg-info/[0.14]"
+          : "border-white/10 bg-raised hover:border-white/20 hover:bg-hover",
       )}
     >
       <div className="flex w-full items-center gap-2">
-        <Wrench size={12} strokeWidth={1.75} className="shrink-0 text-fg-muted" />
+        <Wrench size={12} strokeWidth={1.75} className="shrink-0 text-fg-secondary" />
         <span className="flex-1 truncate font-mono type-caption text-fg-primary">
           {tool.name}
         </span>
@@ -68,7 +68,7 @@ export function ToolCard({ tool, checked, onToggle, onShowDetails }: ToolCardPro
             "flex h-4 w-4 shrink-0 items-center justify-center rounded-full border transition-colors",
             checked
               ? "border-info bg-info text-canvas"
-              : "border-white/20 bg-transparent",
+              : "border-white/40 bg-canvas/40",
           )}
           aria-hidden="true"
         >
@@ -86,7 +86,7 @@ export function ToolCard({ tool, checked, onToggle, onShowDetails }: ToolCardPro
             <ParamTag key={p.name} param={p} />
           ))}
           {overflow > 0 && (
-            <span className="font-mono text-[10px] text-fg-disabled">+{overflow}</span>
+            <span className="font-mono text-[10px] text-fg-muted">+{overflow}</span>
           )}
         </div>
       )}
@@ -112,7 +112,7 @@ function ParamTag({ param }: { param: ToolParam }) {
     );
   }
   return (
-    <span className="rounded-xs bg-white/[0.04] px-1.5 py-px font-mono text-[10px] text-fg-disabled">
+    <span className="rounded-xs bg-white/[0.14] px-1.5 py-px font-mono text-[10px] text-fg-primary ring-1 ring-inset ring-white/15">
       {param.name}
     </span>
   );

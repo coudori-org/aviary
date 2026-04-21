@@ -163,7 +163,7 @@ export function ToolSelector({ selectedToolIds, onChange, open, onClose }: ToolS
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-fade-in-fast p-6">
-      <div className="flex h-full max-h-[80vh] w-full max-w-4xl flex-col rounded-xl bg-elevated shadow-5">
+      <div className="flex h-full max-h-[80vh] w-full max-w-4xl flex-col rounded-xl bg-popover border border-white/10 shadow-5">
         <div className="flex items-center justify-between border-b border-white/[0.06] px-6 py-4">
           <h2 className="type-button text-fg-primary">Browse Tools</h2>
           <button
@@ -206,7 +206,7 @@ export function ToolSelector({ selectedToolIds, onChange, open, onClose }: ToolS
               )}
               {servers.length > 0 && (
                 <div className="pt-2 pb-1">
-                  <span className="px-2 type-small text-fg-disabled">Servers</span>
+                  <span className="px-2 type-small text-fg-muted">Servers</span>
                 </div>
               )}
               {servers.map((srv) => (
@@ -330,7 +330,7 @@ function RailItem({ active, onClick, icon, label, count, onBulkAdd }: RailItemPr
           <Plus size={11} strokeWidth={2.5} />
         </button>
       ) : count !== undefined ? (
-        <span className="shrink-0 tabular-nums text-fg-disabled">{count}</span>
+        <span className="shrink-0 tabular-nums text-fg-muted">{count}</span>
       ) : null}
     </div>
   );

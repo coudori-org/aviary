@@ -110,7 +110,7 @@ export function ToolDetailsSheet({ tool, onClose }: ToolDetailsSheetProps) {
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <h3 className="type-small font-semibold uppercase tracking-wide text-fg-disabled">
+    <h3 className="type-small font-semibold uppercase tracking-wide text-fg-muted">
       {children}
     </h3>
   );
@@ -147,13 +147,13 @@ function ParamRow({ param }: { param: ToolParam }) {
       className={cn(
         "rounded-md border px-3 py-2",
         injected
-          ? "border-info/20 bg-info/[0.04]"
-          : "border-white/[0.06] bg-raised/30",
+          ? "border-info/30 bg-info/[0.08]"
+          : "border-white/10 bg-raised",
       )}
     >
       <div className="flex flex-wrap items-center gap-2">
         <span className="font-mono type-caption text-fg-primary">{param.name}</span>
-        <span className="font-mono text-[10px] text-fg-disabled">{param.type}</span>
+        <span className="font-mono text-[10px] text-fg-muted">{param.type}</span>
         {param.required && !injected && (
           <span className="rounded-xs bg-warning/15 px-1.5 py-px text-[10px] uppercase tracking-wide text-warning ring-1 ring-inset ring-warning/20">
             required
@@ -170,12 +170,12 @@ function ParamRow({ param }: { param: ToolParam }) {
         )}
       </div>
       {param.description && (
-        <p className="mt-1 type-caption text-fg-muted whitespace-pre-wrap leading-relaxed">
+        <p className="mt-1 type-caption text-fg-secondary whitespace-pre-wrap leading-relaxed">
           {param.description}
         </p>
       )}
       {param.defaultValue !== undefined && (
-        <p className="mt-1 font-mono text-[10px] text-fg-disabled">
+        <p className="mt-1 font-mono text-[10px] text-fg-muted">
           default: {JSON.stringify(param.defaultValue)}
         </p>
       )}
