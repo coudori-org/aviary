@@ -1,41 +1,11 @@
 model_list:
   # --- Anthropic (Claude) ---
-  - model_name: "anthropic/claude-sonnet-4-6"
-    litellm_params:
-      model: "anthropic/claude-sonnet-4-6"
-      api_key: "sk-placeholder"
-    model_info:
-      max_input_tokens: 1015808
-      max_output_tokens: 32768
-      max_tokens: 32000
-      _ui:
-        capabilities:
-          - vision
-          - tools
-          - thinking
-
-  - model_name: "anthropic/claude-opus-4-6"
-    litellm_params:
-      model: "anthropic/claude-opus-4-6"
-      api_key: "sk-placeholder"
-    model_info:
-      max_input_tokens: 1015808
-      max_output_tokens: 32768
-      max_tokens: 32000
-      _ui:
-        capabilities:
-          - vision
-          - tools
-          - thinking
-
-  # --- Local ---
-  # - model_name: "local/llamacpp/gemma4-26b"
+  # - model_name: "anthropic/claude-sonnet-4-6"
   #   litellm_params:
-  #     model: "anthropic/llamacpp/gemma4-26b"
-  #     api_base: "http://host.docker.internal:9292"
-  #     api_key: "none"
+  #     model: "anthropic/claude-sonnet-4-6"
+  #     api_key: "sk-placeholder"
   #   model_info:
-  #     max_input_tokens: 131072
+  #     max_input_tokens: 1015808
   #     max_output_tokens: 32768
   #     max_tokens: 32000
   #     _ui:
@@ -43,21 +13,51 @@ model_list:
   #         - vision
   #         - tools
   #         - thinking
-  
-  - model_name: "local/vllm/gemma4-26b"
+
+  # - model_name: "anthropic/claude-opus-4-6"
+  #   litellm_params:
+  #     model: "anthropic/claude-opus-4-6"
+  #     api_key: "sk-placeholder"
+  #   model_info:
+  #     max_input_tokens: 1015808
+  #     max_output_tokens: 32768
+  #     max_tokens: 32000
+  #     _ui:
+  #       capabilities:
+  #         - vision
+  #         - tools
+  #         - thinking
+
+  # --- Local ---
+  - model_name: "local/llamacpp/gemma4-26b"
     litellm_params:
-      model: "anthropic/vllm/gemma4-26b"
+      model: "anthropic/llamacpp/gemma4-26b"
       api_base: "http://host.docker.internal:9292"
       api_key: "none"
     model_info:
-      max_input_tokens: 80000
-      max_output_tokens: 16000
-      max_tokens: 16000
+      max_input_tokens: 131072
+      max_output_tokens: 32768
+      max_tokens: 32000
       _ui:
         capabilities:
           - vision
           - tools
           - thinking
+  
+  # - model_name: "local/vllm/gemma4-26b"
+  #   litellm_params:
+  #     model: "anthropic/vllm/gemma4-26b"
+  #     api_base: "http://host.docker.internal:9292"
+  #     api_key: "none"
+  #   model_info:
+  #     max_input_tokens: 80000
+  #     max_output_tokens: 16000
+  #     max_tokens: 16000
+  #     _ui:
+  #       capabilities:
+  #         - vision
+  #         - tools
+  #         - thinking
 
   # - model_name: "local/vllm/qwen3.6-35b"
   #   litellm_params:

@@ -2,46 +2,46 @@ healthCheckTimeout: 300
 logLevel: info
 
 models:
-  # "llamacpp/gemma4-26b":
-  #   cmd: |
-  #     llama-server \
-  #     --hf-repo unsloth/gemma-4-26B-A4B-it-GGUF \
-  #     --hf-file gemma-4-26B-A4B-it-UD-Q4_K_M.gguf \
-  #     --port ${PORT} \
-  #     --ctx-size 131072 \
-  #     -ngl 99 -fa on --jinja \
-  #     -np 1 -ctk q8_0 -ctv q8_0
-  #   concurrencyLimit: 8
-  
-  "vllm/gemma4-26b":
+  "llamacpp/gemma4-26b":
     cmd: |
-      docker run --rm \
-      --name vllm-gemma4-26b \
-      --gpus all \
-      -p ${PORT}:${PORT} \
-      --shm-size 16G \
-      -e HF_TOKEN=${env.HF_TOKEN} \
-      -v ${env.HOME}/.cache/huggingface:/root/.cache/huggingface \
-      vllm/vllm-openai:latest-cu130 \
-      --model RedHatAI/gemma-4-26B-A4B-it-NVFP4 \
-      --served-model-name vllm/gemma4-26b \
-      --max-num-seqs 4 \
-      --max-model-len 96000 \
-      --gpu-memory-utilization 0.92 \
-      --enable-prefix-caching \
-      --tensor-parallel-size 1 \
-      --enable-auto-tool-choice \
-      --tool-call-parser gemma4 \
-      --reasoning-parser gemma4 \
-      --chat-template examples/tool_chat_template_gemma4.jinja \
-      --default-chat-template-kwargs '{"enable_thinking": true}' \
-      --kv-cache-dtype fp8 \
-      --async-scheduling \
-      --host 0.0.0.0 \
-      --port ${PORT}
-    cmdStop: |
-      docker stop vllm-gemma4-26b || true
-    concurrencyLimit: 32
+      llama-server \
+      --hf-repo unsloth/gemma-4-26B-A4B-it-GGUF \
+      --hf-file gemma-4-26B-A4B-it-UD-Q4_K_M.gguf \
+      --port ${PORT} \
+      --ctx-size 131072 \
+      -ngl 99 -fa on --jinja \
+      -np 1 -ctk q8_0 -ctv q8_0
+    concurrencyLimit: 8
+  
+  # "vllm/gemma4-26b":
+  #   cmd: |
+  #     docker run --rm \
+  #     --name vllm-gemma4-26b \
+  #     --gpus all \
+  #     -p ${PORT}:${PORT} \
+  #     --shm-size 16G \
+  #     -e HF_TOKEN=${env.HF_TOKEN} \
+  #     -v ${env.HOME}/.cache/huggingface:/root/.cache/huggingface \
+  #     vllm/vllm-openai:latest-cu130 \
+  #     --model RedHatAI/gemma-4-26B-A4B-it-NVFP4 \
+  #     --served-model-name vllm/gemma4-26b \
+  #     --max-num-seqs 4 \
+  #     --max-model-len 96000 \
+  #     --gpu-memory-utilization 0.92 \
+  #     --enable-prefix-caching \
+  #     --tensor-parallel-size 1 \
+  #     --enable-auto-tool-choice \
+  #     --tool-call-parser gemma4 \
+  #     --reasoning-parser gemma4 \
+  #     --chat-template examples/tool_chat_template_gemma4.jinja \
+  #     --default-chat-template-kwargs '{"enable_thinking": true}' \
+  #     --kv-cache-dtype fp8 \
+  #     --async-scheduling \
+  #     --host 0.0.0.0 \
+  #     --port ${PORT}
+  #   cmdStop: |
+  #     docker stop vllm-gemma4-26b || true
+  #   concurrencyLimit: 32
   
   # "vllm/qwen3.6-35b":
   #   cmd: |
