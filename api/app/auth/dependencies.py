@@ -63,17 +63,16 @@ async def get_current_user(
     return await _upsert_user(db, claims)
 
 
-def require_agent_owner(include_deleted: bool = False):
+def require_agent_owner():
     """Fetch agent by path `agent_id` and 403 unless the caller owns it."""
     async def dependency(
         agent_id: uuid.UUID,
         user: User = Depends(get_current_user),
         db: AsyncSession = Depends(get_db),
     ) -> Agent:
-        stmt = select(Agent).where(Agent.id == agent_id)
-        if not include_deleted:
-            stmt = stmt.where(Agent.status != "deleted")
-        agent = (await db.execute(stmt)).scalar_one_or_none()
+        agent = (await db.execute(
+            select(Agent).where(Agent.id == agent_id)
+        )).scalar_one_or_none()
         if not agent:
             raise HTTPException(status_code=404, detail="Agent not found")
         if agent.owner_id != user.id:

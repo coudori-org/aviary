@@ -140,9 +140,7 @@ async def count_active_sessions(db: AsyncSession, agent_id: uuid.UUID) -> int:
 
 async def delete_session(db: AsyncSession, session: Session) -> None:
     """Cancel any active stream, clean Redis, drop the row, then clean the
-    runtime workspace. Agent lifecycle (hard-delete if orphaned) is delegated
-    to ``agent_service.reap_if_orphaned``."""
-    from app.services import agent_service
+    runtime workspace."""
     from app.services.stream import manager as stream_manager
 
     session_id_str = str(session.id)
@@ -154,19 +152,20 @@ async def delete_session(db: AsyncSession, session: Session) -> None:
     participants = await get_session_participants(db, session.id)
     await redis_service.delete_all_session_keys(session_id_str, participants)
 
+    runtime_endpoint: str | None = None
+    if agent_id is not None:
+        agent = await db.get(Agent, agent_id)
+        if agent is not None:
+            runtime_endpoint = agent.runtime_endpoint
+
     await db.delete(session)
     await db.flush()
 
     if agent_id is None:
         return
 
-    agent = await db.get(Agent, agent_id)
-    if agent is None:
-        return
-
     await agent_supervisor.cleanup_session(
         session_id_str,
         agent_id=str(agent_id),
-        runtime_endpoint=agent.runtime_endpoint,
+        runtime_endpoint=runtime_endpoint,
     )
-    await agent_service.reap_if_orphaned(db, agent_id)

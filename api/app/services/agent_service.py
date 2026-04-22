@@ -3,7 +3,7 @@
 import logging
 import uuid
 
-from sqlalchemy import exists, func, or_, select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Agent, Session, User
@@ -34,40 +34,20 @@ async def create_agent(db: AsyncSession, user: User, data: AgentCreate) -> Agent
     return agent
 
 
-async def get_agent(
-    db: AsyncSession, agent_id: uuid.UUID, include_deleted: bool = False
-) -> Agent | None:
-    query = select(Agent).where(Agent.id == agent_id)
-    if not include_deleted:
-        query = query.where(Agent.status != "deleted")
-    result = await db.execute(query)
+async def get_agent(db: AsyncSession, agent_id: uuid.UUID) -> Agent | None:
+    result = await db.execute(select(Agent).where(Agent.id == agent_id))
     return result.scalar_one_or_none()
 
 
 async def get_agent_by_slug(db: AsyncSession, slug: str) -> Agent | None:
-    result = await db.execute(
-        select(Agent).where(Agent.slug == slug, Agent.status != "deleted")
-    )
+    result = await db.execute(select(Agent).where(Agent.slug == slug))
     return result.scalar_one_or_none()
-
-
-def _agent_visible_filter():
-    """Active agents + deleted agents that still have active sessions."""
-    return or_(
-        Agent.status != "deleted",
-        exists(
-            select(Session.id).where(
-                Session.agent_id == Agent.id,
-                Session.status == "active",
-            )
-        ),
-    )
 
 
 async def list_agents_for_user(
     db: AsyncSession, user: User, offset: int = 0, limit: int = 50
 ) -> tuple[list[Agent], int]:
-    base_query = select(Agent).where(_agent_visible_filter(), Agent.owner_id == user.id)
+    base_query = select(Agent).where(Agent.owner_id == user.id)
 
     total = (await db.execute(select(func.count()).select_from(base_query.subquery()))).scalar() or 0
 
@@ -101,30 +81,16 @@ async def update_agent(db: AsyncSession, agent: Agent, data: AgentUpdate) -> Age
     return agent
 
 
-async def cleanup_agent_resources(db: AsyncSession, agent: Agent) -> None:
+async def delete_agent(db: AsyncSession, agent: Agent) -> None:
+    """Hard-delete the agent and every session (with messages + runtime
+    workspace) that belongs to it."""
+    from app.services import session_service
+
+    sessions = (await db.execute(
+        select(Session).where(Session.agent_id == agent.id)
+    )).scalars().all()
+    for session in sessions:
+        await session_service.delete_session(db, session)
+
     await db.delete(agent)
     await db.flush()
-
-
-async def reap_if_orphaned(db: AsyncSession, agent_id: uuid.UUID) -> None:
-    """Hard-delete the agent iff it's soft-deleted and has no active sessions.
-    Called from ``session_service.delete_session`` once the session is gone."""
-    from app.services import session_service
-
-    agent = await db.get(Agent, agent_id)
-    if agent is None or agent.status != "deleted":
-        return
-    if await session_service.count_active_sessions(db, agent.id) == 0:
-        await cleanup_agent_resources(db, agent)
-
-
-async def delete_agent(db: AsyncSession, agent: Agent) -> None:
-    """Soft-delete; hard-delete once every session is gone."""
-    from app.services import session_service
-
-    agent.status = "deleted"
-    await db.flush()
-
-    remaining = await session_service.count_active_sessions(db, agent.id)
-    if remaining == 0:
-        await cleanup_agent_resources(db, agent)

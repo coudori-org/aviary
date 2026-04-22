@@ -65,8 +65,6 @@ async def create_session(
     agent = (await db.execute(select(Agent).where(Agent.id == agent_id))).scalar_one_or_none()
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
-    if agent.status == "deleted":
-        raise HTTPException(status_code=410, detail="Agent has been deleted")
     if agent.owner_id != user.id:
         raise HTTPException(status_code=403, detail="Not the owner of this agent")
 

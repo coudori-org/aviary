@@ -82,7 +82,6 @@ async def resolve_mentioned_agents(
         select(Agent).where(
             Agent.slug.in_(slugs),
             Agent.owner_id == user.id,
-            Agent.status == "active",
         )
     )).scalars().all()
 

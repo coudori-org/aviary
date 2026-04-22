@@ -37,14 +37,14 @@ async def create_agent(
 
 
 @router.get("/{agent_id}", response_model=AgentResponse)
-async def get_agent(agent: Agent = Depends(require_agent_owner(include_deleted=True))):
+async def get_agent(agent: Agent = Depends(require_agent_owner())):
     return AgentResponse.model_validate(agent)
 
 
 @router.put("/{agent_id}", response_model=AgentResponse)
 async def update_agent(
     body: AgentUpdate,
-    agent: Agent = Depends(require_agent_owner(include_deleted=True)),
+    agent: Agent = Depends(require_agent_owner()),
     db: AsyncSession = Depends(get_db),
 ):
     agent = await agent_service.update_agent(db, agent, body)

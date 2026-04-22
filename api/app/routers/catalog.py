@@ -37,7 +37,6 @@ async def search_catalog(
 ):
     pattern = f"%{q}%"
     base_query = select(Agent).where(
-        Agent.status != "deleted",
         Agent.owner_id == user.id,
         or_(Agent.name.ilike(pattern), Agent.description.ilike(pattern)),
     )
