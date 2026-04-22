@@ -1,3 +1,5 @@
+from unittest.mock import AsyncMock, patch
+
 import pytest
 from httpx import AsyncClient
 
@@ -170,3 +172,86 @@ async def test_non_owner_cannot_trigger_run(
     wf_id = wf["id"]
     resp = await user2_client.post(f"/api/workflows/{wf_id}/runs", json={"run_type": "draft"})
     assert resp.status_code == 403
+
+
+# ── Delete ──────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_delete_workflow_hard_deletes_with_no_runs(user1_client: AsyncClient):
+    wf = await _create(user1_client, "wf-del-empty")
+    wf_id = wf["id"]
+
+    resp = await user1_client.delete(f"/api/workflows/{wf_id}")
+    assert resp.status_code == 204
+
+    resp = await user1_client.get(f"/api/workflows/{wf_id}")
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_delete_workflow_cascades_runs_and_cleans_artifacts(user1_client: AsyncClient):
+    """Workflow delete terminates in-flight Temporal runs, wipes artifact trees
+    for every root_run_id, and cascades runs + node_runs out of the DB."""
+    wf = await _create(user1_client, "wf-del-cascade")
+    wf_id = wf["id"]
+    await user1_client.post(f"/api/workflows/{wf_id}/deploy")
+
+    r1 = await user1_client.post(f"/api/workflows/{wf_id}/runs", json={"run_type": "draft"})
+    r2 = await user1_client.post(f"/api/workflows/{wf_id}/runs", json={"run_type": "deployed"})
+    run_ids = {r1.json()["id"], r2.json()["id"]}
+
+    with (
+        patch(
+            "app.services.agent_supervisor.cleanup_workflow_artifacts",
+            new_callable=AsyncMock,
+        ) as artifacts,
+        patch(
+            "app.services.temporal_client.terminate_workflow_run",
+            new_callable=AsyncMock, return_value=True,
+        ) as terminate,
+    ):
+        resp = await user1_client.delete(f"/api/workflows/{wf_id}")
+        assert resp.status_code == 204
+
+        # Every in-flight (pending) run got a terminate call.
+        terminated_ids = {call.args[0] for call in terminate.await_args_list}
+        assert terminated_ids == run_ids
+
+        # Each run's root — with root_run_id NULL, the run's own id is used.
+        cleaned_roots = {call.args[0] for call in artifacts.await_args_list}
+        assert cleaned_roots == run_ids
+
+    # Workflow + runs both gone.
+    resp = await user1_client.get(f"/api/workflows/{wf_id}")
+    assert resp.status_code == 404
+    resp = await user1_client.get(f"/api/workflows/{wf_id}/runs?include_drafts=true")
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_delete_workflow_removes_from_list(user1_client: AsyncClient):
+    wf = await _create(user1_client, "wf-del-list")
+    wf_id = wf["id"]
+
+    resp = await user1_client.delete(f"/api/workflows/{wf_id}")
+    assert resp.status_code == 204
+
+    resp = await user1_client.get("/api/workflows")
+    ids = [w["id"] for w in resp.json()["items"]]
+    assert wf_id not in ids
+
+
+@pytest.mark.asyncio
+async def test_non_owner_cannot_delete_workflow(
+    user1_client: AsyncClient, user2_client: AsyncClient,
+):
+    wf = await _create(user1_client, "wf-del-acl")
+    wf_id = wf["id"]
+
+    resp = await user2_client.delete(f"/api/workflows/{wf_id}")
+    assert resp.status_code == 403
+
+    # Still there for the owner.
+    resp = await user1_client.get(f"/api/workflows/{wf_id}")
+    assert resp.status_code == 200

@@ -14,7 +14,7 @@ from sqlalchemy.orm import selectinload
 
 from app.db.models import User, Workflow, WorkflowRun, WorkflowVersion
 from app.schemas.workflow import WorkflowCreate, WorkflowUpdate
-from app.services import agent_supervisor
+from app.services import agent_supervisor, temporal_client
 from app.errors import ConflictError, StateError
 
 logger = logging.getLogger(__name__)
@@ -45,7 +45,7 @@ async def get_workflow(db: AsyncSession, workflow_id: uuid.UUID) -> Workflow | N
     result = await db.execute(
         select(Workflow)
         .options(selectinload(Workflow.versions))
-        .where(Workflow.id == workflow_id, Workflow.status != "deleted")
+        .where(Workflow.id == workflow_id)
     )
     return result.scalar_one_or_none()
 
@@ -53,9 +53,7 @@ async def get_workflow(db: AsyncSession, workflow_id: uuid.UUID) -> Workflow | N
 async def list_workflows_for_user(
     db: AsyncSession, user: User, offset: int = 0, limit: int = 50
 ) -> tuple[list[Workflow], int]:
-    base_query = select(Workflow).where(
-        Workflow.status != "deleted", Workflow.owner_id == user.id,
-    )
+    base_query = select(Workflow).where(Workflow.owner_id == user.id)
     total = (await db.execute(select(func.count()).select_from(base_query.subquery()))).scalar() or 0
     result = await db.execute(
         base_query.options(selectinload(Workflow.versions))
@@ -83,6 +81,24 @@ async def update_workflow(db: AsyncSession, workflow: Workflow, data: WorkflowUp
 
 
 async def delete_workflow(db: AsyncSession, workflow: Workflow) -> None:
+    # Terminate any in-flight Temporal workflows before the DB delete so we
+    # don't leave orphan workers writing against rows that are about to
+    # CASCADE-drop. Force-terminate (no graceful signal) — the user is
+    # wiping the workflow, not stopping one run.
+    in_flight = (await db.execute(
+        select(WorkflowRun.id).where(
+            WorkflowRun.workflow_id == workflow.id,
+            WorkflowRun.status.in_(("pending", "running")),
+        )
+    )).scalars().all()
+    for run_id in in_flight:
+        try:
+            await temporal_client.terminate_workflow_run(
+                str(run_id), reason="workflow deleted",
+            )
+        except Exception:  # noqa: BLE001
+            logger.warning("Temporal terminate failed for run=%s", run_id, exc_info=True)
+
     # Collect every distinct root_run_id (or run.id when root is null) for
     # this workflow so we can ask the supervisor to wipe each artifact tree
     # before the CASCADE drops the rows. Best-effort — artifact removal is

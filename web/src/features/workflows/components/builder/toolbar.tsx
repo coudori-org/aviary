@@ -45,12 +45,16 @@ function ToolbarButton({
 
 interface ToolbarProps {
   deploying: boolean;
+  deletingWorkflow: boolean;
   onDeploy: () => void;
   onEdit: () => void;
   onCancelEdit: () => void;
+  onDeleteWorkflow: () => void;
 }
 
-export function Toolbar({ deploying, onDeploy, onEdit, onCancelEdit }: ToolbarProps) {
+export function Toolbar({
+  deploying, deletingWorkflow, onDeploy, onEdit, onCancelEdit, onDeleteWorkflow,
+}: ToolbarProps) {
   const { workflowName, undo, redo, canUndo, canRedo, deleteSelected } = useWorkflowBuilder();
   const { versions, selected, isDraft, hasPriorDeploy, setSelected } = useVersionSelection();
   const latestId = versions[0]?.id;
@@ -72,6 +76,20 @@ export function Toolbar({ deploying, onDeploy, onEdit, onCancelEdit }: ToolbarPr
         )}>
           {isDraft ? "draft" : "deployed"}
         </span>
+        <div className="mx-1 h-4 w-px bg-white/[0.06]" />
+        <button
+          type="button"
+          onClick={onDeleteWorkflow}
+          disabled={deletingWorkflow}
+          title="Delete workflow (removes all runs and artifacts)"
+          className="flex items-center justify-center rounded-md p-1.5 text-fg-muted hover:text-danger hover:bg-danger/[0.06] transition-colors disabled:opacity-50"
+        >
+          {deletingWorkflow ? (
+            <Loader2 size={14} className="animate-spin" />
+          ) : (
+            <Trash2 size={14} strokeWidth={1.75} />
+          )}
+        </button>
       </div>
 
       <div className="flex items-center gap-0.5">

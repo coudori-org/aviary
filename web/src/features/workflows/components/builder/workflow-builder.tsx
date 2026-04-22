@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useRef, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   ReactFlow,
   ReactFlowProvider,
@@ -21,6 +22,7 @@ import {
 import { useWorkflowRun } from "@/features/workflows/hooks/use-workflow-run";
 import { RunStatusProvider, useAllNodeRunStatuses } from "@/features/workflows/providers/run-status-provider";
 import { workflowsApi } from "@/features/workflows/api/workflows-api";
+import { routes } from "@/lib/constants/routes";
 import { SettingsPanel } from "./settings-panel";
 import { NodePalette } from "./node-palette";
 import { InspectorPanel } from "./inspector-panel";
@@ -242,6 +244,7 @@ function RightPanel({
 }
 
 export function WorkflowBuilder() {
+  const router = useRouter();
   const { workflowId, addNode, cancelPendingSave } = useWorkflowBuilder();
   const {
     isDraft,
@@ -252,6 +255,7 @@ export function WorkflowBuilder() {
   } = useVersionSelection();
   const run = useWorkflowRun(workflowId);
   const [deploying, setDeploying] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const readOnly = !isDraft;
 
   const [rightTab, setRightTab] = useState<"inspector" | "test" | "history">(
@@ -307,14 +311,34 @@ export function WorkflowBuilder() {
     await mutateAndNavigate((latestId) => latestId ?? DRAFT_SELECTION);
   }, [workflowId, cancelPendingSave, mutateAndNavigate]);
 
+  const handleDeleteWorkflow = useCallback(async () => {
+    if (deleting) return;
+    if (!window.confirm(
+      "Delete this workflow? Every run, its history, and the artifact tree will be permanently removed.",
+    )) return;
+    setDeleting(true);
+    // Stop any queued autosave from racing the delete — it would recreate
+    // a draft definition after the row is already gone.
+    cancelPendingSave();
+    try {
+      await workflowsApi.remove(workflowId);
+      router.push(routes.workflows);
+    } catch (err) {
+      setDeleting(false);
+      window.alert(err instanceof Error ? err.message : "Failed to delete workflow");
+    }
+  }, [deleting, cancelPendingSave, workflowId, router]);
+
   return (
     <RunStatusProvider nodeStatuses={run.nodeStatuses}>
       <div className="flex h-full flex-col">
         <Toolbar
           deploying={deploying}
+          deletingWorkflow={deleting}
           onDeploy={handleDeploy}
           onEdit={handleEdit}
           onCancelEdit={handleCancelEdit}
+          onDeleteWorkflow={handleDeleteWorkflow}
         />
         <div className="flex flex-1 flex-col overflow-hidden">
           <div className="flex flex-1 overflow-hidden">

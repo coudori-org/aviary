@@ -62,14 +62,14 @@ export function BaseNode({
         "relative rounded-lg transition-all duration-200 ease-out",
         compact ? "min-w-[140px] max-w-[180px]" : "min-w-[200px] max-w-[260px]",
         "glass-raised",
-        selected && "ring-1 ring-aurora-violet/60 border-aurora-violet/40",
+        selected && "ring-2 ring-aurora-violet ring-offset-2 ring-offset-[rgb(8_9_26)]",
         isRunning && "border-aurora-violet/40",
       )}
       style={{
         boxShadow: isRunning
           ? "0 0 28px rgba(123,92,255,0.35), 0 4px 16px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.08)"
           : selected
-            ? "0 0 24px rgba(123,92,255,0.25), 0 4px 16px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.08)"
+            ? "0 0 40px rgba(123,92,255,0.7), 0 0 12px rgba(123,92,255,0.55), 0 4px 16px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.1)"
             : "0 4px 16px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.06)",
       }}
     >
