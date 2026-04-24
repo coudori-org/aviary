@@ -12,6 +12,27 @@ models:
       -ngl 99 -fa on --jinja \
       -np 1 -ctk q8_0 -ctv q8_0
     concurrencyLimit: 8
+
+  "llamacpp/qwen3.6-27b":
+    cmd: |
+      llama-server \
+      -hf unsloth/Qwen3.6-27B-GGUF:Q4_K_M \
+      --fit on \
+      --ctx-size 131072 \
+      --cache-ram 2048 -ctxcp 2 \
+      --jinja \
+      --temp 0.6 \
+      --top-p 0.95 \
+      --top-k 20 \
+      --min-p 0.00 \
+      --presence-penalty 0.0 \
+      --repeat-penalty 1.0 \
+      --reasoning on \
+      --chat-template-kwargs '{"preserve_thinking": true}' \
+      -ngl 99 -np 1 \
+      -fa on -ctk q8_0 -ctv q8_0 \
+      --port ${PORT}
+    concurrencyLimit: 8
   
   # "vllm/gemma4-26b":
   #   cmd: |

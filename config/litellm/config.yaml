@@ -43,6 +43,21 @@ model_list:
           - vision
           - tools
           - thinking
+
+  - model_name: "local/llamacpp/qwen3.6-27b"
+    litellm_params:
+      model: "anthropic/llamacpp/qwen3.6-27b"
+      api_base: "http://host.docker.internal:9292"
+      api_key: "none"
+    model_info:
+      max_input_tokens: 131072
+      max_output_tokens: 32768
+      max_tokens: 32000
+      _ui:
+        capabilities:
+          - vision
+          - tools
+          - thinking
   
   # - model_name: "local/vllm/gemma4-26b"
   #   litellm_params:
