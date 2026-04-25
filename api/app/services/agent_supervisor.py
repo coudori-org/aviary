@@ -20,6 +20,13 @@ logger = logging.getLogger(__name__)
 _supervisor = ServiceClient(base_url=settings.agent_supervisor_url)
 
 
+def _auth_headers(user_token: str) -> dict[str, str]:
+    # In no-IdP dev mode the session has no real access token; sending an
+    # empty Bearer would be rejected by the supervisor. Omit the header so
+    # the supervisor falls through to its dev path.
+    return {"Authorization": f"Bearer {user_token}"} if user_token else {}
+
+
 async def init_client() -> None:
     await _supervisor.init()
 
@@ -44,7 +51,7 @@ async def post_message(
     resp = await _supervisor.client.post(
         f"/v1/sessions/{session_id}/message",
         json=body,
-        headers={"Authorization": f"Bearer {user_token}"},
+        headers=_auth_headers(user_token),
         timeout=timeout,
     )
     resp.raise_for_status()
@@ -96,7 +103,7 @@ async def fetch_workspace_tree(
             "path": rel_path,
             "include_hidden": include_hidden,
         },
-        headers={"Authorization": f"Bearer {user_token}"},
+        headers=_auth_headers(user_token),
         timeout=15,
     )
     try:
@@ -120,7 +127,7 @@ async def fetch_workspace_file(
             "agent_id": agent_id,
             "path": rel_path,
         },
-        headers={"Authorization": f"Bearer {user_token}"},
+        headers=_auth_headers(user_token),
         timeout=30,
     )
     try:
@@ -144,7 +151,7 @@ async def stat_workspace_file(
             "agent_id": agent_id,
             "path": rel_path,
         },
-        headers={"Authorization": f"Bearer {user_token}"},
+        headers=_auth_headers(user_token),
         timeout=15,
     )
     try:
@@ -178,7 +185,7 @@ async def write_workspace_file(
     resp = await _supervisor.client.post(
         f"/v1/sessions/{session_id}/workspace/write",
         json=body,
-        headers={"Authorization": f"Bearer {user_token}"},
+        headers=_auth_headers(user_token),
         timeout=60,
     )
     try:
@@ -202,7 +209,7 @@ async def create_workspace_dir(
             "agent_id": agent_id,
             "path": rel_path,
         },
-        headers={"Authorization": f"Bearer {user_token}"},
+        headers=_auth_headers(user_token),
         timeout=15,
     )
     try:
@@ -228,7 +235,7 @@ async def delete_workspace_entry(
             "path": rel_path,
             "recursive": recursive,
         },
-        headers={"Authorization": f"Bearer {user_token}"},
+        headers=_auth_headers(user_token),
         timeout=30,
     )
     try:
@@ -254,7 +261,7 @@ async def move_workspace_entry(
             "from": from_path,
             "to": to_path,
         },
-        headers={"Authorization": f"Bearer {user_token}"},
+        headers=_auth_headers(user_token),
         timeout=15,
     )
     try:
@@ -287,7 +294,7 @@ async def stream_workspace_download(
         "POST",
         f"/v1/sessions/{session_id}/workspace/download",
         json=body,
-        headers={"Authorization": f"Bearer {user_token}"},
+        headers=_auth_headers(user_token),
     )
     resp = await _supervisor.client.send(req, stream=True)
     return resp

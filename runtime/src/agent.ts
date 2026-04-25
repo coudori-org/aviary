@@ -127,21 +127,21 @@ function buildMcpServers(
     Object.assign(servers, agentConfig.mcp_servers);
   }
 
-  // LiteLLM's aggregated MCP endpoint. Per-agent tool scoping is enforced
-  // server-side: the runtime forwards the bound `{server}__{tool}` names in
-  // `X-Aviary-Allowed-Tools`, and the `aviary_mcp_credentials` guardrail on
-  // LiteLLM filters `tools/list` and rejects `tools/call` for anything not
-  // in that list. The guardrail also validates the user JWT and injects
-  // per-user Vault secrets into the outbound tool call arguments.
-  if (agentConfig.user_token) {
-    const allowed = extractLitellmAllowedTools(agentConfig.tools);
+  // LiteLLM aggregated MCP endpoint — register only when the agent has
+  // bound at least one MCP tool. Authorization is conditional (IdP mode
+  // only); LiteLLM's guardrail handles the no-IdP case.
+  const allowed = extractLitellmAllowedTools(agentConfig.tools);
+  if (allowed.length > 0) {
+    const mcpHeaders: Record<string, string> = {
+      "X-Aviary-Allowed-Tools": allowed.join(","),
+    };
+    if (agentConfig.user_token) {
+      mcpHeaders.Authorization = `Bearer ${agentConfig.user_token}`;
+    }
     servers[MCP_RUNTIME_KEY] = {
       type: "http",
       url: `${LITELLM_URL}/mcp`,
-      headers: {
-        Authorization: `Bearer ${agentConfig.user_token}`,
-        "X-Aviary-Allowed-Tools": allowed.join(","),
-      },
+      headers: mcpHeaders,
     };
   }
 

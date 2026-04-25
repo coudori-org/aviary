@@ -47,9 +47,8 @@ export interface AccessibleAgent {
 
 export interface A2AContext {
   sessionId: string;
-  /** User JWT — forwarded to the supervisor as `Authorization: Bearer`.
-   *  The supervisor validates it and injects identity + per-user Vault
-   *  credentials into the sub-agent runtime body. */
+  // User JWT forwarded to supervisor. Undefined in no-IdP dev mode; supervisor
+  // accepts it on dev deployments and rejects (401) on IdP-enabled deployments.
   userToken: string | undefined;
 }
 
@@ -78,20 +77,16 @@ async function callSubAgent(
     content_parts: [{ text: message }],
   };
 
-  if (!ctx.userToken) {
-    return `Error calling agent @${agent.slug}: missing user token (required for supervisor auth)`;
-  }
-
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), A2A_TIMEOUT);
+
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (ctx.userToken) headers.Authorization = `Bearer ${ctx.userToken}`;
 
   try {
     const resp = await fetch(url, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${ctx.userToken}`,
-      },
+      headers,
       body: JSON.stringify(body),
       signal: controller.signal,
     });
