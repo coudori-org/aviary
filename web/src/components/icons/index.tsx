@@ -81,8 +81,10 @@ export {
   // Workflow
   GitBranch,
   Play,
+  Workflow,
 
   // Layout
+  LayoutDashboard,
   LayoutGrid,
   PanelLeft,
   PanelLeftClose,
@@ -95,4 +97,16 @@ export {
   Minimize2,
   Columns2,
   Rows2,
+  ChevronsLeft,
+  ChevronsRight,
+
+  // Shell chrome
+  Bell,
+  Store,
+  User,
+  Sun,
+  Moon,
+  Key,
+  Sliders,
+  Tag,
 } from "lucide-react";
