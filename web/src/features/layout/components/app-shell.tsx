@@ -4,7 +4,11 @@ import * as React from "react";
 import { Sidebar } from "./sidebar/sidebar";
 import { Header } from "./header/header";
 import { CommandPalette } from "@/features/command-palette/command-palette";
-import { NotificationsPanelStub } from "./notifications-panel-stub";
+import { NotificationsPanel } from "@/features/notifications/notifications-panel";
+import {
+  NotificationsProvider,
+  useNotificationsReadOnly,
+} from "@/features/notifications/notifications-provider";
 import { UserMenuStub } from "./user-menu-stub";
 import { SessionStatusProvider } from "@/features/layout/providers/session-status-provider";
 import { SidebarProvider } from "@/features/layout/providers/sidebar-provider";
@@ -34,28 +38,30 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, []);
 
   return (
-    <SessionStatusProvider>
-      <SidebarProvider>
-        <PageHeaderProvider>
-          <div className="flex h-screen overflow-hidden bg-canvas text-fg-primary">
-            <Sidebar />
-            <div className="flex min-w-0 flex-1 flex-col">
-              <ShellHeader
-                onOpenSearch={() => setSearchOpen(true)}
-                onOpenNotifications={() => setNotifOpen((v) => !v)}
-                onOpenUserMenu={() => setUserMenuOpen((v) => !v)}
-                notifOpen={notifOpen}
-                userMenuOpen={userMenuOpen}
-              />
-              <main className="flex-1 overflow-hidden">{children}</main>
+    <NotificationsProvider>
+      <SessionStatusProvider>
+        <SidebarProvider>
+          <PageHeaderProvider>
+            <div className="flex h-screen overflow-hidden bg-canvas text-fg-primary">
+              <Sidebar />
+              <div className="flex min-w-0 flex-1 flex-col">
+                <ShellHeader
+                  onOpenSearch={() => setSearchOpen(true)}
+                  onOpenNotifications={() => setNotifOpen((v) => !v)}
+                  onOpenUserMenu={() => setUserMenuOpen((v) => !v)}
+                  notifOpen={notifOpen}
+                  userMenuOpen={userMenuOpen}
+                />
+                <main className="flex-1 overflow-hidden">{children}</main>
+              </div>
             </div>
-          </div>
-          <CommandPalette open={searchOpen} onClose={() => setSearchOpen(false)} />
-          <NotificationsPanelStub open={notifOpen} onClose={() => setNotifOpen(false)} />
-          <UserMenuStub open={userMenuOpen} onClose={() => setUserMenuOpen(false)} />
-        </PageHeaderProvider>
-      </SidebarProvider>
-    </SessionStatusProvider>
+            <CommandPalette open={searchOpen} onClose={() => setSearchOpen(false)} />
+            <NotificationsPanel open={notifOpen} onClose={() => setNotifOpen(false)} />
+            <UserMenuStub open={userMenuOpen} onClose={() => setUserMenuOpen(false)} />
+          </PageHeaderProvider>
+        </SidebarProvider>
+      </SessionStatusProvider>
+    </NotificationsProvider>
   );
 }
 
@@ -71,5 +77,6 @@ function ShellHeader(props: {
   userMenuOpen: boolean;
 }) {
   const { crumb } = usePageHeader();
-  return <Header {...props} crumb={crumb} />;
+  const { unread } = useNotificationsReadOnly();
+  return <Header {...props} crumb={crumb} hasUnreadNotifications={unread > 0} />;
 }
