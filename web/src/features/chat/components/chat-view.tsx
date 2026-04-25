@@ -46,15 +46,21 @@ const WORKSPACE_PANEL_KEY = "aviary:workspace-panel-open";
  * ChatWidthProvider so the header, banner, message list, and input all
  * stay aligned without prop-drilling.
  */
-export function ChatView({ sessionId }: { sessionId: string }) {
+export interface ChatViewProps {
+  sessionId: string;
+  /** Hide the in-pane chat header — outer layout owns identity/actions. */
+  hideHeader?: boolean;
+}
+
+export function ChatView({ sessionId, hideHeader }: ChatViewProps) {
   return (
     <ChatWidthProvider>
-      <ChatViewInner sessionId={sessionId} />
+      <ChatViewInner sessionId={sessionId} hideHeader={hideHeader} />
     </ChatWidthProvider>
   );
 }
 
-function ChatViewInner({ sessionId }: { sessionId: string }) {
+function ChatViewInner({ sessionId, hideHeader }: ChatViewProps) {
   const { widthClass } = useChatWidth();
 
   // Workspace panel state — persisted across sessions, default closed.
@@ -181,16 +187,18 @@ function ChatViewInner({ sessionId }: { sessionId: string }) {
     >
       <div className="flex h-full bg-canvas">
         <div className="flex h-full flex-1 flex-col min-w-0">
-          <ChatHeader
-            session={chat.session}
-            status={displayStatus}
-            hasMessages={chat.messages.length > 0}
-            onPrintVisual={exportFns.printVisual}
-            onExportText={exportFns.exportText}
-            titleEditor={titleEditor}
-            workspaceOpen={workspaceOpen}
-            onToggleWorkspace={toggleWorkspace}
-          />
+          {!hideHeader && (
+            <ChatHeader
+              session={chat.session}
+              status={displayStatus}
+              hasMessages={chat.messages.length > 0}
+              onPrintVisual={exportFns.printVisual}
+              onExportText={exportFns.exportText}
+              titleEditor={titleEditor}
+              workspaceOpen={workspaceOpen}
+              onToggleWorkspace={toggleWorkspace}
+            />
+          )}
 
           <ChatStatusBanner
             status={displayStatus}

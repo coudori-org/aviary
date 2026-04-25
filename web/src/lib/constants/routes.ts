@@ -7,6 +7,11 @@ export const routes = {
   agent: (id: string) => `/agents/${id}`,
   agentEdit: (id: string) => `/agents/${id}/edit`,
   agentSessions: (id: string) => `/agents/${id}/sessions`,
+  agentDetail: (id: string) => `/agents/${id}/detail`,
+  /** Chat home for an agent; optional session deep-link via ?session=. */
+  agentChat: (agentId: string, sessionId?: string) =>
+    sessionId ? `/agents/${agentId}?session=${sessionId}` : `/agents/${agentId}`,
+  /** Legacy session route — kept for backward-compat redirect. */
   session: (id: string) => `/sessions/${id}`,
   workflows: "/workflows",
   workflowNew: "/workflows/new",
