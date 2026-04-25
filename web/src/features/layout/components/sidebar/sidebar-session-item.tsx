@@ -98,8 +98,8 @@ export function SidebarSessionItem({
             : isStreaming
               ? "text-fg-primary animate-pulse-bg-info"
               : hasUnread
-                ? "text-fg-primary hover:bg-white/[0.03]"
-                : "text-fg-muted hover:bg-white/[0.03] hover:text-fg-primary",
+                ? "text-fg-primary hover:bg-hover"
+                : "text-fg-muted hover:bg-hover hover:text-fg-primary",
         deleting && "opacity-50 pointer-events-none",
       )}
       onMouseLeave={() => setConfirming(false)}

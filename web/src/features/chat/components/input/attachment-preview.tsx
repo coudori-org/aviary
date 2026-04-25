@@ -16,7 +16,7 @@ export function AttachmentPreview({ attachments, onRemove }: AttachmentPreviewPr
       {attachments.map((att) => (
         <div
           key={att.localId}
-          className="group relative shrink-0 h-16 w-16 rounded-lg overflow-hidden border border-white/10 bg-elevated"
+          className="group relative shrink-0 h-16 w-16 rounded-lg overflow-hidden border border-border bg-elevated"
         >
           <img
             src={att.preview}
@@ -36,7 +36,7 @@ export function AttachmentPreview({ attachments, onRemove }: AttachmentPreviewPr
           <button
             type="button"
             onClick={() => onRemove(att.localId)}
-            className="absolute -right-1 -top-1 hidden group-hover:flex h-5 w-5 items-center justify-center rounded-full bg-elevated border border-white/10 text-fg-muted hover:text-fg-primary transition-colors"
+            className="absolute -right-1 -top-1 hidden group-hover:flex h-5 w-5 items-center justify-center rounded-full bg-elevated border border-border text-fg-muted hover:text-fg-primary transition-colors"
             aria-label={`Remove ${att.file.name}`}
           >
             <X size={10} />

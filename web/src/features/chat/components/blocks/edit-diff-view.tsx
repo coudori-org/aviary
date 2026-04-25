@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import ReactDiffViewer, { DiffMethod } from "react-diff-viewer-continued";
 import { Columns2, Rows2, Maximize2, X } from "@/components/icons";
 import { cn } from "@/lib/utils";
+import { useTheme } from "@/features/theme/theme-provider";
 
 interface EditDiffViewProps {
   filePath?: string;
@@ -12,35 +13,61 @@ interface EditDiffViewProps {
   newString: string;
 }
 
-const diffStyles = {
-  variables: {
-    dark: {
-      diffViewerBackground: "rgb(7 8 10)",
-      diffViewerColor: "rgb(197 197 198)",
-      addedBackground: "rgba(95, 201, 146, 0.08)",
-      addedColor: "rgb(197 197 198)",
-      removedBackground: "rgba(255, 99, 99, 0.08)",
-      removedColor: "rgb(197 197 198)",
-      wordAddedBackground: "rgba(95, 201, 146, 0.28)",
-      wordRemovedBackground: "rgba(255, 99, 99, 0.28)",
-      addedGutterBackground: "rgba(95, 201, 146, 0.12)",
-      removedGutterBackground: "rgba(255, 99, 99, 0.12)",
-      gutterBackground: "rgb(7 8 10)",
-      gutterBackgroundDark: "rgb(7 8 10)",
-      highlightBackground: "rgba(85, 179, 255, 0.08)",
-      highlightGutterBackground: "rgba(85, 179, 255, 0.12)",
-      codeFoldGutterBackground: "rgb(16 17 17)",
-      codeFoldBackground: "rgb(16 17 17)",
-      emptyLineBackground: "rgb(7 8 10)",
-      gutterColor: "rgb(106 107 108)",
-      addedGutterColor: "rgb(95 201 146)",
-      removedGutterColor: "rgb(255 99 99)",
-      codeFoldContentColor: "rgb(156 156 157)",
-      diffViewerTitleBackground: "rgb(16 17 17)",
-      diffViewerTitleColor: "rgb(249 249 249)",
-      diffViewerTitleBorderColor: "rgba(255, 255, 255, 0.06)",
-    },
-  },
+const DARK_VARS = {
+  diffViewerBackground: "rgb(11 13 17)",
+  diffViewerColor: "rgb(197 197 198)",
+  addedBackground: "rgba(95, 201, 146, 0.10)",
+  addedColor: "rgb(197 197 198)",
+  removedBackground: "rgba(255, 99, 99, 0.10)",
+  removedColor: "rgb(197 197 198)",
+  wordAddedBackground: "rgba(95, 201, 146, 0.28)",
+  wordRemovedBackground: "rgba(255, 99, 99, 0.28)",
+  addedGutterBackground: "rgba(95, 201, 146, 0.12)",
+  removedGutterBackground: "rgba(255, 99, 99, 0.12)",
+  gutterBackground: "rgb(11 13 17)",
+  gutterBackgroundDark: "rgb(11 13 17)",
+  highlightBackground: "rgba(85, 179, 255, 0.08)",
+  highlightGutterBackground: "rgba(85, 179, 255, 0.12)",
+  codeFoldGutterBackground: "rgb(20 22 28)",
+  codeFoldBackground: "rgb(20 22 28)",
+  emptyLineBackground: "rgb(11 13 17)",
+  gutterColor: "rgb(135 138 148)",
+  addedGutterColor: "rgb(95 201 146)",
+  removedGutterColor: "rgb(255 99 99)",
+  codeFoldContentColor: "rgb(180 183 192)",
+  diffViewerTitleBackground: "rgb(20 22 28)",
+  diffViewerTitleColor: "rgb(236 237 240)",
+  diffViewerTitleBorderColor: "rgba(255, 255, 255, 0.06)",
+};
+
+const LIGHT_VARS = {
+  diffViewerBackground: "rgb(255 255 255)",
+  diffViewerColor: "rgb(27 29 34)",
+  addedBackground: "rgba(47, 164, 106, 0.10)",
+  addedColor: "rgb(27 29 34)",
+  removedBackground: "rgba(210, 81, 81, 0.10)",
+  removedColor: "rgb(27 29 34)",
+  wordAddedBackground: "rgba(47, 164, 106, 0.28)",
+  wordRemovedBackground: "rgba(210, 81, 81, 0.28)",
+  addedGutterBackground: "rgba(47, 164, 106, 0.16)",
+  removedGutterBackground: "rgba(210, 81, 81, 0.16)",
+  gutterBackground: "rgb(250 249 247)",
+  gutterBackgroundDark: "rgb(244 242 238)",
+  highlightBackground: "rgba(59, 111, 216, 0.10)",
+  highlightGutterBackground: "rgba(59, 111, 216, 0.18)",
+  codeFoldGutterBackground: "rgb(244 242 238)",
+  codeFoldBackground: "rgb(244 242 238)",
+  emptyLineBackground: "rgb(250 249 247)",
+  gutterColor: "rgb(111 115 128)",
+  addedGutterColor: "rgb(47 164 106)",
+  removedGutterColor: "rgb(210 81 81)",
+  codeFoldContentColor: "rgb(78 82 92)",
+  diffViewerTitleBackground: "rgb(244 242 238)",
+  diffViewerTitleColor: "rgb(27 29 34)",
+  diffViewerTitleBorderColor: "rgba(60, 55, 45, 0.10)",
+};
+
+const SHARED_DIFF_STYLES = {
   contentText: {
     fontFamily:
       "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
@@ -76,7 +103,7 @@ function Toolbar({
   onToggleExpanded,
 }: ToolbarProps) {
   return (
-    <div className="flex items-center gap-2 border-b border-white/[0.06] bg-elevated px-2.5 py-1.5">
+    <div className="flex items-center gap-2 border-b border-border-subtle bg-sunk px-2.5 py-1.5">
       {filePath && (
         <span
           className="flex-1 truncate font-mono type-caption text-fg-secondary"
@@ -92,7 +119,7 @@ function Toolbar({
         onClick={onToggleSplit}
         className={cn(
           "flex items-center gap-1 rounded-xs px-1.5 py-0.5 type-caption",
-          "text-fg-muted hover:bg-white/[0.06] hover:text-fg-primary",
+          "text-fg-muted hover:bg-hover hover:text-fg-primary",
         )}
         title={split ? "Switch to unified view" : "Switch to split view"}
       >
@@ -107,7 +134,7 @@ function Toolbar({
       <button
         type="button"
         onClick={onToggleExpanded}
-        className="rounded-xs p-1 text-fg-muted hover:bg-white/[0.06] hover:text-fg-primary"
+        className="rounded-xs p-1 text-fg-muted hover:bg-hover hover:text-fg-primary"
         title={expanded ? "Close overlay" : "Expand to overlay"}
       >
         {expanded ? (
@@ -123,6 +150,16 @@ function Toolbar({
 export function EditDiffView({ filePath, oldString, newString }: EditDiffViewProps) {
   const [split, setSplit] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  const { theme } = useTheme();
+  const isDark = theme === "dark";
+
+  const diffStyles = useMemo(
+    () => ({
+      ...SHARED_DIFF_STYLES,
+      variables: { dark: DARK_VARS, light: LIGHT_VARS },
+    }),
+    [],
+  );
 
   useEffect(() => {
     if (!expanded) return;
@@ -143,7 +180,7 @@ export function EditDiffView({ filePath, oldString, newString }: EditDiffViewPro
       oldValue={oldString}
       newValue={newString}
       splitView={split}
-      useDarkTheme
+      useDarkTheme={isDark}
       compareMethod={DiffMethod.WORDS}
       hideLineNumbers={false}
       styles={diffStyles}
@@ -152,7 +189,7 @@ export function EditDiffView({ filePath, oldString, newString }: EditDiffViewPro
 
   return (
     <>
-      <div className="overflow-hidden rounded-xs border border-white/[0.06]">
+      <div className="overflow-hidden rounded-xs border border-border-subtle">
         <Toolbar
           filePath={filePath}
           split={split}
@@ -167,11 +204,11 @@ export function EditDiffView({ filePath, oldString, newString }: EditDiffViewPro
         typeof document !== "undefined" &&
         createPortal(
           <div
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-6"
+            className="fixed inset-0 z-50 flex items-center justify-center bg-overlay p-6"
             onClick={() => setExpanded(false)}
           >
             <div
-              className="flex h-full max-h-[92vh] w-full max-w-[min(1400px,95vw)] flex-col overflow-hidden rounded-md border border-white/[0.08] bg-canvas shadow-2xl"
+              className="flex h-full max-h-[92vh] w-full max-w-[min(1400px,95vw)] flex-col overflow-hidden rounded-md border border-border bg-canvas shadow-2xl"
               onClick={(e) => e.stopPropagation()}
             >
               <Toolbar

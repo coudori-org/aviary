@@ -30,7 +30,7 @@ export function AttachmentButton({ onFiles, disabled }: AttachmentButtonProps) {
         type="button"
         disabled={disabled}
         onClick={() => inputRef.current?.click()}
-        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-fg-muted hover:text-fg-primary hover:bg-white/5 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-fg-muted hover:text-fg-primary hover:bg-hover transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
         aria-label="Attach image"
       >
         <ImagePlus size={18} strokeWidth={1.75} />

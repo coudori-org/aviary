@@ -86,9 +86,9 @@ export function CodeBlock({ children, node, className, ...props }: CodeBlockProp
   }, [raw, isShell]);
 
   return (
-    <div className="my-3 overflow-hidden rounded-md bg-canvas border border-white/[0.06]">
+    <div className="my-3 overflow-hidden rounded-md bg-canvas border border-border-subtle">
       {/* Header bar */}
-      <div className="flex items-center justify-between border-b border-white/[0.06] bg-white/[0.02] px-3 py-1.5">
+      <div className="flex items-center justify-between border-b border-border-subtle bg-hover/50 px-3 py-1.5">
         <span className="type-caption text-fg-disabled">
           {language || "text"}
         </span>
@@ -101,7 +101,7 @@ export function CodeBlock({ children, node, className, ...props }: CodeBlockProp
               wrapped
                 ? "text-info hover:text-info"
                 : "text-fg-muted hover:text-fg-primary",
-              "hover:bg-white/[0.05]",
+              "hover:bg-hover",
             )}
             title={wrapped ? "Disable line wrap" : "Wrap long lines"}
             aria-label={wrapped ? "Disable line wrap" : "Wrap long lines"}
@@ -112,7 +112,7 @@ export function CodeBlock({ children, node, className, ...props }: CodeBlockProp
           <button
             type="button"
             onClick={handleCopy}
-            className="flex h-5 w-5 items-center justify-center rounded-xs text-fg-muted hover:text-fg-primary hover:bg-white/[0.05] transition-colors"
+            className="flex h-5 w-5 items-center justify-center rounded-xs text-fg-muted hover:text-fg-primary hover:bg-hover transition-colors"
             title={
               copied
                 ? "Copied!"

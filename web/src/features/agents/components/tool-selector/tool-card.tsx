@@ -35,7 +35,7 @@ export function ToolCard({ tool, checked, onToggle, onShowDetails }: ToolCardPro
         "group relative flex flex-col items-start gap-1.5 rounded-md border px-3 py-2.5 text-left transition-colors",
         checked
           ? "border-info/60 bg-info/[0.10] hover:bg-info/[0.14]"
-          : "border-white/10 bg-raised hover:border-white/20 hover:bg-hover",
+          : "border-border bg-raised hover:border-border-strong hover:bg-hover",
       )}
     >
       <div className="flex w-full items-center gap-2">
@@ -68,7 +68,7 @@ export function ToolCard({ tool, checked, onToggle, onShowDetails }: ToolCardPro
             "flex h-4 w-4 shrink-0 items-center justify-center rounded-full border transition-colors",
             checked
               ? "border-info bg-info text-canvas"
-              : "border-white/40 bg-canvas/40",
+              : "border-border-strong bg-canvas/40",
           )}
           aria-hidden="true"
         >
@@ -112,7 +112,7 @@ function ParamTag({ param }: { param: ToolParam }) {
     );
   }
   return (
-    <span className="rounded-xs bg-white/[0.14] px-1.5 py-px font-mono text-[10px] text-fg-primary ring-1 ring-inset ring-white/15">
+    <span className="rounded-xs bg-active px-1.5 py-px font-mono text-[10px] text-fg-primary ring-1 ring-inset ring-border-strong">
       {param.name}
     </span>
   );

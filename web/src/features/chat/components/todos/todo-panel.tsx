@@ -33,7 +33,7 @@ export const TodoPanel = memo(function TodoPanel({ todos }: TodoPanelProps) {
   return (
     <div className="relative">
       {expanded && (
-        <div className="absolute bottom-full left-0 right-0 mb-1 rounded-md bg-popover border border-white/10 shadow-5 px-3 py-2">
+        <div className="absolute bottom-full left-0 right-0 mb-1 rounded-md bg-popover border border-border shadow-5 px-3 py-2">
           <div className="max-h-48 space-y-0.5 overflow-y-auto">
             {todos.map((todo, i) => (
               <div key={i} className="flex items-start gap-2 py-0.5 type-caption">
@@ -57,7 +57,7 @@ export const TodoPanel = memo(function TodoPanel({ todos }: TodoPanelProps) {
       <button
         type="button"
         onClick={() => setExpanded(!expanded)}
-        className="flex w-full items-center gap-2 rounded-md bg-elevated border border-white/[0.06] px-3 py-1.5 type-caption transition-colors hover:bg-raised"
+        className="flex w-full items-center gap-2 rounded-md bg-elevated border border-border-subtle px-3 py-1.5 type-caption transition-colors hover:bg-raised"
       >
         {inProgress.length > 0 ? (
           <Spinner size={11} className="shrink-0 text-info" />
@@ -75,7 +75,7 @@ export const TodoPanel = memo(function TodoPanel({ todos }: TodoPanelProps) {
           {completed}/{total}
         </span>
 
-        <div className="h-1 w-16 shrink-0 rounded-pill bg-white/[0.06]">
+        <div className="h-1 w-16 shrink-0 rounded-pill bg-hover">
           <div
             className="h-full rounded-pill bg-info/60 transition-all"
             style={{ width: `${progress}%` }}

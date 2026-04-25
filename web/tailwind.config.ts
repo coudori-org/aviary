@@ -1,97 +1,182 @@
 import type { Config } from "tailwindcss";
 
 /**
- * Tailwind config — wired to the Aurora Glass tokens in globals.css.
- *
- * Color tokens are exposed both as semantic names (canvas, fg, brand) and via
- * the `rgb(var(--token) / <alpha>)` pattern so utilities like `bg-canvas/50`
- * work for translucency over the aurora backdrop.
+ * Aviary Slate design system. A small number of legacy Tailwind aliases
+ * (brand, info, success, warning, danger, fg.disabled) remain so older
+ * call sites continue to compile against status / accent tokens.
  */
 const config: Config = {
-  darkMode: "class",
-  content: ["./src/**/*.{ts,tsx}"],
+  darkMode: ["class", '[data-theme="dark"]'],
+  content: [
+    "./src/**/*.{ts,tsx,js,jsx}",
+    "./src/app/**/*.{ts,tsx}",
+    "./src/components/**/*.{ts,tsx}",
+    "./src/features/**/*.{ts,tsx}",
+  ],
   theme: {
+    container: {
+      center: true,
+      padding: "1rem",
+      screens: { "2xl": "1400px" },
+    },
     extend: {
       fontFamily: {
-        sans: ["var(--font-inter)", "Inter Fallback", "system-ui", "sans-serif"],
-        mono: ["var(--font-geist-mono)", "ui-monospace", "SFMono-Regular", "Menlo", "monospace"],
+        sans: ["var(--font-inter)", "ui-sans-serif", "system-ui", "sans-serif"],
+        mono: ["var(--font-mono)", "ui-monospace", "SFMono-Regular", "monospace"],
+      },
+      fontSize: {
+        hero: ["24px", { lineHeight: "1.2", letterSpacing: "-0.015em", fontWeight: "600" }],
+        h1: ["20px", { lineHeight: "1.25", letterSpacing: "-0.012em", fontWeight: "600" }],
+        h2: ["16px", { lineHeight: "1.3", letterSpacing: "-0.008em", fontWeight: "600" }],
+        h3: ["14px", { lineHeight: "1.35", letterSpacing: "-0.005em", fontWeight: "600" }],
+        body: ["13.5px", { lineHeight: "1.55" }],
+        small: ["12.5px", { lineHeight: "1.45" }],
+        xs: ["11.5px", { lineHeight: "1.4" }],
+        over: ["10.5px", { lineHeight: "1.3", letterSpacing: "0.08em", fontWeight: "600" }],
       },
       colors: {
-        canvas: "rgb(var(--bg-canvas) / <alpha-value>)",
-        sunk: "rgb(var(--bg-sunk) / <alpha-value>)",
-        // Elevated / raised are semi-transparent glass panes. Expose them
-        // at their default alpha so `bg-elevated` feels "right" out of the
-        // box; components can opt into <alpha-value> syntax by using the
-        // /n suffix, which multiplies the tailwind alpha with the
-        // translucency already baked into the token.
-        elevated: "rgba(255, 255, 255, 0.04)",
-        raised: "rgba(255, 255, 255, 0.07)",
-        hover: "rgba(255, 255, 255, 0.10)",
-        // Opaque surface for floating popovers/menus/dialogs — these render
-        // outside the glass-pane stack, so they need a solid dark fill or
-        // they read as transparent against the aurora backdrop.
-        popover: "rgb(var(--bg-popover) / <alpha-value>)",
+        canvas: "var(--bg-canvas)",
+        surface: "var(--bg-surface)",
+        raised: "var(--bg-raised)",
+        sunk: "var(--bg-sunk)",
+        hover: "var(--bg-hover)",
+        "bg-active": "var(--bg-active)",
+        overlay: "var(--bg-overlay)",
+
+        background: "var(--background)",
+        foreground: "var(--foreground)",
+        card: {
+          DEFAULT: "var(--card)",
+          foreground: "var(--card-foreground)",
+        },
+        popover: {
+          DEFAULT: "var(--popover)",
+          foreground: "var(--popover-foreground)",
+        },
+        primary: {
+          DEFAULT: "var(--primary)",
+          foreground: "var(--primary-foreground)",
+        },
+        secondary: {
+          DEFAULT: "var(--secondary)",
+          foreground: "var(--secondary-foreground)",
+        },
+        muted: {
+          DEFAULT: "var(--muted)",
+          foreground: "var(--muted-foreground)",
+        },
+        accent: {
+          DEFAULT: "var(--accent-blue)",
+          strong: "var(--accent-blue-strong)",
+          soft: "var(--accent-blue-soft)",
+          border: "var(--accent-blue-border)",
+          bg: "var(--accent)",
+          foreground: "var(--accent-foreground)",
+        },
+        destructive: {
+          DEFAULT: "var(--destructive)",
+          foreground: "var(--destructive-foreground)",
+        },
+        border: {
+          DEFAULT: "var(--border)",
+          subtle: "var(--border-subtle)",
+          strong: "var(--border-strong)",
+        },
+        input: "var(--input)",
+        ring: "var(--ring)",
 
         fg: {
-          DEFAULT: "rgb(var(--fg-primary) / <alpha-value>)",
-          primary: "rgb(var(--fg-primary) / <alpha-value>)",
-          secondary: "rgb(var(--fg-secondary) / <alpha-value>)",
-          tertiary: "rgb(var(--fg-tertiary) / <alpha-value>)",
-          muted: "rgb(var(--fg-muted) / <alpha-value>)",
-          disabled: "rgb(var(--fg-disabled) / <alpha-value>)",
-          "on-light": "rgb(var(--fg-on-light) / <alpha-value>)",
+          DEFAULT: "var(--fg-primary)",
+          primary: "var(--fg-primary)",
+          secondary: "var(--fg-secondary)",
+          tertiary: "var(--fg-tertiary)",
+          muted: "var(--fg-muted)",
+          inverse: "var(--fg-inverse)",
+          // legacy aliases — disabled maps to muted, on-light to inverse
+          disabled: "var(--fg-muted)",
+          "on-light": "var(--fg-inverse)",
         },
 
-        brand: "rgb(var(--brand-accent) / <alpha-value>)",
-        info: "rgb(var(--intent-info) / <alpha-value>)",
-        success: "rgb(var(--intent-success) / <alpha-value>)",
-        warning: "rgb(var(--intent-warning) / <alpha-value>)",
-        danger: "rgb(var(--intent-danger) / <alpha-value>)",
-
-        aurora: {
-          violet: "rgb(var(--color-aurora-violet) / <alpha-value>)",
-          pink: "rgb(var(--color-aurora-pink) / <alpha-value>)",
-          amber: "rgb(var(--color-aurora-amber) / <alpha-value>)",
-          cyan: "rgb(var(--color-aurora-cyan) / <alpha-value>)",
-          mint: "rgb(var(--color-aurora-mint) / <alpha-value>)",
-          coral: "rgb(var(--color-aurora-coral) / <alpha-value>)",
-          gold: "rgb(var(--color-aurora-gold) / <alpha-value>)",
+        status: {
+          live: "var(--status-live)",
+          "live-soft": "var(--status-live-soft)",
+          warn: "var(--status-warn)",
+          "warn-soft": "var(--status-warn-soft)",
+          error: "var(--status-error)",
+          "error-soft": "var(--status-error-soft)",
+          info: "var(--status-info)",
+          "info-soft": "var(--status-info-soft)",
         },
 
-        "border-base": "rgb(var(--border-base) / <alpha-value>)",
-        "border-strong": "rgb(var(--border-strong) / <alpha-value>)",
+        // ── legacy aliases — kept so unmigrated call sites still compile. ──
+        elevated: "rgb(var(--legacy-elevated) / <alpha-value>)",
+        brand: "rgb(var(--legacy-brand) / <alpha-value>)",
+        info: "rgb(var(--legacy-info) / <alpha-value>)",
+        success: "rgb(var(--legacy-success) / <alpha-value>)",
+        warning: "rgb(var(--legacy-warning) / <alpha-value>)",
+        danger: "rgb(var(--legacy-danger) / <alpha-value>)",
+        "border-base": "rgb(var(--legacy-border-base) / <alpha-value>)",
+        "border-strong": "rgb(var(--legacy-border-strong) / <alpha-value>)",
       },
       borderRadius: {
         none: "0",
-        micro: "var(--radius-micro)",
-        xs: "var(--radius-xs)",
-        sm: "var(--radius-sm)",
-        DEFAULT: "var(--radius-md)",
-        md: "var(--radius-md)",
-        lg: "var(--radius-lg)",
-        xl: "var(--radius-xl)",
-        "2xl": "var(--radius-2xl)",
-        pill: "var(--radius-pill)",
+        micro: "4px",
+        xs: "4px",
+        sm: "5px",
+        DEFAULT: "7px",
+        md: "7px",
+        lg: "10px",
+        xl: "12px",
+        "2xl": "16px",
+        pill: "9999px",
       },
       boxShadow: {
-        none: "var(--shadow-0)",
-        "1": "var(--shadow-1)",
-        "2": "var(--shadow-2)",
-        "3": "var(--shadow-3)",
-        "4": "var(--shadow-4)",
-        "5": "var(--shadow-5)",
-      },
-      backdropBlur: {
-        glass: "var(--glass-blur)",
+        sm: "var(--shadow-sm)",
+        DEFAULT: "var(--shadow-md)",
+        md: "var(--shadow-md)",
+        lg: "var(--shadow-lg)",
+        xl: "var(--shadow-xl)",
+        // legacy numeric levels
+        "1": "var(--shadow-sm)",
+        "2": "var(--shadow-md)",
+        "3": "var(--shadow-lg)",
+        "4": "var(--shadow-xl)",
+        "5": "var(--shadow-xl)",
       },
       maxWidth: {
         container: "1200px",
         "container-sm": "960px",
         "container-prose": "768px",
       },
+      transitionTimingFunction: {
+        panel: "cubic-bezier(0.16, 1, 0.3, 1)",
+      },
+      transitionDuration: {
+        fast: "120ms",
+        panel: "180ms",
+      },
+      keyframes: {
+        "fade-in": { from: { opacity: "0" }, to: { opacity: "1" } },
+        "slide-up": {
+          from: { opacity: "0", transform: "translateY(6px)" },
+          to: { opacity: "1", transform: "translateY(0)" },
+        },
+        pulse: {
+          "0%, 100%": { opacity: "1" },
+          "50%": { opacity: "0.6" },
+        },
+      },
+      animation: {
+        "fade-in": "fade-in 180ms cubic-bezier(0.16, 1, 0.3, 1)",
+        "slide-up": "slide-up 220ms cubic-bezier(0.16, 1, 0.3, 1)",
+        pulse: "pulse 1.6s ease-in-out infinite",
+      },
     },
   },
-  plugins: [require("@tailwindcss/typography")],
+  plugins: [
+    require("tailwindcss-animate"),
+    require("@tailwindcss/typography"),
+  ],
 };
 
 export default config;

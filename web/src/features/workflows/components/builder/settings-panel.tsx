@@ -40,7 +40,7 @@ function SettingsField({
 
   return (
     <div className="space-y-1.5">
-      <Label htmlFor={id} className="text-[11px] font-medium text-fg-disabled uppercase tracking-wider">
+      <Label htmlFor={id} className="text-[11px] font-medium text-fg-muted uppercase tracking-wider">
         {label}
       </Label>
       <Component
@@ -108,7 +108,7 @@ export function SettingsPanel() {
       />
 
       <div className="space-y-1.5">
-        <Label htmlFor="wf-backend" className="text-[11px] font-medium text-fg-disabled uppercase tracking-wider">
+        <Label htmlFor="wf-backend" className="text-[11px] font-medium text-fg-muted uppercase tracking-wider">
           Backend
         </Label>
         <Select
@@ -131,7 +131,7 @@ export function SettingsPanel() {
       </div>
 
       <div className="space-y-1.5">
-        <Label htmlFor="wf-model" className="text-[11px] font-medium text-fg-disabled uppercase tracking-wider">
+        <Label htmlFor="wf-model" className="text-[11px] font-medium text-fg-muted uppercase tracking-wider">
           Model
         </Label>
         <Select

@@ -13,9 +13,9 @@ interface TimeDividerProps {
 export function TimeDivider({ label }: TimeDividerProps) {
   return (
     <div className="my-3 flex items-center gap-3" role="separator" aria-label={label}>
-      <div className="h-px flex-1 bg-white/[0.06]" />
+      <div className="h-px flex-1 bg-hover" />
       <span className="type-caption text-fg-disabled tabular-nums">{label}</span>
-      <div className="h-px flex-1 bg-white/[0.06]" />
+      <div className="h-px flex-1 bg-hover" />
     </div>
   );
 }

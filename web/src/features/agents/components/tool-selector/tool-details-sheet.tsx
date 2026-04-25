@@ -41,15 +41,15 @@ export function ToolDetailsSheet({ tool, onClose }: ToolDetailsSheetProps) {
 
   return (
     <div
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-sm animate-fade-in-fast p-6"
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-overlay backdrop-blur-sm animate-fade-in-fast p-6"
       onClick={onClose}
     >
       <div
-        className="flex h-full max-h-[80vh] w-full max-w-2xl flex-col rounded-xl bg-popover border border-white/10 shadow-5"
+        className="flex h-full max-h-[80vh] w-full max-w-2xl flex-col rounded-xl bg-popover border border-border shadow-5"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-start justify-between gap-4 border-b border-white/[0.06] px-6 py-4">
+        <div className="flex items-start justify-between gap-4 border-b border-border-subtle px-6 py-4">
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
               <Wrench size={14} strokeWidth={1.75} className="shrink-0 text-fg-muted" />
@@ -148,7 +148,7 @@ function ParamRow({ param }: { param: ToolParam }) {
         "rounded-md border px-3 py-2",
         injected
           ? "border-info/30 bg-info/[0.08]"
-          : "border-white/10 bg-raised",
+          : "border-border bg-raised",
       )}
     >
       <div className="flex flex-wrap items-center gap-2">

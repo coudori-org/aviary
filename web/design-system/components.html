@@ -1,0 +1,600 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8" />
+<title>Aviary Slate — Component Library</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="../reference-prototype/tokens.css" />
+<style>
+  body {
+    overflow: auto;
+    padding: 48px 56px 120px;
+    max-width: 1280px;
+    margin: 0 auto;
+  }
+  .doc-header { margin-bottom: 48px; padding-bottom: 24px; border-bottom: 1px solid var(--border-subtle); }
+  .doc-header h1 { font-size: 28px; font-weight: 600; letter-spacing: -0.02em; margin: 0 0 6px; }
+  .doc-header p { color: var(--fg-tertiary); font-size: 14px; margin: 0; max-width: 620px; line-height: 1.55; }
+  .doc-toc { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 18px; }
+  .doc-toc a {
+    font-size: 12px; color: var(--fg-secondary);
+    padding: 5px 10px; border: 1px solid var(--border-default);
+    border-radius: 6px; transition: all 120ms;
+  }
+  .doc-toc a:hover { background: var(--bg-hover); color: var(--fg-primary); }
+
+  .section { margin-top: 64px; scroll-margin-top: 24px; }
+  .section > h2 {
+    font-size: 20px; font-weight: 600; letter-spacing: -0.012em;
+    margin: 0 0 4px; padding-bottom: 0;
+  }
+  .section > p.lead { color: var(--fg-tertiary); font-size: 13.5px; margin: 0 0 24px; max-width: 620px; line-height: 1.55; }
+
+  .example {
+    display: grid;
+    grid-template-columns: 1fr 380px;
+    gap: 0;
+    border: 1px solid var(--border-subtle);
+    border-radius: 10px;
+    margin: 16px 0 28px;
+    background: var(--bg-raised);
+    overflow: hidden;
+  }
+  .example-preview {
+    padding: 24px;
+    display: flex; flex-direction: column; gap: 16px;
+    align-items: flex-start;
+    background: var(--bg-canvas);
+    min-height: 80px;
+  }
+  .example-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+  .example-meta {
+    padding: 16px 18px;
+    border-left: 1px solid var(--border-subtle);
+    background: var(--bg-surface);
+    display: flex; flex-direction: column; gap: 12px;
+  }
+  .example-meta h3 {
+    font-size: 12px; font-weight: 600; margin: 0;
+    text-transform: uppercase; letter-spacing: 0.08em; color: var(--fg-muted);
+  }
+  .example-meta .mapping {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 11.5px;
+    color: var(--fg-secondary);
+    line-height: 1.7;
+  }
+  .example-meta .mapping .m-arrow { color: var(--fg-muted); margin: 0 6px; }
+  .example-meta .mapping .m-comp { color: var(--accent-blue); }
+  .example-meta code {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 11.5px;
+    background: var(--bg-sunk);
+    padding: 1px 5px;
+    border-radius: 4px;
+    color: var(--fg-primary);
+  }
+  .example-meta .notes {
+    font-size: 11.5px; color: var(--fg-tertiary); line-height: 1.6;
+    margin-top: 4px;
+  }
+  .example-meta .notes b { color: var(--fg-secondary); font-weight: 500; }
+
+  .tokens-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+  }
+  .swatch {
+    display: flex; flex-direction: column; gap: 6px;
+    padding: 10px;
+    border: 1px solid var(--border-subtle);
+    border-radius: 7px;
+    background: var(--bg-raised);
+  }
+  .swatch-chip {
+    height: 52px; border-radius: 5px; border: 1px solid var(--border-subtle);
+  }
+  .swatch-name { font-size: 11.5px; font-weight: 500; }
+  .swatch-val { font-family: "JetBrains Mono", monospace; font-size: 10.5px; color: var(--fg-tertiary); }
+
+  .type-sample { display: flex; align-items: baseline; gap: 20px; padding: 8px 0; border-bottom: 1px dashed var(--border-subtle); }
+  .type-sample:last-child { border-bottom: none; }
+  .type-sample .label {
+    min-width: 110px;
+    font-family: "JetBrains Mono", monospace; font-size: 11px;
+    color: var(--fg-muted);
+  }
+  .type-sample .meta { color: var(--fg-tertiary); font-size: 11.5px; min-width: 120px; }
+
+  .theme-bar {
+    position: fixed; top: 14px; right: 24px;
+    display: flex; gap: 6px; align-items: center;
+    padding: 5px;
+    background: var(--bg-raised);
+    border: 1px solid var(--border-default);
+    border-radius: 8px;
+    z-index: 10;
+  }
+  .theme-bar button {
+    height: 26px; padding: 0 10px; font-size: 11.5px; font-weight: 500;
+    border-radius: 5px;
+    color: var(--fg-secondary);
+  }
+  .theme-bar button.on {
+    background: var(--accent-blue-soft);
+    color: var(--accent-blue);
+  }
+
+  .shadcn-map {
+    border-collapse: separate; border-spacing: 0;
+    width: 100%; font-size: 12.5px;
+    border: 1px solid var(--border-subtle); border-radius: 8px; overflow: hidden;
+  }
+  .shadcn-map th, .shadcn-map td {
+    text-align: left; padding: 9px 12px;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+  .shadcn-map th { background: var(--bg-surface); font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--fg-muted); }
+  .shadcn-map tr:last-child td { border-bottom: none; }
+  .shadcn-map code { font-family: "JetBrains Mono", monospace; font-size: 11.5px; background: var(--bg-sunk); padding: 1px 5px; border-radius: 4px; color: var(--fg-primary); }
+  .shadcn-map td:first-child code { color: var(--accent-blue); background: var(--accent-blue-soft); }
+
+  /* Component preview helpers */
+  .demo-card {
+    width: 280px; padding: 14px;
+    background: var(--bg-raised); border: 1px solid var(--border-subtle);
+    border-radius: 10px;
+  }
+  .demo-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 12px; border-bottom: 1px solid var(--border-subtle);
+    width: 100%;
+  }
+  .demo-row:last-child { border-bottom: none; }
+  .demo-panel {
+    display: flex; width: 100%; background: var(--bg-raised);
+    border: 1px solid var(--border-subtle); border-radius: 10px;
+    overflow: hidden;
+  }
+</style>
+</head>
+<body>
+
+<div class="theme-bar">
+  <button data-theme="light">Light</button>
+  <button data-theme="dark" class="on">Dark</button>
+</div>
+
+<header class="doc-header">
+  <h1>Aviary Slate</h1>
+  <p>Component library and shadcn mapping reference for the Aviary redesign. Every primitive here has a corresponding entry in <code style="font-family:'JetBrains Mono',monospace;font-size:13px;background:var(--bg-sunk);padding:2px 6px;border-radius:4px">src/components/ui/</code>. Use this page as the visual contract — if a component's appearance diverges from what's here, the code is wrong.</p>
+  <nav class="doc-toc">
+    <a href="#colors">Colors</a>
+    <a href="#typography">Typography</a>
+    <a href="#buttons">Buttons</a>
+    <a href="#inputs">Inputs</a>
+    <a href="#badges">Badges</a>
+    <a href="#cards">Cards</a>
+    <a href="#avatars">Avatars</a>
+    <a href="#status">Status</a>
+    <a href="#kbd">Kbd</a>
+    <a href="#separator">Separator</a>
+    <a href="#mapping">shadcn Mapping</a>
+  </nav>
+</header>
+
+<!-- ============================================================
+     COLORS
+============================================================ -->
+<section class="section" id="colors">
+  <h2>Colors</h2>
+  <p class="lead">Every color is a CSS variable. Switch the theme bar (top right) to see light ↔ dark.</p>
+
+  <h3 class="t-h3" style="margin:24px 0 10px">Surfaces</h3>
+  <div class="tokens-grid">
+    <div class="swatch"><div class="swatch-chip" style="background:var(--bg-canvas)"></div><div class="swatch-name">bg-canvas</div><div class="swatch-val">--bg-canvas</div></div>
+    <div class="swatch"><div class="swatch-chip" style="background:var(--bg-surface)"></div><div class="swatch-name">bg-surface</div><div class="swatch-val">--bg-surface</div></div>
+    <div class="swatch"><div class="swatch-chip" style="background:var(--bg-raised)"></div><div class="swatch-name">bg-raised</div><div class="swatch-val">--bg-raised</div></div>
+    <div class="swatch"><div class="swatch-chip" style="background:var(--bg-sunk)"></div><div class="swatch-name">bg-sunk</div><div class="swatch-val">--bg-sunk</div></div>
+  </div>
+
+  <h3 class="t-h3" style="margin:24px 0 10px">Foreground</h3>
+  <div class="tokens-grid">
+    <div class="swatch"><div class="swatch-chip" style="background:var(--fg-primary)"></div><div class="swatch-name">fg-primary</div><div class="swatch-val">--fg-primary</div></div>
+    <div class="swatch"><div class="swatch-chip" style="background:var(--fg-secondary)"></div><div class="swatch-name">fg-secondary</div><div class="swatch-val">--fg-secondary</div></div>
+    <div class="swatch"><div class="swatch-chip" style="background:var(--fg-tertiary)"></div><div class="swatch-name">fg-tertiary</div><div class="swatch-val">--fg-tertiary</div></div>
+    <div class="swatch"><div class="swatch-chip" style="background:var(--fg-muted)"></div><div class="swatch-name">fg-muted</div><div class="swatch-val">--fg-muted</div></div>
+  </div>
+
+  <h3 class="t-h3" style="margin:24px 0 10px">Accent &amp; status</h3>
+  <div class="tokens-grid">
+    <div class="swatch"><div class="swatch-chip" style="background:var(--accent-blue)"></div><div class="swatch-name">accent</div><div class="swatch-val">--accent-blue</div></div>
+    <div class="swatch"><div class="swatch-chip" style="background:var(--status-live)"></div><div class="swatch-name">live</div><div class="swatch-val">--status-live</div></div>
+    <div class="swatch"><div class="swatch-chip" style="background:var(--status-warn)"></div><div class="swatch-name">warn</div><div class="swatch-val">--status-warn</div></div>
+    <div class="swatch"><div class="swatch-chip" style="background:var(--status-error)"></div><div class="swatch-name">error</div><div class="swatch-val">--status-error</div></div>
+  </div>
+
+  <h3 class="t-h3" style="margin:24px 0 10px">Tone palette (identity avatars)</h3>
+  <div class="tokens-grid" style="grid-template-columns: repeat(8, 1fr);">
+    <div class="swatch"><div class="swatch-chip tone-blue"   style="display:grid;place-items:center;font-weight:600">Bl</div><div class="swatch-name">blue</div></div>
+    <div class="swatch"><div class="swatch-chip tone-green"  style="display:grid;place-items:center;font-weight:600">Gr</div><div class="swatch-name">green</div></div>
+    <div class="swatch"><div class="swatch-chip tone-amber"  style="display:grid;place-items:center;font-weight:600">Am</div><div class="swatch-name">amber</div></div>
+    <div class="swatch"><div class="swatch-chip tone-pink"   style="display:grid;place-items:center;font-weight:600">Pn</div><div class="swatch-name">pink</div></div>
+    <div class="swatch"><div class="swatch-chip tone-purple" style="display:grid;place-items:center;font-weight:600">Pu</div><div class="swatch-name">purple</div></div>
+    <div class="swatch"><div class="swatch-chip tone-teal"   style="display:grid;place-items:center;font-weight:600">Te</div><div class="swatch-name">teal</div></div>
+    <div class="swatch"><div class="swatch-chip tone-rose"   style="display:grid;place-items:center;font-weight:600">Rs</div><div class="swatch-name">rose</div></div>
+    <div class="swatch"><div class="swatch-chip tone-slate"  style="display:grid;place-items:center;font-weight:600">Sl</div><div class="swatch-name">slate</div></div>
+  </div>
+</section>
+
+<!-- ============================================================
+     TYPOGRAPHY
+============================================================ -->
+<section class="section" id="typography">
+  <h2>Typography</h2>
+  <p class="lead">Inter (UI) + JetBrains Mono (code). Base 13.5px. Feature settings enable humanist alternates (cv11 ss01 cv02).</p>
+
+  <div class="example" style="grid-template-columns: 1fr;">
+    <div class="example-preview" style="gap:0; padding:18px 24px">
+      <div class="type-sample"><span class="label">.t-hero</span><span class="t-hero">안녕하세요, 민수</span><span class="meta">24 / 600 / -0.015em</span></div>
+      <div class="type-sample"><span class="label">.t-h1</span><span class="t-h1">Recent chat sessions</span><span class="meta">20 / 600 / -0.012em</span></div>
+      <div class="type-sample"><span class="label">.t-h2</span><span class="t-h2">PR Reviewer</span><span class="meta">16 / 600 / -0.008em</span></div>
+      <div class="type-sample"><span class="label">.t-h3</span><span class="t-h3">Tools</span><span class="meta">14 / 600 / -0.005em</span></div>
+      <div class="type-sample"><span class="label">.t-body</span><span class="t-body">GitHub PR을 읽고 스타일·버그·보안 이슈를 주석으로 남깁니다.</span><span class="meta">13.5 / 400</span></div>
+      <div class="type-sample"><span class="label">.t-small</span><span class="t-small fg-tertiary">12m ago · Claude Sonnet 4.5</span><span class="meta">12.5 / 400</span></div>
+      <div class="type-sample"><span class="label">.t-xs</span><span class="t-xs">NEW UPDATE</span><span class="meta">11.5 / 500</span></div>
+      <div class="type-sample"><span class="label">.t-over</span><span class="t-over">Published by me</span><span class="meta">10.5 / 600 / 0.08em UPPER</span></div>
+      <div class="type-sample"><span class="label">.t-mono</span><span class="t-mono">src/features/auth/token-validator.ts:42</span><span class="meta">12.5 / JetBrains</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     BUTTONS
+============================================================ -->
+<section class="section" id="buttons">
+  <h2>Buttons</h2>
+  <p class="lead">Three variants × two sizes, plus icon-only. Flat fills only — no gradients, no elevation on the base state.</p>
+
+  <div class="example">
+    <div class="example-preview">
+      <div class="example-row">
+        <button class="btn btn-primary">Save changes</button>
+        <button class="btn btn-outline">Cancel</button>
+        <button class="btn btn-ghost">Secondary</button>
+      </div>
+      <div class="example-row">
+        <button class="btn btn-primary btn-sm">Run now</button>
+        <button class="btn btn-outline btn-sm">Duplicate</button>
+        <button class="btn btn-ghost btn-sm">Dismiss</button>
+      </div>
+      <div class="example-row">
+        <button class="btn btn-ghost btn-icon" title="More">⋯</button>
+        <button class="btn btn-outline btn-icon" title="Add">+</button>
+        <button class="btn btn-ghost btn-icon btn-sm" title="Close">×</button>
+      </div>
+    </div>
+    <div class="example-meta">
+      <h3>shadcn mapping</h3>
+      <div class="mapping">
+        .btn-primary <span class="m-arrow">→</span> <span class="m-comp">&lt;Button variant="default"&gt;</span><br/>
+        .btn-outline <span class="m-arrow">→</span> <span class="m-comp">&lt;Button variant="outline"&gt;</span><br/>
+        .btn-ghost <span class="m-arrow">→</span> <span class="m-comp">&lt;Button variant="ghost"&gt;</span><br/>
+        .btn-sm <span class="m-arrow">→</span> <span class="m-comp">size="sm"</span><br/>
+        .btn-icon <span class="m-arrow">→</span> <span class="m-comp">size="icon"</span>
+      </div>
+      <div class="notes">
+        <b>Heights:</b> default 30px, sm 26px, icon 30×30. <b>Radius:</b> 7px default, 6px sm. <b>Weight:</b> 500. <b>Transition:</b> 120ms on bg+border. Never animate color.
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     INPUTS
+============================================================ -->
+<section class="section" id="inputs">
+  <h2>Inputs</h2>
+  <p class="lead">Text field, textarea, select — all share the same shell height and 7px radius. Focus = accent soft fill + accent border.</p>
+
+  <div class="example">
+    <div class="example-preview">
+      <div class="example-row" style="width:100%">
+        <input class="input" placeholder="Agent name" style="flex:1" />
+        <input class="input" placeholder="Disabled" disabled style="flex:1;opacity:0.5" />
+      </div>
+      <div class="example-row" style="width:100%">
+        <input class="input" value="feat/auth-refactor" style="flex:1" />
+      </div>
+      <div class="example-row" style="width:100%">
+        <textarea class="input" style="flex:1; height:72px; padding:8px 10px; resize:vertical" placeholder="Describe the change you want…"></textarea>
+      </div>
+    </div>
+    <div class="example-meta">
+      <h3>shadcn mapping</h3>
+      <div class="mapping">
+        .input <span class="m-arrow">→</span> <span class="m-comp">&lt;Input /&gt;</span><br/>
+        .input[textarea] <span class="m-arrow">→</span> <span class="m-comp">&lt;Textarea /&gt;</span><br/>
+        .input[select] <span class="m-arrow">→</span> <span class="m-comp">&lt;Select /&gt;</span>
+      </div>
+      <div class="notes">
+        <b>Height:</b> 30px. <b>Focus:</b> fills to <code>--bg-raised</code> and border becomes <code>--accent-blue-border</code>. No outline, no glow. Pair with <code>&lt;Label&gt;</code> above.
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     BADGES / CHIPS
+============================================================ -->
+<section class="section" id="badges">
+  <h2>Badges &amp; Kind Badges</h2>
+  <p class="lead">Chips for secondary metadata (category, version, count). Kind badges encode ownership — Private / Published / Imported.</p>
+
+  <div class="example">
+    <div class="example-preview">
+      <div class="example-row">
+        <span class="chip">Internal</span>
+        <span class="chip chip-outline">v4.2.0</span>
+        <span class="chip"><span class="chip-dot" style="color:var(--status-live)"></span>Live</span>
+        <span class="chip"><span class="chip-dot" style="color:var(--status-warn)"></span>Pending</span>
+      </div>
+      <div class="example-row">
+        <span style="display:inline-flex;align-items:center;gap:4px;height:19px;padding:0 7px 0 6px;border-radius:4px;font-size:10.5px;font-weight:600;background:var(--badge-private-bg);color:var(--badge-private-fg);letter-spacing:0.02em">🔒 Private</span>
+        <span style="display:inline-flex;align-items:center;gap:4px;height:19px;padding:0 7px 0 6px;border-radius:4px;font-size:10.5px;font-weight:600;background:var(--badge-published-bg);color:var(--badge-published-fg);letter-spacing:0.02em">🌐 Published</span>
+        <span style="display:inline-flex;align-items:center;gap:4px;height:19px;padding:0 7px 0 6px;border-radius:4px;font-size:10.5px;font-weight:600;background:var(--badge-imported-bg);color:var(--badge-imported-fg);letter-spacing:0.02em">↓ Imported</span>
+      </div>
+    </div>
+    <div class="example-meta">
+      <h3>shadcn mapping</h3>
+      <div class="mapping">
+        .chip <span class="m-arrow">→</span> <span class="m-comp">&lt;Badge variant="secondary"&gt;</span><br/>
+        .chip-outline <span class="m-arrow">→</span> <span class="m-comp">&lt;Badge variant="outline"&gt;</span><br/>
+        KindBadge <span class="m-arrow">→</span> <span class="m-comp">&lt;KindBadge kind={…}/&gt;</span>
+      </div>
+      <div class="notes">
+        <b>KindBadge</b> is a custom primitive (not stock shadcn). File: <code>src/components/ui/kind-badge.tsx</code>. Icons from lucide — the emoji above is a placeholder.
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     CARDS
+============================================================ -->
+<section class="section" id="cards">
+  <h2>Cards</h2>
+  <p class="lead">10px radius, subtle border, no shadow at rest. Hover lifts border one step.</p>
+
+  <div class="example">
+    <div class="example-preview">
+      <div class="demo-card" style="display:flex;flex-direction:column;gap:10px">
+        <div style="display:flex;align-items:flex-start;gap:10px">
+          <div class="avatar tone-blue" style="width:36px;height:36px;font-size:13px;border-radius:8px">PR</div>
+          <div style="flex:1;min-width:0">
+            <div style="display:flex;align-items:center;gap:6px">
+              <div class="t-h2" style="font-size:14px">PR Reviewer</div>
+              <span style="display:inline-flex;align-items:center;height:17px;padding:0 5px;border-radius:3px;font-size:10px;font-weight:600;background:var(--badge-private-bg);color:var(--badge-private-fg)">Private</span>
+            </div>
+            <div class="t-small fg-tertiary" style="margin-top:2px">GitHub PR을 읽고 스타일·버그·보안 이슈를 주석으로 남깁니다.</div>
+          </div>
+        </div>
+        <div class="sep-h"></div>
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <div class="t-small fg-tertiary num">6 tools · 14 sessions</div>
+          <div class="t-xs fg-muted">Claude Sonnet 4.5</div>
+        </div>
+      </div>
+    </div>
+    <div class="example-meta">
+      <h3>shadcn mapping</h3>
+      <div class="mapping">
+        .card <span class="m-arrow">→</span> <span class="m-comp">&lt;Card&gt;</span><br/>
+        card header <span class="m-arrow">→</span> <span class="m-comp">&lt;CardHeader&gt;</span><br/>
+        card body <span class="m-arrow">→</span> <span class="m-comp">&lt;CardContent&gt;</span>
+      </div>
+      <div class="notes">
+        <b>Padding:</b> 14px (use <code>CardContent</code> defaults). <b>Border:</b> starts at <code>--border-subtle</code>, lifts to <code>--border-default</code> on hover when <code>.card-hover</code>. No transform, no scale.
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     AVATARS
+============================================================ -->
+<section class="section" id="avatars">
+  <h2>Avatars &amp; Identity Tiles</h2>
+  <p class="lead">Every agent/workflow has a permanent tone. Render as a colored square (asset) or circle (user).</p>
+
+  <div class="example">
+    <div class="example-preview">
+      <div class="example-row">
+        <div class="avatar tone-blue" style="width:36px;height:36px;font-size:13px;border-radius:8px">PR</div>
+        <div class="avatar tone-teal" style="width:36px;height:36px;font-size:13px;border-radius:8px">SQ</div>
+        <div class="avatar tone-amber" style="width:36px;height:36px;font-size:13px;border-radius:8px">SW</div>
+        <div class="avatar tone-rose" style="width:36px;height:36px;font-size:13px;border-radius:8px">LT</div>
+        <div class="avatar tone-purple" style="width:36px;height:36px;font-size:13px;border-radius:8px">DD</div>
+        <div class="avatar tone-green" style="width:36px;height:36px;font-size:13px;border-radius:8px">AC</div>
+        <div class="avatar tone-pink" style="width:36px;height:36px;font-size:13px;border-radius:8px">FE</div>
+        <div class="avatar tone-slate" style="width:36px;height:36px;font-size:13px;border-radius:8px">SS</div>
+      </div>
+      <div class="example-row">
+        <!-- sizes -->
+        <div class="avatar tone-blue" style="width:20px;height:20px;font-size:9px;border-radius:5px">PR</div>
+        <div class="avatar tone-blue" style="width:26px;height:26px;font-size:11px;border-radius:6px">PR</div>
+        <div class="avatar tone-blue" style="width:32px;height:32px;font-size:12px;border-radius:7px">PR</div>
+        <div class="avatar tone-blue" style="width:40px;height:40px;font-size:14px;border-radius:9px">PR</div>
+        <div class="avatar tone-blue" style="width:52px;height:52px;font-size:18px;border-radius:11px">PR</div>
+      </div>
+      <div class="example-row">
+        <!-- circle (user) -->
+        <div class="avatar tone-blue" style="width:26px;height:26px;font-size:10.5px;border-radius:99px">MK</div>
+        <div class="avatar tone-blue" style="width:32px;height:32px;font-size:12px;border-radius:99px">MK</div>
+        <div class="avatar tone-blue" style="width:40px;height:40px;font-size:14px;border-radius:99px">MK</div>
+      </div>
+    </div>
+    <div class="example-meta">
+      <h3>shadcn mapping</h3>
+      <div class="mapping">
+        .avatar.tone-* <span class="m-arrow">→</span> <span class="m-comp">&lt;Avatar tone="blue"&gt;</span>
+      </div>
+      <div class="notes">
+        <b>Asset avatars:</b> square with rounded corners (6-11px by size). <b>User avatars:</b> full circle. Props: <code>tone</code>, <code>size</code> (sm/md/lg/xl), <code>shape</code> (square/circle), children = initials or icon.
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     STATUS DOTS
+============================================================ -->
+<section class="section" id="status">
+  <h2>Status Dots</h2>
+  <p class="lead">Tiny colored dots with soft halo. Used in run lists, session rows, workflow nodes, nav counts.</p>
+
+  <div class="example">
+    <div class="example-preview">
+      <div class="example-row">
+        <span style="display:inline-flex;align-items:center;gap:6px;font-size:12.5px"><span class="dot dot-live"></span>Running</span>
+        <span style="display:inline-flex;align-items:center;gap:6px;font-size:12.5px"><span class="dot dot-warn"></span>Pending</span>
+        <span style="display:inline-flex;align-items:center;gap:6px;font-size:12.5px"><span class="dot dot-error"></span>Failed</span>
+        <span style="display:inline-flex;align-items:center;gap:6px;font-size:12.5px"><span class="dot dot-idle"></span>Idle</span>
+      </div>
+      <div class="example-row" style="margin-top:4px">
+        <span class="chip"><span class="chip-dot" style="color:var(--status-live)"></span>live</span>
+        <span class="chip"><span class="chip-dot" style="color:var(--status-warn)"></span>draft</span>
+        <span class="chip"><span class="chip-dot" style="color:var(--status-error)"></span>failed</span>
+      </div>
+    </div>
+    <div class="example-meta">
+      <h3>shadcn mapping</h3>
+      <div class="mapping">
+        .dot-live <span class="m-arrow">→</span> <span class="m-comp">&lt;StatusDot variant="live"/&gt;</span><br/>
+        .dot-warn <span class="m-arrow">→</span> <span class="m-comp">variant="warn"</span><br/>
+        .dot-error <span class="m-arrow">→</span> <span class="m-comp">variant="error"</span><br/>
+        .dot-idle <span class="m-arrow">→</span> <span class="m-comp">variant="idle"</span>
+      </div>
+      <div class="notes">
+        <b>Live dot</b> has a soft halo (<code>box-shadow: 0 0 0 3px token-soft</code>). Add <code>pulse</code> prop for slow 1.6s breathing on "running" state — reduced-motion auto-disables.
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     KBD
+============================================================ -->
+<section class="section" id="kbd">
+  <h2>Kbd</h2>
+  <p class="lead">Keyboard shortcut display, used in search pill, command palette, menus.</p>
+
+  <div class="example">
+    <div class="example-preview">
+      <div class="example-row">
+        <span class="kbd">⌘</span>
+        <span class="kbd">K</span>
+        <span style="font-size:12.5px;color:var(--fg-muted);margin:0 4px">→</span>
+        <span class="kbd">↑</span>
+        <span class="kbd">↓</span>
+        <span class="kbd">↵</span>
+        <span class="kbd">esc</span>
+      </div>
+    </div>
+    <div class="example-meta">
+      <h3>shadcn mapping</h3>
+      <div class="mapping">
+        .kbd <span class="m-arrow">→</span> <span class="m-comp">&lt;Kbd&gt;⌘K&lt;/Kbd&gt;</span>
+      </div>
+      <div class="notes">
+        Already exists at <code>src/components/ui/kbd.tsx</code>. Update internals only. 18px tall, 4px radius, monospaced 10.5px.
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     SEPARATOR
+============================================================ -->
+<section class="section" id="separator">
+  <h2>Separator</h2>
+  <p class="lead">Horizontal and vertical dividers. Just a 1px line at <code style="font-family:monospace;font-size:11.5px">--border-subtle</code>.</p>
+
+  <div class="example">
+    <div class="example-preview">
+      <div style="width:100%">
+        <div class="t-small fg-secondary">Section A</div>
+        <div class="sep-h" style="margin:12px 0"></div>
+        <div class="t-small fg-secondary">Section B</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:12px;height:32px">
+        <span>Left</span>
+        <div class="v-divider" style="height:20px"></div>
+        <span>Middle</span>
+        <div class="v-divider" style="height:20px"></div>
+        <span>Right</span>
+      </div>
+    </div>
+    <div class="example-meta">
+      <h3>shadcn mapping</h3>
+      <div class="mapping">
+        .sep-h <span class="m-arrow">→</span> <span class="m-comp">&lt;Separator /&gt;</span><br/>
+        .v-divider <span class="m-arrow">→</span> <span class="m-comp">&lt;Separator orientation="vertical"/&gt;</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     COMPLETE shadcn MAPPING TABLE
+============================================================ -->
+<section class="section" id="mapping">
+  <h2>Complete shadcn mapping table</h2>
+  <p class="lead">Every prototype class → its React component counterpart. If a component is custom (not from shadcn canonical), it's marked <b>new</b>.</p>
+
+  <table class="shadcn-map">
+    <thead><tr><th>Prototype class</th><th>React component</th><th>File</th><th>Notes</th></tr></thead>
+    <tbody>
+      <tr><td><code>.btn.btn-primary</code></td><td><code>&lt;Button variant="default"&gt;</code></td><td><code>components/ui/button.tsx</code></td><td>—</td></tr>
+      <tr><td><code>.btn.btn-outline</code></td><td><code>&lt;Button variant="outline"&gt;</code></td><td>same</td><td>—</td></tr>
+      <tr><td><code>.btn.btn-ghost</code></td><td><code>&lt;Button variant="ghost"&gt;</code></td><td>same</td><td>—</td></tr>
+      <tr><td><code>.btn.btn-sm</code></td><td><code>size="sm"</code></td><td>same</td><td>height 26px</td></tr>
+      <tr><td><code>.btn.btn-icon</code></td><td><code>size="icon"</code></td><td>same</td><td>square 30×30 / 26×26</td></tr>
+      <tr><td><code>.input</code></td><td><code>&lt;Input&gt;</code></td><td><code>components/ui/input.tsx</code></td><td>—</td></tr>
+      <tr><td><code>.input textarea</code></td><td><code>&lt;Textarea&gt;</code></td><td><code>components/ui/textarea.tsx</code></td><td>—</td></tr>
+      <tr><td>select wrapper</td><td><code>&lt;Select&gt;</code> family</td><td><code>components/ui/select.tsx</code></td><td>already shadcn</td></tr>
+      <tr><td><code>.chip</code></td><td><code>&lt;Badge variant="secondary"&gt;</code></td><td><code>components/ui/badge.tsx</code></td><td>—</td></tr>
+      <tr><td><code>.chip.chip-outline</code></td><td><code>&lt;Badge variant="outline"&gt;</code></td><td>same</td><td>—</td></tr>
+      <tr><td>kind badge</td><td><code>&lt;KindBadge kind="private"/&gt;</code></td><td><code>components/ui/kind-badge.tsx</code></td><td><b>new</b></td></tr>
+      <tr><td><code>.card</code></td><td><code>&lt;Card&gt;&lt;CardContent&gt;</code></td><td><code>components/ui/card.tsx</code></td><td>—</td></tr>
+      <tr><td><code>.avatar.tone-*</code></td><td><code>&lt;Avatar tone="blue"/&gt;</code></td><td><code>components/ui/avatar.tsx</code></td><td><b>new</b></td></tr>
+      <tr><td><code>.dot.dot-live</code></td><td><code>&lt;StatusDot variant="live"/&gt;</code></td><td><code>components/ui/status-dot.tsx</code></td><td><b>new</b></td></tr>
+      <tr><td><code>.kbd</code></td><td><code>&lt;Kbd&gt;</code></td><td><code>components/ui/kbd.tsx</code></td><td>exists — restyle only</td></tr>
+      <tr><td><code>.sep-h</code> / <code>.v-divider</code></td><td><code>&lt;Separator&gt;</code></td><td><code>components/ui/separator.tsx</code></td><td>—</td></tr>
+      <tr><td><code>.t-hero</code> / <code>.t-h1</code> / …</td><td>Tailwind utility</td><td>n/a</td><td>compose via <code>text-[24px] font-semibold tracking-tight</code></td></tr>
+      <tr><td>search palette</td><td><code>&lt;CommandPalette&gt;</code></td><td><code>features/search/components/</code></td><td><b>new</b></td></tr>
+      <tr><td>user menu</td><td><code>&lt;DropdownMenu&gt;</code></td><td><code>components/ui/dropdown-menu.tsx</code></td><td><b>add via</b> <code>shadcn add dropdown-menu</code></td></tr>
+      <tr><td>notifications</td><td><code>&lt;NotificationPanel&gt;</code></td><td><code>features/layout/components/</code></td><td><b>new</b></td></tr>
+      <tr><td>tabs</td><td><code>&lt;Tabs&gt;</code></td><td><code>components/ui/tabs.tsx</code></td><td><b>add</b> <code>shadcn add tabs</code></td></tr>
+      <tr><td>tooltip</td><td><code>&lt;Tooltip&gt;</code></td><td><code>components/ui/tooltip.tsx</code></td><td><b>add</b> <code>shadcn add tooltip</code></td></tr>
+      <tr><td>dialog</td><td><code>&lt;Dialog&gt;</code></td><td><code>components/ui/dialog.tsx</code></td><td><b>add</b> <code>shadcn add dialog</code></td></tr>
+    </tbody>
+  </table>
+</section>
+
+<script>
+  // Theme toggle
+  document.querySelectorAll(".theme-bar button").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const t = btn.getAttribute("data-theme");
+      document.documentElement.setAttribute("data-theme", t);
+      document.querySelectorAll(".theme-bar button").forEach(b => b.classList.toggle("on", b === btn));
+    });
+  });
+</script>
+</body>
+</html>

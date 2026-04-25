@@ -9,10 +9,7 @@ import { AviaryLogo } from "@/components/brand/aviary-logo";
 import { routes } from "@/lib/constants/routes";
 
 /**
- * LoginCard — Aurora Glass hero moment.
- *
- * The aurora backdrop is already painted globally; here we layer a
- * deeper glass card on top with a gradient border and a prominent CTA.
+ * LoginCard — sign-in hero on the Slate canvas.
  */
 export function LoginCard() {
   const { user, status, login } = useAuth();
@@ -33,22 +30,18 @@ export function LoginCard() {
         <div className="flex flex-col items-center gap-5">
           <div className="relative">
             <AviaryLogo size={104} />
-            <div
-              aria-hidden="true"
-              className="absolute inset-0 -z-10 rounded-full bg-aurora-sky blur-3xl opacity-45"
-            />
           </div>
           <div className="flex flex-col items-center gap-2">
-            <h1 className="type-display text-aurora-sky">Aviary</h1>
+            <h1 className="type-display text-fg-primary">Aviary</h1>
             <p className="type-caption text-fg-muted tracking-[0.18em] uppercase">
               AI Agent Platform
             </p>
           </div>
         </div>
 
-        {/* Sign-in card — deep glass + aurora hairline border */}
-        <div className="w-full max-w-sm gradient-border-a rounded-xl">
-          <div className="glass-deep rounded-xl shadow-4 p-8">
+        {/* Sign-in card */}
+        <div className="w-full max-w-sm rounded-xl">
+          <div className="bg-raised border border-border-subtle rounded-xl shadow-xl p-8">
             <Button
               variant="cta"
               size="lg"

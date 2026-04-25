@@ -55,7 +55,7 @@ export function SearchResults({ hits, loading, error, query, onResultClick }: Se
               key={hit.message_id}
               href={routes.session(hit.session_id)}
               onClick={onResultClick}
-              className="group block rounded-xs px-3 py-1.5 hover:bg-white/[0.03] transition-colors"
+              className="group block rounded-xs px-3 py-1.5 hover:bg-hover transition-colors"
             >
               <div className="flex items-center gap-1.5 type-caption text-fg-muted">
                 <MessageSquare size={10} strokeWidth={2} className="shrink-0" />

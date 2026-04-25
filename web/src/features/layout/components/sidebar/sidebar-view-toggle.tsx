@@ -26,7 +26,7 @@ export function SidebarViewToggle() {
       <div
         role="tablist"
         aria-label="Sessions view mode"
-        className="flex items-center gap-0 rounded-xs border border-white/[0.06] bg-canvas p-0.5"
+        className="flex items-center gap-0 rounded-xs border border-border-subtle bg-canvas p-0.5"
       >
         <ToggleButton
           active={viewMode === "agent"}

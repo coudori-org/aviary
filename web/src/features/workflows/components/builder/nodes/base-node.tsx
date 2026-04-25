@@ -24,17 +24,17 @@ function RunStatusBadge() {
   if (!status || status === "pending") return null;
 
   const config = {
-    running: { icon: <Loader2 size={10} className="animate-spin" />, bg: "bg-aurora-violet/25", ring: "ring-aurora-violet/40" },
-    completed: { icon: <Check size={10} strokeWidth={3} />, bg: "bg-aurora-mint/25", ring: "ring-aurora-mint/40" },
-    failed: { icon: <X size={10} strokeWidth={3} />, bg: "bg-aurora-pink/25", ring: "ring-aurora-pink/40" },
-    skipped: { icon: <CircleDot size={10} />, bg: "bg-white/5", ring: "ring-white/10" },
+    running: { icon: <Loader2 size={10} className="animate-spin" />, bg: "bg-accent-soft", ring: "ring-accent-border", fg: "text-accent" },
+    completed: { icon: <Check size={10} strokeWidth={3} />, bg: "bg-status-live-soft", ring: "ring-status-live/40", fg: "text-status-live" },
+    failed: { icon: <X size={10} strokeWidth={3} />, bg: "bg-status-error-soft", ring: "ring-status-error/40", fg: "text-status-error" },
+    skipped: { icon: <CircleDot size={10} />, bg: "bg-hover", ring: "ring-border-subtle", fg: "text-fg-muted" },
   }[status];
 
   if (!config) return null;
 
   return (
     <div className={cn("absolute -top-1.5 -right-1.5 flex h-5 w-5 items-center justify-center rounded-full ring-1", config.bg, config.ring)}>
-      <span className={status === "completed" ? "text-aurora-mint" : status === "failed" ? "text-aurora-pink" : status === "running" ? "text-aurora-violet" : "text-fg-disabled"}>
+      <span className={config.fg}>
         {config.icon}
       </span>
     </div>
@@ -59,18 +59,18 @@ export function BaseNode({
   return (
     <div
       className={cn(
-        "relative rounded-lg transition-all duration-200 ease-out",
+        "relative rounded-[10px] transition-all duration-200 ease-out",
         compact ? "min-w-[140px] max-w-[180px]" : "min-w-[200px] max-w-[260px]",
-        "glass-raised",
-        selected && "ring-2 ring-aurora-violet ring-offset-2 ring-offset-[rgb(8_9_26)]",
-        isRunning && "border-aurora-violet/40",
+        "bg-raised border border-border-subtle",
+        selected && "ring-2 ring-accent ring-offset-2 ring-offset-canvas",
+        isRunning && "border-accent-border",
       )}
       style={{
         boxShadow: isRunning
-          ? "0 0 28px rgba(123,92,255,0.35), 0 4px 16px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.08)"
+          ? "0 0 24px var(--accent-blue-soft), var(--shadow-md)"
           : selected
-            ? "0 0 40px rgba(123,92,255,0.7), 0 0 12px rgba(123,92,255,0.55), 0 4px 16px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.1)"
-            : "0 4px 16px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.06)",
+            ? "0 0 0 1px var(--accent-blue-border), var(--shadow-lg)"
+            : "var(--shadow-sm)",
       }}
     >
       <RunStatusBadge />
@@ -121,7 +121,7 @@ export function BaseNode({
       {outputLabels && outputs > 1 && (
         <div className="absolute -right-1 top-0 h-full flex flex-col justify-around py-3 pointer-events-none">
           {outputLabels.map((lbl) => (
-            <span key={lbl} className="translate-x-full pl-2.5 text-[10px] font-medium text-fg-disabled">
+            <span key={lbl} className="translate-x-full pl-2.5 text-[10px] font-medium text-fg-muted">
               {lbl}
             </span>
           ))}

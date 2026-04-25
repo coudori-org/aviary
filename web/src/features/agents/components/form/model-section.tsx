@@ -18,11 +18,11 @@ interface ModelSectionProps {
   ) => void;
 }
 
-const CAPABILITY_VARIANT: Record<string, "info" | "brand" | "success" | "warning" | "muted"> = {
-  vision: "info",
-  audio: "brand",
-  tools: "success",
-  thinking: "warning",
+const CAPABILITY_VARIANT: Record<string, "default" | "accent" | "outline"> = {
+  vision: "accent",
+  audio: "accent",
+  tools: "default",
+  thinking: "outline",
 };
 
 export function ModelSection({ data, setModelConfig }: ModelSectionProps) {
@@ -87,8 +87,8 @@ export function ModelSection({ data, setModelConfig }: ModelSectionProps) {
 
   return (
     <FormSection title="Model Configuration" description="Choose the LLM backend and model">
-      <Card variant="standard" className="p-5 space-y-5">
-        <div className="grid gap-5 sm:grid-cols-2">
+      <Card className="p-4 space-y-4">
+        <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-2">
             <Label htmlFor="agent-backend">Backend</Label>
             <Select
@@ -130,9 +130,9 @@ export function ModelSection({ data, setModelConfig }: ModelSectionProps) {
 
         {capabilities.length > 0 && (
           <div className="flex flex-wrap items-center gap-2">
-            <span className="type-caption text-fg-disabled">Capabilities:</span>
+            <span className="t-small fg-muted">Capabilities:</span>
             {capabilities.map((cap) => (
-              <Badge key={cap} variant={CAPABILITY_VARIANT[cap] ?? "muted"}>
+              <Badge key={cap} variant={CAPABILITY_VARIANT[cap] ?? "default"}>
                 {cap.charAt(0).toUpperCase() + cap.slice(1)}
               </Badge>
             ))}
@@ -149,13 +149,13 @@ export function ModelSection({ data, setModelConfig }: ModelSectionProps) {
               step={1000}
               value={currentTokens}
               onChange={(e) => setModelConfig("max_output_tokens", parseInt(e.target.value))}
-              className="flex-1 h-2 rounded-pill appearance-none bg-raised cursor-pointer accent-info"
+              className="h-1.5 flex-1 cursor-pointer appearance-none rounded-pill bg-sunk accent-[var(--accent-blue)]"
             />
-            <span className="w-20 text-center type-code-sm text-fg-primary">
+            <span className="w-20 text-center t-mono text-[12px] text-fg-primary">
               {formatTokens(currentTokens)}
             </span>
           </div>
-          <p className="type-caption text-fg-disabled">
+          <p className="t-small fg-muted">
             Maximum tokens per response (up to {formatTokens(maxLimit)})
           </p>
         </div>

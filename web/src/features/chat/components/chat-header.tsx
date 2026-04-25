@@ -62,12 +62,12 @@ export function ChatHeader({
   const { widthClass } = useChatWidth();
 
   return (
-    <header className="shrink-0 border-b border-white/[0.06] px-6 py-3 glass-pane">
+    <header className="shrink-0 bg-canvas border-b border-border-subtle px-6 py-3">
       <div className={cn("mx-auto flex items-center justify-between", widthClass)}>
         <div className="flex items-center gap-3 min-w-0">
           <Link
             href={session.agent_id ? routes.agent(session.agent_id) : routes.agents}
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-sm bg-white/[0.05] text-fg-muted hover:bg-white/[0.10] hover:text-fg-primary transition-colors"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-sm bg-hover text-fg-muted hover:bg-active hover:text-fg-primary transition-colors"
             aria-label="Back to agent"
           >
             <ArrowLeft size={14} strokeWidth={1.75} />
@@ -106,7 +106,7 @@ export function ChatHeader({
             type="button"
             onClick={onPrintVisual}
             disabled={!hasMessages}
-            className="flex h-7 w-7 items-center justify-center rounded-xs text-fg-muted hover:bg-white/[0.08] hover:text-fg-primary transition-colors disabled:opacity-30 disabled:pointer-events-none"
+            className="flex h-7 w-7 items-center justify-center rounded-xs text-fg-muted hover:bg-active hover:text-fg-primary transition-colors disabled:opacity-30 disabled:pointer-events-none"
             title="Print chat"
             aria-label="Print chat"
           >
@@ -116,7 +116,7 @@ export function ChatHeader({
             type="button"
             onClick={onExportText}
             disabled={!hasMessages}
-            className="flex h-7 w-7 items-center justify-center rounded-xs text-fg-muted hover:bg-white/[0.08] hover:text-fg-primary transition-colors disabled:opacity-30 disabled:pointer-events-none"
+            className="flex h-7 w-7 items-center justify-center rounded-xs text-fg-muted hover:bg-active hover:text-fg-primary transition-colors disabled:opacity-30 disabled:pointer-events-none"
             title="Export chat as text"
             aria-label="Export chat as text"
           >
@@ -129,8 +129,8 @@ export function ChatHeader({
             className={cn(
               "flex h-7 w-7 items-center justify-center rounded-xs transition-colors",
               workspaceOpen
-                ? "bg-aurora-a-soft text-fg-primary"
-                : "text-fg-muted hover:bg-white/[0.08] hover:text-fg-primary",
+                ? "bg-hover text-fg-primary"
+                : "text-fg-muted hover:bg-active hover:text-fg-primary",
             )}
             title={workspaceOpen ? "Hide workspace panel" : "Show workspace panel"}
             aria-label="Toggle workspace panel"

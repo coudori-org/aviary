@@ -199,10 +199,10 @@ export function MentionAutocomplete({
   return (
     <div
       ref={dropdownRef}
-      className="fixed z-50 w-72 rounded-md bg-popover border border-white/10 shadow-5 overflow-hidden"
+      className="fixed z-50 w-72 rounded-md bg-popover border border-border shadow-5 overflow-hidden"
       style={{ bottom: `calc(100vh - ${position.top}px)`, left: position.left }}
     >
-      <div className="px-3 py-2 type-small text-fg-disabled border-b border-white/[0.06]">
+      <div className="px-3 py-2 type-small text-fg-disabled border-b border-border-subtle">
         Agents
       </div>
       <div className="max-h-48 overflow-y-auto py-1">
@@ -213,7 +213,7 @@ export function MentionAutocomplete({
             className={`flex w-full items-start gap-3 px-3 py-2 text-left transition-colors ${
               i === selectedIndex
                 ? "bg-info/10 text-fg-primary"
-                : "text-fg-secondary hover:bg-white/[0.03]"
+                : "text-fg-secondary hover:bg-hover"
             }`}
             onMouseEnter={() => setSelectedIndex(i)}
             onClick={() => selectAgent(agent)}

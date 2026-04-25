@@ -30,18 +30,12 @@ export function AgentDetailHero({ agent }: AgentDetailHeroProps) {
         <div className="relative shrink-0">
           <div
             className={cn(
-              "flex h-16 w-16 items-center justify-center rounded-xl glass-raised shadow-2 text-3xl",
+              "flex h-16 w-16 items-center justify-center rounded-xl bg-raised border border-border-subtle shadow-md text-3xl",
               isDeleted && "grayscale",
             )}
           >
             {agent.icon || "🤖"}
           </div>
-          {!isDeleted && (
-            <div
-              aria-hidden="true"
-              className="absolute inset-0 -z-10 rounded-xl bg-aurora-a blur-2xl opacity-30"
-            />
-          )}
         </div>
 
         <div className="min-w-0 flex-1">
@@ -65,12 +59,11 @@ export function AgentDetailHero({ agent }: AgentDetailHeroProps) {
               aria-label={`Start chat with ${agent.name}`}
               className={cn(
                 "mt-5 inline-flex h-11 items-center gap-2 rounded-pill px-6 type-button",
-                "bg-aurora-a animate-aurora-sheen text-white",
-                "shadow-[0_0_32px_rgba(123,92,255,0.4),inset_0_1px_0_rgba(255,255,255,0.2)]",
-                "transition-all duration-[320ms] ease-[cubic-bezier(0.16,1,0.3,1)]",
-                "hover:-translate-y-[1px] hover:shadow-[0_0_44px_rgba(123,92,255,0.55),inset_0_1px_0_rgba(255,255,255,0.25)]",
-                "disabled:opacity-60 disabled:cursor-not-allowed disabled:translate-y-0",
-                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-aurora-violet/50 focus-visible:ring-offset-2 focus-visible:ring-offset-canvas",
+                "bg-accent text-white",
+                "transition-colors duration-200",
+                "hover:bg-accent/90",
+                "disabled:opacity-60 disabled:cursor-not-allowed",
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 focus-visible:ring-offset-2 focus-visible:ring-offset-canvas",
               )}
             >
               {creating ? (

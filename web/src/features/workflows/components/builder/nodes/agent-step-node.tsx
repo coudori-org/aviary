@@ -21,7 +21,7 @@ export const AgentStepNode = memo(function AgentStepNode({
       selected={selected}
     >
       {d.instruction && (
-        <p className="text-[11px] text-fg-disabled line-clamp-2 leading-relaxed">{d.instruction}</p>
+        <p className="text-[11px] text-fg-muted line-clamp-2 leading-relaxed">{d.instruction}</p>
       )}
     </BaseNode>
   );

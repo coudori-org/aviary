@@ -68,7 +68,7 @@ export function SidebarBulkBar() {
       <button
         type="button"
         onClick={handleCancel}
-        className="flex h-6 w-6 items-center justify-center rounded-xs text-fg-muted hover:bg-white/[0.04] hover:text-fg-primary transition-colors"
+        className="flex h-6 w-6 items-center justify-center rounded-xs text-fg-muted hover:bg-hover hover:text-fg-primary transition-colors"
         title="Cancel selection"
         aria-label="Cancel selection"
       >

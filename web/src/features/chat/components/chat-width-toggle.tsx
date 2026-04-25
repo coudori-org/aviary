@@ -27,7 +27,7 @@ export function ChatWidthToggle() {
     <div
       role="tablist"
       aria-label="Chat width"
-      className="flex items-center gap-0 rounded-xs border border-white/[0.06] bg-canvas p-0.5"
+      className="flex items-center gap-0 rounded-xs border border-border-subtle bg-canvas p-0.5"
     >
       {OPTIONS.map(({ value, label, Icon }) => {
         const active = width === value;

@@ -59,7 +59,7 @@ export const ToolGroupChip = memo(function ToolGroupChip({ tools }: ToolGroupChi
             : hasRunning
               ? "text-info hover:text-info"
               : "text-fg-muted hover:text-fg-primary",
-          "hover:bg-white/[0.03]",
+          "hover:bg-hover",
         )}
       >
         <ChevronRight

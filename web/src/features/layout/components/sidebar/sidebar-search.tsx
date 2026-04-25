@@ -42,7 +42,7 @@ export function SidebarSearch({ search }: SidebarSearchProps) {
             className={cn(
               "absolute right-1.5 top-1/2 -translate-y-1/2",
               "flex h-5 w-5 items-center justify-center rounded-xs",
-              "text-fg-disabled hover:text-fg-primary hover:bg-white/[0.05] transition-colors",
+              "text-fg-disabled hover:text-fg-primary hover:bg-hover transition-colors",
             )}
             aria-label="Clear search"
           >

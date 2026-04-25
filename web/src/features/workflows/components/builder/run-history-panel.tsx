@@ -13,10 +13,10 @@ interface Props {
 }
 
 const STATUS_TONE: Record<string, string> = {
-  completed: "text-success",
-  failed: "text-danger",
+  completed: "text-status-live",
+  failed: "text-status-error",
   cancelled: "text-fg-muted",
-  running: "text-brand",
+  running: "text-accent",
   pending: "text-fg-muted",
 };
 
@@ -60,9 +60,9 @@ export function RunHistoryPanel({ run, onOpenRun }: Props) {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-center justify-between border-b border-white/[0.06] px-4 py-2">
+      <div className="flex items-center justify-between border-b border-border-subtle px-4 py-2">
         <span className="type-caption text-fg-muted">Runs</span>
-        <button onClick={refresh} className="type-caption text-brand hover:underline">
+        <button onClick={refresh} className="type-caption text-accent hover:underline">
           {loading ? "…" : "Refresh"}
         </button>
       </div>
@@ -71,7 +71,7 @@ export function RunHistoryPanel({ run, onOpenRun }: Props) {
           No runs yet
         </div>
       ) : (
-        <ul className="flex-1 overflow-y-auto divide-y divide-white/[0.04]">
+        <ul className="flex-1 overflow-y-auto divide-y divide-border-subtle">
           {runs.map((r) => (
             <li key={r.id}>
               <button
@@ -84,7 +84,7 @@ export function RunHistoryPanel({ run, onOpenRun }: Props) {
                   </span>
                   <span className="text-fg-muted">{r.run_type}</span>
                   {r.id === run.runId && (
-                    <span className="text-brand">(viewing)</span>
+                    <span className="text-accent">(viewing)</span>
                   )}
                 </span>
                 <span className="type-caption text-fg-muted">{fmt(r.created_at)}</span>

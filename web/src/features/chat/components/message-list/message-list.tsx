@@ -22,12 +22,7 @@ import { highlightText, clearHighlights } from "@/features/chat/lib/highlight-te
 import { cn } from "@/lib/utils";
 import type { Message, StreamBlock } from "@/types";
 
-/** Distance from the top at which older messages start pre-loading. */
 const PRELOAD_THRESHOLD_PX = 1500;
-
-/** Within this many px of the bottom counts as "following" the stream.
- *  Generous enough that a short smooth-scroll animation's intermediate
- *  positions don't accidentally disengage follow mode. */
 const FOLLOW_THRESHOLD_PX = 80;
 
 interface MessageListProps {
@@ -38,34 +33,15 @@ interface MessageListProps {
   hasMore: boolean;
   loadingEarlier: boolean;
   onLoadEarlier: () => void;
-  /** Block id of the active in-chat search match. The list scrolls
-   *  the matching `[data-search-target]` element into view; the ring
-   *  is painted by the block component via the search context. */
   highlightedTargetId?: string | null;
-  /** Live search query. When non-empty, the list inserts `<mark>`
-   *  spans around every occurrence in the rendered DOM. */
   searchQuery?: string;
-  /** Insert a visual divider between a terminal (error / cancelled)
-   *  agent turn and the next user turn. Only meaningful for sessions
-   *  where a new user turn really starts a fresh SDK context — i.e.
-   *  workflow agent_step sessions where resume creates a new run
-   *  with a clean workspace. Chat preserves SDK history across a
-   *  retry, so the default is off. */
+  /** Insert a divider between a terminal (error / cancelled) agent turn
+   *  and the next user turn — workflow agent_step sessions where resume
+   *  starts a fresh SDK context. Chat sessions preserve history, so off
+   *  by default. */
   showRestartDividers?: boolean;
 }
 
-/**
- * MessageList — scrollable message container with paginated history.
- *
- * Scroll behaviors (resolved in one layout effect via first/last id diff):
- *   - initial mount → jump to bottom
- *   - append (last id changed) → smooth-scroll to bottom
- *   - prepend (first id changed, last unchanged) → adjust scrollTop by the
- *     height diff so the viewport anchor stays put
- *
- * Pre-fetch fires when within `PRELOAD_THRESHOLD_PX` of the top, both on
- * scroll and after a prepend (so back-to-back pages chain without flash).
- */
 export const MessageList = forwardRef<HTMLDivElement, MessageListProps>(
   function MessageList(
     {
@@ -86,8 +62,6 @@ export const MessageList = forwardRef<HTMLDivElement, MessageListProps>(
     useImperativeHandle(forwardedRef, () => scrollRef.current as HTMLDivElement);
     const { widthClass } = useChatWidth();
 
-    // Scroll the active search target into view. Re-runs on `messages`
-    // so a target that just arrived via paginated prepend lands too.
     useEffect(() => {
       if (!highlightedTargetId) return;
       const scrollEl = scrollRef.current;
@@ -98,9 +72,6 @@ export const MessageList = forwardRef<HTMLDivElement, MessageListProps>(
       el?.scrollIntoView({ behavior: "smooth", block: "center" });
     }, [highlightedTargetId, messages]);
 
-    // DOM-walk text highlighter. ResizeObserver re-applies on content
-    // reflow (prepend, tool group expand) — marks are inline so they
-    // don't feedback-loop into the observer.
     useEffect(() => {
       const scrollEl = scrollRef.current;
       if (!scrollEl) return;
@@ -134,11 +105,8 @@ export const MessageList = forwardRef<HTMLDivElement, MessageListProps>(
     const prevLastIdRef = useRef<string | null>(null);
     const prevScrollHeightRef = useRef(0);
     const didInitialScrollRef = useRef(false);
-    // Log-viewer "follow" mode: auto-scroll to bottom on new content only
-    // when the user is already at (or very near) the bottom. The moment
-    // they scroll up to read history we stop yanking them down; when they
-    // come back within FOLLOW_THRESHOLD_PX of the bottom we re-engage.
-    // Starts true so initial streams follow by default.
+    // Log-viewer follow mode — auto-scroll only when the user is at the
+    // bottom; disengaged once they scroll up to read history.
     const followRef = useRef(true);
 
     useLayoutEffect(() => {
@@ -157,7 +125,7 @@ export const MessageList = forwardRef<HTMLDivElement, MessageListProps>(
       if (!didInitialScrollRef.current && messages.length > 0) {
         el.scrollTop = el.scrollHeight;
         didInitialScrollRef.current = true;
-        // Images may not be loaded yet — re-scroll after they finish.
+        // Re-scroll after lazy images settle so we land at the true bottom.
         const images = el.querySelectorAll("img");
         if (images.length > 0) {
           let pending = 0;
@@ -173,9 +141,7 @@ export const MessageList = forwardRef<HTMLDivElement, MessageListProps>(
         return;
       }
       if (prevFirst !== null && firstId !== prevFirst && lastId === prevLast) {
-        // Prepend — keep the viewport anchor pinned regardless of follow
-        // mode (we're not trying to show new content, just not moving the
-        // user's viewport when older history loads above).
+        // Prepend — pin viewport regardless of follow mode.
         el.scrollTop += el.scrollHeight - prevScrollHeight;
         return;
       }
@@ -184,9 +150,6 @@ export const MessageList = forwardRef<HTMLDivElement, MessageListProps>(
       }
     }, [messages]);
 
-    // Streaming block updates auto-scroll only while the user is
-    // following the bottom. If they've scrolled up to read earlier
-    // messages, let them — a new chunk shouldn't yank the viewport.
     useEffect(() => {
       if (blocks.length === 0) return;
       if (!followRef.current) return;
@@ -195,8 +158,6 @@ export const MessageList = forwardRef<HTMLDivElement, MessageListProps>(
       el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
     }, [blocks]);
 
-    // Refs for the live values used inside the scroll listener (which is
-    // attached once and shouldn't re-subscribe on every render).
     const loadEarlierRef = useRef(onLoadEarlier);
     const hasMoreRef = useRef(hasMore);
     const loadingEarlierRef = useRef(loadingEarlier);
@@ -206,9 +167,6 @@ export const MessageList = forwardRef<HTMLDivElement, MessageListProps>(
       loadingEarlierRef.current = loadingEarlier;
     });
 
-    // Scroll listener: (1) pre-fetch older history near the top, and
-    // (2) update follow mode based on distance from the bottom. Same
-    // handler so we only pay one event cost on rapid scroll.
     useEffect(() => {
       const el = scrollRef.current;
       if (!el) return;
@@ -223,10 +181,8 @@ export const MessageList = forwardRef<HTMLDivElement, MessageListProps>(
       return () => el.removeEventListener("scroll", onScroll);
     }, []);
 
-    // Chain effect: after a successful prepend, if the new scrollTop is
-    // STILL within the preload zone, immediately request the next page.
-    // This lets several small pages stream in back-to-back without the
-    // user ever seeing the "Loading earlier messages…" affordance flash.
+    // Chain prepends so successive small pages stream in without the
+    // "Loading earlier" affordance flashing between each one.
     useEffect(() => {
       if (!hasMore || loadingEarlier) return;
       const el = scrollRef.current;
@@ -246,14 +202,11 @@ export const MessageList = forwardRef<HTMLDivElement, MessageListProps>(
         <div
           ref={scrollRef}
           className="absolute inset-0 overflow-y-auto"
-          // Disable browser scroll anchoring so the layout effect's manual
-          // scrollTop adjust isn't double-corrected on prepend.
+          // Disable browser scroll anchoring so the prepend layout effect
+          // isn't double-corrected.
           style={{ overflowAnchor: "none" }}
         >
           <div className={cn("mx-auto px-6 py-6", widthClass)}>
-            {/* Manual pagination affordance. Auto pre-fetch usually
-                covers it, but the button stays as an explicit fallback
-                and a visible signal that more history exists. */}
             {hasMore && (
               <div className="mb-4 flex justify-center">
                 <button
@@ -282,11 +235,6 @@ export const MessageList = forwardRef<HTMLDivElement, MessageListProps>(
                 const dividerLabel = prev
                   ? computeTimeDividerLabel(prev.created_at, msg.created_at)
                   : null;
-                // A user turn following a terminal (error / cancelled)
-                // agent turn means the caller started a fresh SDK context
-                // — mainly workflow resume, but chat retries after an
-                // error land here too. The preserved history above is
-                // visible but not part of the new turn's conversation.
                 const prevTerminated =
                   !!prev?.metadata?.error || !!prev?.metadata?.cancelled;
                 const showRestart =
@@ -295,8 +243,6 @@ export const MessageList = forwardRef<HTMLDivElement, MessageListProps>(
                   prev.sender_type === "agent" &&
                   prevTerminated &&
                   msg.sender_type === "user";
-                // Show avatar only on the first message of a same-sender run.
-                // A time / restart divider also resets the run because it's a visual break.
                 const showAvatar =
                   !prev || prev.sender_type !== msg.sender_type || dividerLabel !== null || showRestart;
 
@@ -306,7 +252,13 @@ export const MessageList = forwardRef<HTMLDivElement, MessageListProps>(
                     {dividerLabel && <TimeDivider label={dividerLabel} />}
                     <div
                       data-rail-id={msg.id}
-                      data-rail-kind={msg.sender_type === "user" ? "user" : msg.metadata?.error ? "tool-error" : "agent"}
+                      data-rail-kind={
+                        msg.sender_type === "user"
+                          ? "user"
+                          : msg.metadata?.error
+                            ? "tool-error"
+                            : "agent"
+                      }
                       data-rail-preview={
                         msg.content.split("\n")[0].slice(0, 100) || "(no text)"
                       }

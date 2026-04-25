@@ -30,7 +30,7 @@ export function ToolsSection({ data, setField, toolInfoMap, setToolInfoMap }: To
 
   return (
     <FormSection title="Tools & Integrations" description="Connect external tools via MCP servers">
-      <Card variant="standard" className="p-5 space-y-4">
+      <Card className="p-4 space-y-3">
         {data.mcp_tool_ids.length > 0 ? (
           <div className="flex flex-wrap gap-2">
             {data.mcp_tool_ids.map((id) => (
@@ -44,10 +44,10 @@ export function ToolsSection({ data, setField, toolInfoMap, setToolInfoMap }: To
             ))}
           </div>
         ) : (
-          <p className="type-caption text-fg-muted">No tools connected yet.</p>
+          <p className="t-small fg-muted">No tools connected yet.</p>
         )}
 
-        <Button type="button" variant="secondary" size="sm" onClick={() => setPickerOpen(true)}>
+        <Button type="button" variant="outline" size="sm" onClick={() => setPickerOpen(true)}>
           Browse Tools
         </Button>
       </Card>

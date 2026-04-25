@@ -136,10 +136,10 @@ function PlanToneBadge({ op }: { op: PlanOp }) {
   const info = describePlanOp(op);
   const toneClasses =
     info.tone === "add"
-      ? "bg-[rgba(95,201,146,0.12)] text-[rgb(95,201,146)]"
+      ? "bg-status-live-soft text-status-live"
       : info.tone === "remove"
-        ? "bg-[rgba(255,99,99,0.12)] text-[rgb(255,99,99)]"
-        : "bg-[rgba(85,179,255,0.12)] text-[rgb(85,179,255)]";
+        ? "bg-status-error-soft text-status-error"
+        : "bg-accent-soft text-accent";
 
   const Icon =
     info.tone === "add" ? Plus : info.tone === "remove" ? Trash2 : Pencil;
@@ -176,18 +176,18 @@ function PlanPreview({
   onReject: () => void;
 }) {
   return (
-    <div className="mt-2 rounded-md border border-white/[0.08] bg-[rgba(255,255,255,0.02)] p-2.5">
+    <div className="mt-2 rounded-md border border-border-default bg-hover p-2.5">
       <div className="mb-2 flex items-center justify-between">
-        <span className="text-[10px] font-semibold uppercase tracking-wider text-fg-disabled">
+        <span className="text-[10px] font-semibold uppercase tracking-wider text-fg-muted">
           Proposed changes ({plan.length})
         </span>
         {status === "accepted" && (
-          <span className="flex items-center gap-1 text-[10px] text-[rgb(95,201,146)]">
+          <span className="flex items-center gap-1 text-[10px] text-status-live">
             <Check size={10} strokeWidth={2.25} /> Applied
           </span>
         )}
         {status === "rejected" && (
-          <span className="text-[10px] text-fg-disabled">Rejected</span>
+          <span className="text-[10px] text-fg-muted">Rejected</span>
         )}
       </div>
 
@@ -198,7 +198,7 @@ function PlanPreview({
       </div>
 
       {error && (
-        <div className="mt-2 flex items-start gap-1.5 rounded-sm bg-[rgba(255,99,99,0.08)] px-2 py-1.5 text-[11px] text-[rgb(255,99,99)]">
+        <div className="mt-2 flex items-start gap-1.5 rounded-sm bg-status-error-soft px-2 py-1.5 text-[11px] text-status-error">
           <AlertCircle size={11} strokeWidth={2} className="mt-[1px] shrink-0" />
           <span className="break-words">{error}</span>
         </div>
@@ -209,14 +209,14 @@ function PlanPreview({
           <button
             type="button"
             onClick={onAccept}
-            className="flex-1 rounded-md bg-info px-2.5 py-1.5 text-[11px] font-medium text-canvas hover:opacity-85 transition-opacity"
+            className="flex-1 rounded-md bg-accent px-2.5 py-1.5 text-[11px] font-medium text-canvas hover:opacity-85 transition-opacity"
           >
             Accept
           </button>
           <button
             type="button"
             onClick={onReject}
-            className="flex-1 rounded-md border border-white/[0.08] bg-transparent px-2.5 py-1.5 text-[11px] font-medium text-fg-muted hover:bg-white/[0.04] transition-colors"
+            className="flex-1 rounded-md border border-border-default bg-transparent px-2.5 py-1.5 text-[11px] font-medium text-fg-muted hover:bg-hover transition-colors"
           >
             Reject
           </button>
@@ -262,7 +262,7 @@ function MessageRow({
   return (
     <div className={cn("flex gap-2", isUser ? "justify-end" : "justify-start")}>
       {!isUser && (
-        <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-info/15 text-info">
+        <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-accent-soft text-accent">
           <Sparkles size={12} strokeWidth={2} />
         </div>
       )}
@@ -270,8 +270,8 @@ function MessageRow({
         className={cn(
           "min-w-0 max-w-[85%] rounded-lg px-3 py-2 text-[12.5px] leading-relaxed",
           isUser
-            ? "bg-info/15 text-fg-primary"
-            : "bg-[rgba(255,255,255,0.03)] text-fg-primary",
+            ? "bg-accent-soft text-fg-primary"
+            : "bg-hover text-fg-primary",
         )}
       >
         {isUser && message.content && (
@@ -283,14 +283,14 @@ function MessageRow({
         )}
 
         {!isUser && !hasBlocks && message.streaming && (
-          <div className="flex items-center gap-1.5 text-[11.5px] text-fg-disabled">
+          <div className="flex items-center gap-1.5 text-[11.5px] text-fg-muted">
             <Loader2 size={11} strokeWidth={2} className="animate-spin" />
             <span>Thinking…</span>
           </div>
         )}
 
         {message.error && !message.plan && (
-          <p className="mt-1 flex items-center gap-1.5 text-[11.5px] text-[rgb(255,99,99)]">
+          <p className="mt-1 flex items-center gap-1.5 text-[11.5px] text-status-error">
             <AlertCircle size={11} strokeWidth={2} /> {message.error}
           </p>
         )}
@@ -339,7 +339,7 @@ function TopResizeHandle({ onResize }: { onResize: (delta: number) => void }) {
   return (
     <div
       onMouseDown={onMouseDown}
-      className="absolute left-0 right-0 top-0 z-10 h-1 cursor-row-resize hover:bg-info/30 active:bg-info/50 transition-colors"
+      className="absolute left-0 right-0 top-0 z-10 h-1 cursor-row-resize hover:bg-accent-soft active:bg-accent-soft transition-colors"
     />
   );
 }
@@ -526,19 +526,19 @@ export function AssistantPanel() {
 
   return (
     <div
-      className="relative flex shrink-0 flex-col border-t border-white/[0.06] bg-[rgb(10_11_13)]"
+      className="relative flex shrink-0 flex-col border-t border-border-subtle bg-sunk"
       style={{ height: effectiveHeight }}
     >
       {!collapsed && <TopResizeHandle onResize={handleResize} />}
 
       {/* Header */}
-      <div className="flex h-9 shrink-0 items-center justify-between border-b border-white/[0.06] px-3">
+      <div className="flex h-9 shrink-0 items-center justify-between border-b border-border-subtle px-3">
         <button
           type="button"
           onClick={() => setCollapsed((c) => !c)}
           className="flex items-center gap-1.5 text-fg-muted hover:text-fg-primary transition-colors"
         >
-          <Sparkles size={13} strokeWidth={2} className="text-info" />
+          <Sparkles size={13} strokeWidth={2} className="text-accent" />
           <span className="text-[11.5px] font-medium">AI Assistant</span>
           {collapsed ? (
             <ChevronUp size={12} strokeWidth={2} />
@@ -551,7 +551,7 @@ export function AssistantPanel() {
           <button
             type="button"
             onClick={handleClear}
-            className="flex items-center gap-1 text-[10.5px] text-fg-disabled hover:text-fg-muted transition-colors"
+            className="flex items-center gap-1 text-[10.5px] text-fg-muted hover:text-fg-muted transition-colors"
             title="Clear conversation"
           >
             <X size={11} strokeWidth={2} />
@@ -569,7 +569,7 @@ export function AssistantPanel() {
           >
             {messages.length === 0 && (
               <div className="flex h-full flex-col items-center justify-center px-6 text-center">
-                <Sparkles size={18} strokeWidth={1.75} className="mb-2 text-info/60" />
+                <Sparkles size={18} strokeWidth={1.75} className="mb-2 text-accent" />
                 <p className="text-[12px] text-fg-muted leading-relaxed max-w-[340px]">
                   Ask anything about your workflow, or describe a change you'd like
                   to make. I'll propose the edits for you to review.
@@ -588,14 +588,14 @@ export function AssistantPanel() {
           </div>
 
           {/* Input */}
-          <div className="shrink-0 border-t border-white/[0.06] px-3 py-2">
+          <div className="shrink-0 border-t border-border-subtle px-3 py-2">
             {!modelReady && (
-              <p className="mb-1.5 flex items-center gap-1 text-[10.5px] text-[rgb(255,99,99)]">
+              <p className="mb-1.5 flex items-center gap-1 text-[10.5px] text-status-error">
                 <AlertCircle size={11} strokeWidth={2} />
                 Workflow has no default model — configure it in Settings first.
               </p>
             )}
-            <div className="flex items-end gap-1.5 rounded-md bg-[rgba(255,255,255,0.03)] p-1.5 focus-within:bg-[rgba(255,255,255,0.05)] transition-colors">
+            <div className="flex items-end gap-1.5 rounded-md bg-hover p-1.5 focus-within:bg-active transition-colors">
               <textarea
                 ref={textareaRef}
                 value={input}
@@ -608,13 +608,13 @@ export function AssistantPanel() {
                     : "Set a default model in Settings to enable the assistant"
                 }
                 rows={1}
-                className="min-h-[28px] max-h-[120px] flex-1 resize-none bg-transparent px-2 py-1.5 text-[12.5px] text-fg-primary placeholder:text-fg-disabled focus:outline-none disabled:opacity-50"
+                className="min-h-[28px] max-h-[120px] flex-1 resize-none bg-transparent px-2 py-1.5 text-[12.5px] text-fg-primary placeholder:text-fg-muted focus:outline-none disabled:opacity-50"
               />
               <button
                 type="button"
                 onClick={send}
                 disabled={busy || !input.trim() || !modelReady}
-                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-info text-canvas hover:opacity-85 transition-opacity disabled:opacity-30 disabled:cursor-not-allowed"
+                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-accent text-canvas hover:opacity-85 transition-opacity disabled:opacity-30 disabled:cursor-not-allowed"
                 aria-label="Send"
               >
                 {busy ? (

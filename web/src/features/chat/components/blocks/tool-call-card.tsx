@@ -49,8 +49,6 @@ export const ToolCallCard = memo(function ToolCallCard({ block }: ToolCallCardPr
     : null;
   const hasChildren = block.children && block.children.length > 0;
 
-  // Jump rail metadata. Status drives the rail tick color:
-  //   error → danger, running → info, done → success.
   const railKind = isError ? "tool-error" : isRunning ? "tool-running" : "tool-success";
   const railPreview = `${a2aSlug ? `@${a2aSlug}` : block.name}${summary ? `: ${summary}` : ""}`.slice(0, 100);
 
@@ -70,7 +68,7 @@ export const ToolCallCard = memo(function ToolCallCard({ block }: ToolCallCardPr
               // — enough tone shift to differentiate from the warmer
               // text-bubble surface, but not enough fill to overwhelm
               // the short tool-call content.
-              "border-white/[0.06] bg-info/[0.025] hover:bg-info/[0.05]",
+              "border-border-subtle bg-info/[0.025] hover:bg-info/[0.05]",
         isActiveMatch &&
           "ring-2 ring-info/60 ring-offset-2 ring-offset-canvas",
       )}
@@ -128,7 +126,7 @@ export const ToolCallCard = memo(function ToolCallCard({ block }: ToolCallCardPr
 
       {/* Nested sub-agent tools (always visible) */}
       {hasChildren && (
-        <div className="border-t border-white/[0.06] px-3 py-2 space-y-1">
+        <div className="border-t border-border-subtle px-3 py-2 space-y-1">
           {block.children!.map((child) => (
             <NestedBlock key={child.id} block={child} />
           ))}
@@ -138,7 +136,7 @@ export const ToolCallCard = memo(function ToolCallCard({ block }: ToolCallCardPr
       {effectivelyExpanded && (
         <div
           className={cn(
-            "border-t border-white/[0.06] px-3 py-2 type-caption",
+            "border-t border-border-subtle px-3 py-2 type-caption",
             hasChildren && "border-t-0 pt-0",
           )}
         >

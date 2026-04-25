@@ -19,7 +19,7 @@ export function WorkspaceToolbar({
   showExpandEditor, onExpandEditor,
 }: WorkspaceToolbarProps) {
   return (
-    <div className="flex shrink-0 items-center justify-between border-b border-white/[0.06] px-2 py-1.5">
+    <div className="flex shrink-0 items-center justify-between border-b border-border-subtle px-2 py-1.5">
       <span className="type-caption font-semibold text-fg-muted uppercase tracking-wider px-1">
         Workspace
       </span>

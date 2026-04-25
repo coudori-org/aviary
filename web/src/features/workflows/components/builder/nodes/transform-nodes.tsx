@@ -21,7 +21,7 @@ export const PayloadParserNode = memo(function PayloadParserNode({
       color={TRANSFORM_COLOR}
       selected={selected}
     >
-      <p className="text-[11px] text-fg-disabled">
+      <p className="text-[11px] text-fg-muted">
         {fieldCount > 0 ? `${fieldCount} field${fieldCount !== 1 ? "s" : ""}` : "No mappings"}
       </p>
     </BaseNode>
@@ -41,7 +41,7 @@ export const TemplateNode = memo(function TemplateNode({
       selected={selected}
     >
       {d.template && (
-        <p className="text-[11px] text-fg-disabled truncate font-mono">{d.template}</p>
+        <p className="text-[11px] text-fg-muted truncate font-mono">{d.template}</p>
       )}
     </BaseNode>
   );

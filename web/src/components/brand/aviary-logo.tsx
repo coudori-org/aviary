@@ -39,10 +39,7 @@ interface AviaryLogoMarkProps {
 
 /**
  * AviaryLogoMark — icon + "Aviary" wordmark lockup. `iconOnly` collapses
- * it to just the icon (used in the collapsed sidebar). The wordmark
- * uses `text-info` so it colour-matches the sky-blue bird mark. The
- * font size scales with `size` so the lockup stays balanced as the
- * icon grows or shrinks.
+ * it to just the icon (used in the collapsed sidebar).
  */
 export function AviaryLogoMark({ size = 28, className, iconOnly }: AviaryLogoMarkProps) {
   const fontSize = Math.round(size * 0.65);
@@ -51,7 +48,7 @@ export function AviaryLogoMark({ size = 28, className, iconOnly }: AviaryLogoMar
       <AviaryLogo size={size} />
       {!iconOnly && (
         <span
-          className="font-semibold tracking-tight text-aurora-sky"
+          className="font-semibold tracking-tight text-fg-primary"
           style={{ fontSize, lineHeight: 1 }}
         >
           Aviary

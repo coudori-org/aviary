@@ -38,7 +38,7 @@ const MARKDOWN_COMPONENTS: Components = {
     if (isInline) {
       return (
         <code
-          className="rounded-xs bg-canvas px-1.5 py-0.5 type-code-sm text-info"
+          className="rounded-xs bg-hover px-1.5 py-0.5 type-code-sm text-accent border border-border-subtle"
           {...props}
         >
           {children}
@@ -70,14 +70,14 @@ const MARKDOWN_COMPONENTS: Components = {
   ),
   th: ({ children, ...props }) => (
     <th
-      className="border border-white/[0.06] bg-raised px-3 py-1.5 text-left type-caption-bold"
+      className="border border-border-subtle bg-raised px-3 py-1.5 text-left type-caption-bold"
       {...props}
     >
       {children}
     </th>
   ),
   td: ({ children, ...props }) => (
-    <td className="border border-white/[0.06] px-3 py-1.5" {...props}>
+    <td className="border border-border-subtle px-3 py-1.5" {...props}>
       {children}
     </td>
   ),
@@ -99,7 +99,7 @@ const MARKDOWN_COMPONENTS: Components = {
       {children}
     </ol>
   ),
-  hr: () => <hr className="my-4 border-white/[0.06]" />,
+  hr: () => <hr className="my-4 border-border-subtle" />,
 };
 
 /**

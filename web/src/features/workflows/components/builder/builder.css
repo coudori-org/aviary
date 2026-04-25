@@ -1,27 +1,27 @@
-/* ── React Flow overrides — Aurora Glass ── */
+/* ── React Flow overrides — Aviary Slate ── */
 
-/* Canvas background keeps the deep navy so the aurora backdrop shows through.
- * Slightly darker than body to emphasise the canvas as a work surface. */
+/* Slightly sunk surface — separates the canvas from the surrounding
+ * panels and makes the dot grid read as "this is the work area". */
 .react-flow {
-  --xy-background-color: rgb(8 9 26);
-  background-color: transparent;
+  --xy-background-color: var(--bg-sunk);
+  background-color: var(--bg-sunk);
 }
 
 /* ── Edges ── */
 .react-flow__edge .react-flow__edge-path {
   cursor: pointer;
-  stroke: rgba(255, 255, 255, 0.14);
+  stroke: var(--border-default);
   stroke-width: 2;
 }
 
 .react-flow__edge:hover .react-flow__edge-path {
-  stroke: rgba(255, 255, 255, 0.28);
+  stroke: var(--border-strong);
 }
 
 .react-flow__edge.selected .react-flow__edge-path {
-  stroke: rgba(123, 92, 255, 0.85) !important;
+  stroke: var(--accent-blue) !important;
   stroke-width: 2.5 !important;
-  filter: drop-shadow(0 0 6px rgba(123, 92, 255, 0.5));
+  filter: drop-shadow(0 0 6px var(--accent-blue-soft));
 }
 
 .react-flow__edge.animated .react-flow__edge-path {
@@ -35,19 +35,19 @@
 
 /* ── Connection line (while dragging) ── */
 .react-flow__connection-path {
-  stroke: rgba(123, 92, 255, 0.6);
+  stroke: var(--accent-blue);
   stroke-width: 2;
   stroke-dasharray: 6 4;
-  filter: drop-shadow(0 0 4px rgba(123, 92, 255, 0.4));
+  filter: drop-shadow(0 0 4px var(--accent-blue-soft));
 }
 
-/* ── Handles — glass disc + aurora glow on hover ── */
+/* ── Handles — Slate disc + accent glow on hover ── */
 .react-flow__handle {
   width: 10px !important;
   height: 10px !important;
   border-radius: 50% !important;
-  border: 2px solid rgba(8, 9, 26, 0.9) !important;
-  background: rgba(255, 255, 255, 0.24) !important;
+  border: 2px solid var(--bg-canvas) !important;
+  background: var(--border-strong) !important;
   transition: background 0.2s, box-shadow 0.2s;
 }
 
@@ -59,34 +59,32 @@
 }
 
 .react-flow__handle:hover {
-  background: rgb(123, 92, 255) !important;
-  box-shadow: 0 0 14px rgba(123, 92, 255, 0.6);
+  background: var(--accent-blue) !important;
+  box-shadow: 0 0 14px var(--accent-blue-soft);
 }
 
-/* ── Controls panel — floating glass ── */
+/* ── Controls panel — raised Slate surface ── */
 .react-flow__controls {
-  background: rgba(255, 255, 255, 0.05) !important;
-  backdrop-filter: blur(24px) saturate(140%) !important;
-  -webkit-backdrop-filter: blur(24px) saturate(140%) !important;
-  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  background: var(--bg-raised) !important;
+  border: 1px solid var(--border-subtle) !important;
   border-radius: 14px !important;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45) !important;
+  box-shadow: var(--shadow-md) !important;
   overflow: hidden;
 }
 
 .react-flow__controls button {
   background: transparent !important;
   border: none !important;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06) !important;
-  fill: rgba(255, 255, 255, 0.5) !important;
+  border-bottom: 1px solid var(--border-subtle) !important;
+  fill: var(--fg-muted) !important;
   width: 32px !important;
   height: 32px !important;
   transition: background 0.15s, fill 0.15s;
 }
 
 .react-flow__controls button:hover {
-  background: rgba(255, 255, 255, 0.08) !important;
-  fill: rgba(255, 255, 255, 0.9) !important;
+  background: var(--bg-hover) !important;
+  fill: var(--fg-primary) !important;
 }
 
 .react-flow__controls button:last-child {
@@ -95,17 +93,15 @@
 
 /* ── MiniMap ── */
 .react-flow__minimap {
-  background: rgba(255, 255, 255, 0.05) !important;
-  backdrop-filter: blur(24px) saturate(140%) !important;
-  -webkit-backdrop-filter: blur(24px) saturate(140%) !important;
-  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  background: var(--bg-raised) !important;
+  border: 1px solid var(--border-subtle) !important;
   border-radius: 14px !important;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45) !important;
+  box-shadow: var(--shadow-md) !important;
 }
 
 /* ── Selection box ── */
 .react-flow__selection {
-  background: rgba(123, 92, 255, 0.08);
-  border: 1px solid rgba(123, 92, 255, 0.45);
+  background: var(--accent-blue-soft);
+  border: 1px solid var(--accent-blue-border);
   border-radius: 6px;
 }

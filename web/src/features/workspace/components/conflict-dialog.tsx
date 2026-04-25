@@ -37,13 +37,13 @@ export function ConflictDialog({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 animate-fade-in-fast"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-overlay animate-fade-in-fast"
       onClick={onCancel}
       role="dialog"
       aria-modal="true"
     >
       <div
-        className="w-[min(420px,90vw)] rounded-md border border-white/10 bg-popover p-4 shadow-xl"
+        className="w-[min(420px,90vw)] rounded-md border border-border bg-popover p-4 shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
         <h2 className="type-body font-semibold text-fg-primary">{title}</h2>
@@ -77,7 +77,7 @@ function DialogButton({
         "rounded-xs px-3 py-1.5 type-caption transition-colors",
         variant === "danger"
           ? "bg-danger/20 text-danger hover:bg-danger/30"
-          : "bg-white/[0.06] border border-white/[0.10] text-fg-primary hover:bg-white/[0.12]",
+          : "bg-hover border border-border text-fg-primary hover:bg-active",
       )}
     >
       {children}

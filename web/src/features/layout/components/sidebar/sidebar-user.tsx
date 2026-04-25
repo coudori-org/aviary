@@ -17,7 +17,7 @@ export function SidebarUser() {
 
   if (collapsed) {
     return (
-      <div className="shrink-0 border-t border-white/[0.06] p-3">
+      <div className="shrink-0 border-t border-border-subtle p-3">
         <button
           type="button"
           onClick={logout}
@@ -32,7 +32,7 @@ export function SidebarUser() {
   }
 
   return (
-    <div className="shrink-0 border-t border-white/[0.06] p-3">
+    <div className="shrink-0 border-t border-border-subtle p-3">
       <div className="flex items-center justify-between gap-2">
         <div className="min-w-0 flex-1">
           <p className="truncate type-caption text-fg-secondary">

@@ -83,7 +83,7 @@ export function AgentRecentSessions({ agentId }: AgentRecentSessionsProps) {
           ))}
         </div>
       ) : sessions.length === 0 ? (
-        <div className="rounded-md border border-dashed border-white/[0.06] px-4 py-6 text-center">
+        <div className="rounded-md border border-dashed border-border-subtle px-4 py-6 text-center">
           <MessageSquare size={18} strokeWidth={1.5} className="mx-auto text-fg-disabled" />
           <p className="mt-2 type-caption text-fg-muted">
             No conversations yet — use Start chat above to begin.
@@ -97,7 +97,7 @@ export function AgentRecentSessions({ agentId }: AgentRecentSessionsProps) {
                 href={routes.session(session.id)}
                 className={cn(
                   "group flex items-center gap-3 rounded-md bg-elevated shadow-2 px-4 py-3",
-                  "transition-all duration-200 hover:glow-warm",
+                  "transition-colors duration-200 hover:bg-hover",
                 )}
               >
                 <MessageSquare

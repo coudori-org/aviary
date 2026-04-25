@@ -1,14 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import * as React from "react";
 import { useParams, useRouter } from "next/navigation";
-import Link from "next/link";
-import { ArrowLeft } from "@/components/icons";
+import { LoadingState } from "@/components/feedback/loading-state";
+import { ErrorState } from "@/components/feedback/error-state";
+import { AgentCrumb } from "@/features/agents/components/detail/agent-crumb";
 import { AgentForm } from "@/features/agents/components/form/agent-form";
 import { agentsApi } from "@/features/agents/api/agents-api";
 import { useAuth } from "@/features/auth/providers/auth-provider";
-import { LoadingState } from "@/components/feedback/loading-state";
-import { ErrorState } from "@/components/feedback/error-state";
+import { usePageCrumb } from "@/features/layout/providers/page-header-provider";
 import { routes } from "@/lib/constants/routes";
 import type { Agent, McpToolInfo } from "@/types";
 import type { AgentFormData } from "@/features/agents/components/form/types";
@@ -17,13 +17,15 @@ export default function EditAgentPage() {
   const { user } = useAuth();
   const params = useParams<{ id: string }>();
   const router = useRouter();
-  const [agent, setAgent] = useState<Agent | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [existingToolIds, setExistingToolIds] = useState<string[]>([]);
-  const [existingToolInfo, setExistingToolInfo] = useState<Map<string, McpToolInfo>>(new Map());
+  const [agent, setAgent] = React.useState<Agent | null>(null);
+  const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState<string | null>(null);
+  const [existingToolIds, setExistingToolIds] = React.useState<string[]>([]);
+  const [existingToolInfo, setExistingToolInfo] = React.useState<Map<string, McpToolInfo>>(
+    new Map(),
+  );
 
-  useEffect(() => {
+  React.useEffect(() => {
     if (!user) return;
     Promise.all([agentsApi.get(params.id), agentsApi.getMcpTools(params.id)])
       .then(([a, bindings]) => {
@@ -37,22 +39,19 @@ export default function EditAgentPage() {
       .finally(() => setLoading(false));
   }, [user, params.id]);
 
+  const crumb = React.useMemo(
+    () => (agent ? <AgentCrumb agent={agent} trailing="Edit" /> : null),
+    [agent],
+  );
+  usePageCrumb(crumb);
+
   if (loading) {
     return <LoadingState fullHeight label="Loading…" />;
   }
 
   if (error || !agent) {
     return (
-      <div className="mx-auto max-w-container-sm p-8">
-        <ErrorState title="Couldn't load agent" description={error || "Agent not found"} />
-        <Link
-          href={routes.agents}
-          className="mt-4 inline-flex items-center gap-1.5 type-caption text-info hover:opacity-80"
-        >
-          <ArrowLeft size={12} strokeWidth={2} />
-          Back to agents
-        </Link>
-      </div>
+      <ErrorState title="Couldn't load agent" description={error ?? "Agent not found."} />
     );
   }
 
@@ -60,23 +59,18 @@ export default function EditAgentPage() {
     const { mcp_tool_ids, ...agentData } = data;
     await agentsApi.update(agent.id, agentData);
     await agentsApi.setMcpTools(agent.id, mcp_tool_ids);
-    router.push(routes.agent(agent.id));
+    router.push(routes.agentChat(agent.id));
   };
 
   return (
-    <div className="h-full overflow-y-auto bg-canvas">
-      <div className="mx-auto max-w-container-sm px-8 py-8">
-        <Link
-          href={routes.agent(agent.id)}
-          className="inline-flex items-center gap-1.5 type-caption text-fg-muted hover:text-fg-primary transition-colors"
-        >
-          <ArrowLeft size={12} strokeWidth={2} />
-          {agent.name}
-        </Link>
-        <h1 className="mt-4 type-heading text-fg-primary">Edit Agent</h1>
-        <p className="mt-1 mb-8 type-caption text-fg-muted">
-          Update {agent.name}&apos;s configuration
-        </p>
+    <div className="h-full overflow-y-auto px-8 py-6">
+      <div className="mx-auto max-w-[820px]">
+        <header className="mb-6">
+          <h1 className="t-h1 fg-primary">Edit agent</h1>
+          <p className="mt-1 t-small fg-tertiary">
+            Update {agent.name}&apos;s configuration.
+          </p>
+        </header>
         <AgentForm
           initialData={{
             name: agent.name,
@@ -89,7 +83,8 @@ export default function EditAgentPage() {
           }}
           initialToolInfo={existingToolInfo}
           onSubmit={handleSubmit}
-          submitLabel="Save Changes"
+          submitLabel="Save changes"
+          onCancel={() => router.push(routes.agentChat(agent.id))}
         />
       </div>
     </div>

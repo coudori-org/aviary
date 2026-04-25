@@ -46,7 +46,7 @@ function WorkflowGroupRow({ group, currentPath }: {
           "flex items-center gap-2 rounded-sm px-3 py-1.5 type-nav transition-colors",
           currentPath === builderHref
             ? "bg-raised text-fg-primary"
-            : "text-fg-muted hover:bg-white/[0.03] hover:text-fg-primary",
+            : "text-fg-muted hover:bg-hover hover:text-fg-primary",
         )}
       >
         <GitBranch size={14} strokeWidth={1.75} className="shrink-0 text-fg-disabled" />
@@ -64,7 +64,7 @@ function WorkflowGroupRow({ group, currentPath }: {
             <li key={r.id}>
               <Link
                 href={routes.workflowAtVersion(workflow.id, r.version_id ?? "draft", r.id)}
-                className="flex items-center gap-2 rounded-sm px-2 py-1 text-fg-muted hover:bg-white/[0.03] hover:text-fg-primary transition-colors"
+                className="flex items-center gap-2 rounded-sm px-2 py-1 text-fg-muted hover:bg-hover hover:text-fg-primary transition-colors"
               >
                 <span
                   className={cn(

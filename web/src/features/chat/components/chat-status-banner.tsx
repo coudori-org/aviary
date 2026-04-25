@@ -94,7 +94,7 @@ export function ChatStatusBanner({
 
   if (status === "disconnected") {
     return (
-      <div className="shrink-0 border-b border-white/[0.06] bg-raised/50 px-6 py-2.5">
+      <div className="shrink-0 border-b border-border-subtle bg-raised/50 px-6 py-2.5">
         <div className={cn("mx-auto flex items-center justify-center gap-2", widthClass)}>
           <span className="type-caption text-fg-muted">Connection lost.</span>
           <button

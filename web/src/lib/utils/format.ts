@@ -12,6 +12,23 @@ export function formatShortDate(input: string | Date): string {
   });
 }
 
+/**
+ * Compact relative time: "just now" / "5m ago" / "2h ago" / "Yesterday" /
+ * "3d ago" / "Jan 5". Falls back to short date past 7 days.
+ */
+export function formatRelativeTime(input: string | Date | null | undefined): string {
+  if (!input) return "";
+  const d = typeof input === "string" ? new Date(input) : input;
+  if (isNaN(d.getTime())) return "";
+  const diffSec = Math.floor((Date.now() - d.getTime()) / 1000);
+  if (diffSec < 30) return "just now";
+  if (diffSec < 3600) return `${Math.floor(diffSec / 60)}m ago`;
+  if (diffSec < 86400) return `${Math.floor(diffSec / 3600)}h ago`;
+  if (diffSec < 86400 * 2) return "Yesterday";
+  if (diffSec < 86400 * 7) return `${Math.floor(diffSec / 86400)}d ago`;
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
 /** Format a number with thousands separators. */
 export function formatCount(n: number): string {
   return n.toLocaleString();

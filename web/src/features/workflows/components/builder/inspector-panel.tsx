@@ -46,7 +46,7 @@ function NodeField({
 
   return (
     <div className="space-y-1.5">
-      <Label htmlFor={id} className="text-[11px] font-medium text-fg-disabled uppercase tracking-wider">
+      <Label htmlFor={id} className="text-[11px] font-medium text-fg-muted uppercase tracking-wider">
         {label}
       </Label>
       <Component
@@ -59,7 +59,7 @@ function NodeField({
         className="text-[13px]"
         {...(multiline ? { rows: 4 } : {})}
       />
-      {hint && <p className="text-[10px] text-fg-disabled">{hint}</p>}
+      {hint && <p className="text-[10px] text-fg-muted">{hint}</p>}
     </div>
   );
 }
@@ -92,7 +92,7 @@ function NodeNumberField({
 
   return (
     <div className="space-y-1.5">
-      <Label htmlFor={id} className="text-[11px] font-medium text-fg-disabled uppercase tracking-wider">
+      <Label htmlFor={id} className="text-[11px] font-medium text-fg-muted uppercase tracking-wider">
         {label}
       </Label>
       <Input
@@ -106,7 +106,7 @@ function NodeNumberField({
         onBlur={handleBlur}
         className="text-[13px]"
       />
-      {hint && <p className="text-[10px] text-fg-disabled">{hint}</p>}
+      {hint && <p className="text-[10px] text-fg-muted">{hint}</p>}
     </div>
   );
 }
@@ -131,7 +131,7 @@ function ToolsField({
 
   return (
     <div className="space-y-2">
-      <Label className="text-[11px] font-medium text-fg-disabled uppercase tracking-wider">
+      <Label className="text-[11px] font-medium text-fg-muted uppercase tracking-wider">
         Tools
       </Label>
 
@@ -148,13 +148,13 @@ function ToolsField({
           ))}
         </div>
       ) : (
-        <p className="text-[11px] text-fg-disabled">No tools connected.</p>
+        <p className="text-[11px] text-fg-muted">No tools connected.</p>
       )}
 
       <button
         type="button"
         onClick={() => setPickerOpen(true)}
-        className="inline-flex items-center gap-1 rounded-sm border border-white/[0.08] bg-transparent px-2 py-1 text-[11px] text-fg-muted hover:bg-white/[0.04] hover:text-fg-primary transition-colors"
+        className="inline-flex items-center gap-1 rounded-sm border border-border-default bg-transparent px-2 py-1 text-[11px] text-fg-muted hover:bg-hover hover:text-fg-primary transition-colors"
       >
         <Plus size={11} strokeWidth={2.25} />
         Add tools
@@ -209,7 +209,7 @@ function OutputFieldRow({
   };
 
   return (
-    <div className="space-y-1.5 rounded-md border border-white/[0.08] bg-white/[0.02] px-2 py-2">
+    <div className="space-y-1.5 rounded-md border border-border-default bg-hover px-2 py-2">
       <div className="flex items-center gap-1.5">
         <Input
           value={localName}
@@ -222,7 +222,7 @@ function OutputFieldRow({
         <select
           value={field.type}
           onChange={(e) => onChange({ type: e.target.value as "str" | "list" })}
-          className="h-7 rounded-md border border-white/[0.08] bg-canvas px-1.5 text-[12px] text-fg-primary focus:outline-none focus:border-info"
+          className="h-7 rounded-md border border-border-default bg-canvas px-1.5 text-[12px] text-fg-primary focus:outline-none focus:border-accent-border"
         >
           <option value="str">string</option>
           <option value="list">list</option>
@@ -230,7 +230,7 @@ function OutputFieldRow({
         <button
           type="button"
           onClick={onRemove}
-          className="flex h-7 w-7 items-center justify-center rounded-md text-fg-disabled hover:bg-danger/10 hover:text-danger transition-colors"
+          className="flex h-7 w-7 items-center justify-center rounded-md text-fg-muted hover:bg-status-error-soft hover:text-status-error transition-colors"
           title="Remove field"
         >
           <Trash2 size={11} strokeWidth={1.75} />
@@ -270,12 +270,12 @@ function TextFieldRow({
   };
 
   return (
-    <div className="space-y-1.5 rounded-md border border-white/[0.06] bg-white/[0.015] px-2 py-2">
+    <div className="space-y-1.5 rounded-md border border-border-subtle bg-hover px-2 py-2">
       <div className="flex items-center gap-2">
-        <Lock size={11} className="text-fg-disabled" strokeWidth={1.75} />
+        <Lock size={11} className="text-fg-muted" strokeWidth={1.75} />
         <span className="text-[12px] font-mono text-fg-muted">text</span>
-        <span className="text-[10px] text-fg-disabled">string</span>
-        <span className="ml-auto text-[10px] text-fg-disabled">always included</span>
+        <span className="text-[10px] text-fg-muted">string</span>
+        <span className="ml-auto text-[10px] text-fg-muted">always included</span>
       </div>
       <Textarea
         value={local}
@@ -321,7 +321,7 @@ function OutputFieldsEditor({
 
   return (
     <div className="space-y-2">
-      <Label className="text-[11px] font-medium text-fg-disabled uppercase tracking-wider">
+      <Label className="text-[11px] font-medium text-fg-muted uppercase tracking-wider">
         Output Fields
       </Label>
 
@@ -339,13 +339,13 @@ function OutputFieldsEditor({
       <button
         type="button"
         onClick={addExtra}
-        className="inline-flex items-center gap-1 rounded-sm border border-white/[0.08] bg-transparent px-2 py-1 text-[11px] text-fg-muted hover:bg-white/[0.04] hover:text-fg-primary transition-colors"
+        className="inline-flex items-center gap-1 rounded-sm border border-border-default bg-transparent px-2 py-1 text-[11px] text-fg-muted hover:bg-hover hover:text-fg-primary transition-colors"
       >
         <Plus size={11} strokeWidth={2.25} />
         Add field
       </button>
 
-      <p className="text-[10px] text-fg-disabled">
+      <p className="text-[10px] text-fg-muted">
         Extra fields are collected by the agent's final tool call. Downstream
         nodes can reference them as <span className="font-mono">{"{{ input.field_name }}"}</span>.
       </p>
@@ -387,7 +387,7 @@ function ArtifactRow({
   };
 
   return (
-    <div className="space-y-1.5 rounded-md border border-white/[0.08] bg-white/[0.02] px-2 py-2">
+    <div className="space-y-1.5 rounded-md border border-border-default bg-hover px-2 py-2">
       <div className="flex items-center gap-1.5">
         <Input
           value={localName}
@@ -400,7 +400,7 @@ function ArtifactRow({
         <button
           type="button"
           onClick={onRemove}
-          className="flex h-7 w-7 items-center justify-center rounded-md text-fg-disabled hover:bg-danger/10 hover:text-danger transition-colors"
+          className="flex h-7 w-7 items-center justify-center rounded-md text-fg-muted hover:bg-status-error-soft hover:text-status-error transition-colors"
           title="Remove artifact"
         >
           <Trash2 size={11} strokeWidth={1.75} />
@@ -433,7 +433,7 @@ function ArtifactsEditor({
 
   return (
     <div className="space-y-2">
-      <Label className="text-[11px] font-medium text-fg-disabled uppercase tracking-wider">
+      <Label className="text-[11px] font-medium text-fg-muted uppercase tracking-wider">
         Artifacts
       </Label>
 
@@ -449,13 +449,13 @@ function ArtifactsEditor({
       <button
         type="button"
         onClick={add}
-        className="inline-flex items-center gap-1 rounded-sm border border-white/[0.08] bg-transparent px-2 py-1 text-[11px] text-fg-muted hover:bg-white/[0.04] hover:text-fg-primary transition-colors"
+        className="inline-flex items-center gap-1 rounded-sm border border-border-default bg-transparent px-2 py-1 text-[11px] text-fg-muted hover:bg-hover hover:text-fg-primary transition-colors"
       >
         <Plus size={11} strokeWidth={2.25} />
         Add artifact
       </button>
 
-      <p className="text-[10px] text-fg-disabled">
+      <p className="text-[10px] text-fg-muted">
         Declare named file/directory outputs. The agent calls{" "}
         <span className="font-mono">save_as_artifact</span> to publish each one;
         downstream steps receive them as{" "}
@@ -476,7 +476,7 @@ export function InspectorPanel() {
   if (!node) {
     return (
       <div className="flex h-full items-center justify-center px-6">
-        <p className="text-center text-[12px] text-fg-disabled leading-relaxed">
+        <p className="text-center text-[12px] text-fg-muted leading-relaxed">
           Select a node to<br />view its properties
         </p>
       </div>
@@ -489,7 +489,7 @@ export function InspectorPanel() {
   return (
     <div className="h-full overflow-y-auto">
       {readOnly && (
-        <div className="flex items-center gap-1.5 border-b border-warning/15 bg-warning/[0.04] px-4 py-2 type-caption text-warning">
+        <div className="flex items-center gap-1.5 border-b border-status-warn bg-status-warn-soft px-4 py-2 type-caption text-status-warn">
           <Lock size={12} strokeWidth={2} />
           Deployed snapshot — click Edit in the toolbar to modify.
         </div>
@@ -582,7 +582,7 @@ export function InspectorPanel() {
 
         {/* Execution — hidden for trigger nodes since they don't run an activity */}
         {!TRIGGER_NODE_TYPES.has(node.type) && (
-          <div className="mt-2 space-y-3 border-t border-white/[0.06] pt-4">
+          <div className="mt-2 space-y-3 border-t border-border-subtle pt-4">
             <NodeNumberField
               id="node-retry-count"
               label="Retry count"
@@ -596,14 +596,14 @@ export function InspectorPanel() {
         )}
 
         {/* Meta */}
-        <div className="mt-2 space-y-1 border-t border-white/[0.06] pt-4">
+        <div className="mt-2 space-y-1 border-t border-border-subtle pt-4">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] text-fg-disabled">Type</span>
+            <span className="text-[11px] text-fg-muted">Type</span>
             <span className="text-[11px] text-fg-muted">{node.type}</span>
           </div>
           <div className="flex items-center justify-between">
-            <span className="text-[11px] text-fg-disabled">ID</span>
-            <span className="text-[10px] text-fg-disabled font-mono truncate max-w-[120px]">{node.id}</span>
+            <span className="text-[11px] text-fg-muted">ID</span>
+            <span className="text-[10px] text-fg-muted font-mono truncate max-w-[120px]">{node.id}</span>
           </div>
         </div>
       </fieldset>

@@ -65,6 +65,30 @@ export function useTitleEditor({ session, patchSession }: UseTitleEditorOptions)
     [session, patchSession, updateSessionTitle],
   );
 
+  /** Save a title coming from outside this hook's draft (e.g. an outer
+   *  layout that owns its own input state). Mirrors `save`'s API but
+   *  takes the next value as an argument. */
+  const saveTitle = useCallback(
+    async (next: string) => {
+      if (!session) return;
+      const trimmed = next.trim();
+      if (!trimmed || trimmed === session.title) return;
+
+      const previousTitle = session.title;
+      patchSession({ title: trimmed });
+      updateSessionTitle(session.id, trimmed);
+
+      try {
+        await http.patch(`/sessions/${session.id}/title`, { title: trimmed });
+      } catch (err) {
+        patchSession({ title: previousTitle });
+        updateSessionTitle(session.id, previousTitle || "");
+        throw err;
+      }
+    },
+    [session, patchSession, updateSessionTitle],
+  );
+
   return {
     isEditing,
     draft,
@@ -72,6 +96,7 @@ export function useTitleEditor({ session, patchSession }: UseTitleEditorOptions)
     inputRef,
     startEditing,
     save,
+    saveTitle,
     handleKeyDown,
     setAutoTitleFromMessage,
   };

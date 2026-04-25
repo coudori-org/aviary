@@ -589,8 +589,8 @@ export function WorkspacePanel({ sessionId, onClose, refreshSignal = 0 }: Worksp
 
       <div
         className={cn(
-          "flex h-full flex-col border-l border-white/[0.06]",
-          editorOpen ? "border-r border-white/[0.06]" : "flex-1",
+          "flex h-full flex-col border-l border-border-subtle",
+          editorOpen ? "border-r border-border-subtle" : "flex-1",
         )}
         style={editorOpen ? { width: TREE_WIDTH_WITH_EDITOR } : undefined}
       >
@@ -621,7 +621,7 @@ export function WorkspacePanel({ sessionId, onClose, refreshSignal = 0 }: Worksp
                 key={row.id}
                 className={cn(
                   "flex min-h-0 flex-1 min-w-0",
-                  rowIdx > 0 && "border-t border-white/[0.06]",
+                  rowIdx > 0 && "border-t border-border-subtle",
                 )}
               >
                 {row.panes.map((pane, paneIdx) => (
@@ -717,7 +717,7 @@ function PaneView({
     <div
       className={cn(
         "flex min-w-0 min-h-0 flex-1 flex-col",
-        !isFirstInRow && "border-l border-white/[0.06]",
+        !isFirstInRow && "border-l border-border-subtle",
         isActive && "ring-1 ring-inset ring-info/20",
       )}
       onClick={onFocus}
@@ -780,7 +780,7 @@ function ResizeHandle({ onMouseDown, active }: ResizeHandleProps) {
           "pointer-events-none absolute top-0 bottom-0 left-1/2 -translate-x-1/2 w-px transition-colors",
           active
             ? "bg-info/80 w-0.5"
-            : "bg-white/[0.08] group-hover:bg-info/60 group-hover:w-0.5",
+            : "bg-active group-hover:bg-info/60 group-hover:w-0.5",
         )}
       />
     </div>

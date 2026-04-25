@@ -1,15 +1,24 @@
-import { Inter } from "next/font/google";
+import localFont from "next/font/local";
 
 /**
- * Inter — primary sans-serif. Loaded via next/font for self-hosting + CLS prevention.
- *
- * GeistMono is referenced in CSS via --font-geist-mono but falls back to system mono
- * since it's not yet packaged here. Adding a local woff2 file would be the next
- * upgrade, but the system mono looks identical at the sizes we use.
+ * Self-hosted variable fonts. Source files in `./fonts/` are extracted from
+ * @fontsource-variable/inter and @fontsource-variable/jetbrains-mono (latin
+ * subset, weight axis only). No network access at build or runtime.
  */
-export const inter = Inter({
-  subsets: ["latin"],
+export const inter = localFont({
+  src: [
+    { path: "./fonts/inter-variable.woff2", weight: "100 900", style: "normal" },
+    { path: "./fonts/inter-variable-italic.woff2", weight: "100 900", style: "italic" },
+  ],
   variable: "--font-inter",
   display: "swap",
-  weight: ["400", "500", "600", "700"],
+});
+
+export const jetbrainsMono = localFont({
+  src: [
+    { path: "./fonts/jetbrains-mono-variable.woff2", weight: "100 800", style: "normal" },
+    { path: "./fonts/jetbrains-mono-variable-italic.woff2", weight: "100 800", style: "italic" },
+  ],
+  variable: "--font-mono",
+  display: "swap",
 });

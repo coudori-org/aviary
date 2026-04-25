@@ -1,10 +1,9 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import "highlight.js/styles/github-dark-dimmed.min.css";
-import { inter } from "./fonts";
+import { inter, jetbrainsMono } from "./fonts";
 import { AuthProvider } from "@/features/auth/providers/auth-provider";
 import { NavigationProgress } from "@/components/feedback/navigation-progress";
-import { AuroraBackdrop } from "@/components/brand/aurora-backdrop";
+import { ThemeProvider, THEME_INIT_SCRIPT } from "@/features/theme/theme-provider";
 
 export const metadata: Metadata = {
   title: "Aviary",
@@ -13,17 +12,17 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className="dark">
-      <body className={`${inter.variable} font-sans antialiased`}>
-        {/* Aurora backdrop sits behind every authenticated + public route.
-            Glass surfaces pick up the colour through backdrop-blur. */}
-        <AuroraBackdrop />
-        <div className="relative z-10">
+    <html lang="en" data-theme="dark" data-accent="blue" suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
+      </head>
+      <body className={`${inter.variable} ${jetbrainsMono.variable} font-sans antialiased`}>
+        <ThemeProvider>
           <AuthProvider>
             <NavigationProgress />
             {children}
           </AuthProvider>
-        </div>
+        </ThemeProvider>
       </body>
     </html>
   );

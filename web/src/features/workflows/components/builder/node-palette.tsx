@@ -58,7 +58,7 @@ export function NodePalette({ onAddNode }: NodePaletteProps) {
                   className={cn(
                     "flex items-center gap-2.5 rounded-md px-2.5 py-2 text-left",
                     "text-[13px] text-fg-muted",
-                    "hover:bg-white/[0.04] hover:text-fg-primary transition-colors",
+                    "hover:bg-hover hover:text-fg-primary transition-colors",
                     "cursor-grab active:cursor-grabbing",
                   )}
                 >

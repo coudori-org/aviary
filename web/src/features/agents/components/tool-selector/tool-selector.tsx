@@ -162,9 +162,9 @@ export function ToolSelector({ selectedToolIds, onChange, open, onClose }: ToolS
       : null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-fade-in-fast p-6">
-      <div className="flex h-full max-h-[80vh] w-full max-w-4xl flex-col rounded-xl bg-popover border border-white/10 shadow-5">
-        <div className="flex items-center justify-between border-b border-white/[0.06] px-6 py-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-overlay backdrop-blur-sm animate-fade-in-fast p-6">
+      <div className="flex h-full max-h-[80vh] w-full max-w-4xl flex-col rounded-xl bg-popover border border-border shadow-5">
+        <div className="flex items-center justify-between border-b border-border-subtle px-6 py-4">
           <h2 className="type-button text-fg-primary">Browse Tools</h2>
           <button
             type="button"
@@ -176,7 +176,7 @@ export function ToolSelector({ selectedToolIds, onChange, open, onClose }: ToolS
           </button>
         </div>
 
-        <div className="border-b border-white/[0.06] px-6 py-3">
+        <div className="border-b border-border-subtle px-6 py-3">
           <Input
             placeholder="Search tools by name or description…"
             value={searchQuery}
@@ -188,7 +188,7 @@ export function ToolSelector({ selectedToolIds, onChange, open, onClose }: ToolS
           {/* Left rail — category filters. Hidden while search is active
               so the grid can take the full width. */}
           {searchResults === null && (
-            <nav className="w-56 shrink-0 overflow-y-auto border-r border-white/[0.06] p-3 space-y-0.5">
+            <nav className="w-56 shrink-0 overflow-y-auto border-r border-border-subtle p-3 space-y-0.5">
               <RailItem
                 active={activeFilter === "all"}
                 onClick={() => setActiveFilter("all")}
@@ -275,7 +275,7 @@ export function ToolSelector({ selectedToolIds, onChange, open, onClose }: ToolS
           </div>
         </div>
 
-        <div className="flex items-center justify-between border-t border-white/[0.06] px-6 py-4">
+        <div className="flex items-center justify-between border-t border-border-subtle px-6 py-4">
           <span className="type-caption text-fg-muted">
             {selected.size} tool{selected.size === 1 ? "" : "s"} selected
           </span>
@@ -308,7 +308,7 @@ function RailItem({ active, onClick, icon, label, count, onBulkAdd }: RailItemPr
         "group flex items-center gap-2 rounded-sm px-2 py-1.5 type-caption transition-colors cursor-pointer",
         active
           ? "bg-info/10 text-fg-primary"
-          : "text-fg-muted hover:bg-white/[0.03] hover:text-fg-primary",
+          : "text-fg-muted hover:bg-hover hover:text-fg-primary",
       )}
       onClick={onClick}
     >

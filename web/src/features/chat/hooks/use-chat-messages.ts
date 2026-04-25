@@ -59,8 +59,8 @@ export function useChatMessages(
   // was accepted. Abort button needs this id to target the specific stream.
   const [streamId, setStreamId] = useState<string | null>(null);
 
-  // Drop streaming state on session change; ChatTranscript keys on sessionId
-  // so this is mostly defensive, but also covers the fringe race where the
+  // Drop streaming state on session change; ChatView keys on sessionId so
+  // this is mostly defensive, but also covers the fringe race where the
   // previous session's WS closed (live=false) before the terminal event
   // could reset the blocks.
   const resetBlocks = blockState.reset;

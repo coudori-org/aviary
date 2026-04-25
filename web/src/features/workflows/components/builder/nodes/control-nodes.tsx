@@ -24,7 +24,7 @@ export const ConditionNode = memo(function ConditionNode({
       outputLabels={["True", "False"]}
     >
       {d.expression && (
-        <p className="text-[11px] text-fg-disabled truncate font-mono">{d.expression}</p>
+        <p className="text-[11px] text-fg-muted truncate font-mono">{d.expression}</p>
       )}
     </BaseNode>
   );

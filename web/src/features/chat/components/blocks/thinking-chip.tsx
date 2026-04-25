@@ -61,7 +61,7 @@ export const ThinkingChip = memo(function ThinkingChip({
         onClick={() => setExpanded(!expanded)}
         className={cn(
           "inline-flex max-w-full items-center gap-1.5 rounded-xs px-1 py-0.5 type-caption text-left",
-          "text-fg-disabled hover:text-fg-muted hover:bg-white/[0.03]",
+          "text-fg-disabled hover:text-fg-muted hover:bg-hover",
           "transition-colors",
         )}
       >

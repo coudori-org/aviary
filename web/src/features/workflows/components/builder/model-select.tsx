@@ -40,7 +40,7 @@ export function ModelSelect({ backend, model, onChange }: ModelSelectProps) {
   return (
     <div className="space-y-3">
       <div className="space-y-1.5">
-        <Label htmlFor="node-backend" className="text-[11px] font-medium text-fg-disabled uppercase tracking-wider">
+        <Label htmlFor="node-backend" className="text-[11px] font-medium text-fg-muted uppercase tracking-wider">
           Backend
         </Label>
         <Select
@@ -62,7 +62,7 @@ export function ModelSelect({ backend, model, onChange }: ModelSelectProps) {
         </Select>
       </div>
       <div className="space-y-1.5">
-        <Label htmlFor="node-model" className="text-[11px] font-medium text-fg-disabled uppercase tracking-wider">
+        <Label htmlFor="node-model" className="text-[11px] font-medium text-fg-muted uppercase tracking-wider">
           Model
         </Label>
         <Select

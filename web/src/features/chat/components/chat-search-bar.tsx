@@ -53,7 +53,7 @@ export function ChatSearchBar({ search }: ChatSearchBarProps) {
   const showSpinner = search.searching || search.navigating;
 
   return (
-    <div className="shrink-0 border-b border-white/[0.06] bg-canvas/95 backdrop-blur px-6 py-2 animate-fade-in">
+    <div className="shrink-0 border-b border-border-subtle bg-canvas/95 backdrop-blur px-6 py-2 animate-fade-in">
       <div className={cn("mx-auto flex items-center gap-2", widthClass)}>
         <Search size={14} strokeWidth={1.75} className="shrink-0 text-fg-muted" />
         <input

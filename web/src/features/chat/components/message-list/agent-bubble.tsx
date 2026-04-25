@@ -51,15 +51,15 @@ export function AgentBubble({ message, showAvatar = true }: AgentBubbleProps) {
 
   const textBubbleClass = (targetId: string) =>
     cn(
-      "rounded-xl rounded-tl-sm glass-raised shadow-2 px-4 py-3 transition-shadow",
+      "rounded-xl rounded-tl-sm bg-raised border border-border-subtle shadow-sm px-4 py-3 transition-shadow",
       activeTargetId === targetId &&
-        "ring-2 ring-aurora-cyan/60 ring-offset-2 ring-offset-canvas",
+        "ring-2 ring-accent/60 ring-offset-2 ring-offset-canvas",
     );
 
   return (
     <div className="flex gap-3 group animate-fade-in">
       {showAvatar ? (
-        <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-aurora-b-soft border border-aurora-cyan/20 type-small text-aurora-cyan">
+        <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-accent-soft border border-accent/30 type-small text-accent">
           AI
         </div>
       ) : (
@@ -99,8 +99,8 @@ export function AgentBubble({ message, showAvatar = true }: AgentBubbleProps) {
             );
           })
         ) : isError ? (
-          <div className="rounded-xl rounded-tl-sm border border-danger/20 bg-danger/[0.06] px-4 py-3">
-            <p className="type-body text-danger">{message.content}</p>
+          <div className="rounded-xl rounded-tl-sm border border-status-error/30 bg-status-error-soft/40 px-4 py-3">
+            <p className="type-body text-status-error">{message.content}</p>
           </div>
         ) : (
           <div
@@ -114,7 +114,7 @@ export function AgentBubble({ message, showAvatar = true }: AgentBubbleProps) {
         )}
 
         {isCancelled && (
-          <div className="rounded-md border border-warning/20 bg-warning/[0.04] px-3 py-1.5 type-caption text-warning">
+          <div className="rounded-md border border-status-warn/30 bg-status-warn-soft/40 px-3 py-1.5 type-caption text-status-warn">
             Cancelled by user
           </div>
         )}

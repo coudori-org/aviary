@@ -37,7 +37,7 @@ export function EditorTabs({
 }: EditorTabsProps) {
   const items = tabs.map((t) => tabSortId(paneId, t.path));
   return (
-    <div className="flex w-full min-w-0 shrink-0 items-stretch border-b border-white/[0.06] bg-elevated">
+    <div className="flex w-full min-w-0 shrink-0 items-stretch border-b border-border-subtle bg-sunk">
       <div className="flex min-w-0 flex-1 items-stretch overflow-x-auto">
         <SortableContext items={items} strategy={horizontalListSortingStrategy}>
           {tabs.map((tab) => (
@@ -60,7 +60,7 @@ export function EditorTabs({
           onClick={onCollapseEditor}
           aria-label="Collapse editor"
           title="Collapse editor"
-          className="flex h-auto w-8 shrink-0 items-center justify-center border-l border-white/[0.06] text-fg-muted hover:bg-raised hover:text-fg-primary"
+          className="flex h-auto w-8 shrink-0 items-center justify-center border-l border-border-subtle text-fg-muted hover:bg-raised hover:text-fg-primary"
         >
           <PanelRightClose size={14} strokeWidth={2} />
         </button>
@@ -87,7 +87,7 @@ export function TabGhost({ tab }: { tab: EditorTab }) {
   return (
     <div
       className={cn(
-        "flex min-w-0 cursor-grabbing items-center gap-1.5 rounded-xs border border-white/10",
+        "flex min-w-0 cursor-grabbing items-center gap-1.5 rounded-xs border border-border",
         "bg-canvas px-3 py-1.5 type-caption text-fg-primary shadow-xl",
       )}
     >
@@ -141,7 +141,7 @@ function SortableTab({ paneId, tab, active, onActivate, onClose, onPin, onContex
       }}
       onDragStart={(e) => e.preventDefault()}
       className={cn(
-        "group flex min-w-0 cursor-pointer items-center gap-1.5 border-r border-white/[0.06] px-3 py-1.5 type-caption transition-colors",
+        "group flex min-w-0 cursor-pointer items-center gap-1.5 border-r border-border-subtle px-3 py-1.5 type-caption transition-colors",
         active
           ? "bg-canvas text-fg-primary"
           : "text-fg-muted hover:bg-raised hover:text-fg-primary",
@@ -171,7 +171,7 @@ function SortableTab({ paneId, tab, active, onActivate, onClose, onPin, onContex
           onClose(tab.path);
         }}
         aria-label={`Close ${basename(tab.path)}`}
-        className="flex h-4 w-4 shrink-0 items-center justify-center rounded-xs text-fg-muted hover:bg-white/10 hover:text-fg-primary"
+        className="flex h-4 w-4 shrink-0 items-center justify-center rounded-xs text-fg-muted hover:bg-active hover:text-fg-primary"
       >
         <X size={10} strokeWidth={2.5} />
       </button>

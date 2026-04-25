@@ -15,6 +15,7 @@ import "@xyflow/react/dist/style.css";
 import "./builder.css";
 
 import { useWorkflowBuilder } from "@/features/workflows/providers/workflow-builder-provider";
+import { useTheme } from "@/features/theme/theme-provider";
 import {
   useVersionSelection,
   DRAFT_SELECTION,
@@ -58,7 +59,7 @@ function TabButton({ active, onClick, children }: { active: boolean; onClick: ()
       onClick={onClick}
       className={cn(
         "flex-1 py-1.5 text-[11px] font-medium transition-colors",
-        active ? "text-fg-primary border-b-2 border-aurora-violet" : "text-fg-disabled hover:text-fg-muted",
+        active ? "text-fg-primary border-b-2 border-accent" : "text-fg-muted hover:text-fg-secondary",
       )}
     >
       {children}
@@ -76,20 +77,27 @@ function Canvas({ readOnly }: { readOnly: boolean }) {
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
   const { screenToFlowPosition } = useReactFlow();
   const nodeRunStatuses = useAllNodeRunStatuses();
+  const { theme } = useTheme();
+  const isDark = theme === "dark";
 
   const miniMapNodeColor = useCallback(
     (node: { id: string }) => {
       const status = nodeRunStatuses[node.id];
       switch (status) {
-        case "running": return "rgba(123,92,255,0.6)";
-        case "completed": return "rgba(92,255,204,0.55)";
-        case "failed": return "rgba(255,79,184,0.6)";
-        case "skipped": return "rgba(255,255,255,0.05)";
-        default: return "rgba(255,255,255,0.10)";
+        case "running": return "rgba(91,141,239,0.65)";
+        case "completed": return "rgba(74,222,128,0.6)";
+        case "failed": return "rgba(240,122,122,0.6)";
+        case "skipped":
+          return isDark ? "rgba(255,255,255,0.05)" : "rgba(20,22,28,0.06)";
+        default:
+          return isDark ? "rgba(255,255,255,0.10)" : "rgba(20,22,28,0.18)";
       }
     },
-    [nodeRunStatuses],
+    [nodeRunStatuses, isDark],
   );
+
+  const maskColor = isDark ? "rgba(0,0,0,0.7)" : "rgba(60,55,45,0.18)";
+  const backgroundColor = isDark ? "rgba(255,255,255,0.16)" : "rgba(20,22,28,0.20)";
 
   useEffect(() => {
     if (readOnly) return;
@@ -146,32 +154,39 @@ function Canvas({ readOnly }: { readOnly: boolean }) {
         edgesReconnectable={!readOnly}
         proOptions={{ hideAttribution: true }}
       >
-        <Background gap={24} size={1} color="rgba(255,255,255,0.04)" />
+        <Background gap={20} size={1.4} color={backgroundColor} />
         <Controls />
-        <MiniMap nodeColor={miniMapNodeColor} maskColor="rgba(0,0,0,0.7)" pannable zoomable />
+        <MiniMap nodeColor={miniMapNodeColor} maskColor={maskColor} pannable zoomable />
       </ReactFlow>
     </div>
   );
 }
 
+type LeftTab = "nodes" | "runs" | "settings";
+
 function LeftPanel({
-  readOnly, onAddNode,
+  readOnly, onAddNode, run, onOpenRun,
 }: {
   readOnly: boolean;
   onAddNode: (type: NodeType) => void;
+  run: ReturnType<typeof useWorkflowRun>;
+  onOpenRun: () => void;
 }) {
-  const [tab, setTab] = useState<"nodes" | "settings">(readOnly ? "settings" : "nodes");
+  const [tab, setTab] = useState<LeftTab>(readOnly ? "runs" : "nodes");
 
   return (
-    <div className="w-56 shrink-0 flex flex-col border-r border-white/[0.06] glass-deep">
-      <div className="flex border-b border-white/[0.06]">
+    <div className="w-[240px] shrink-0 flex flex-col border-r border-border-subtle bg-surface">
+      <div className="flex border-b border-border-subtle">
         {!readOnly && (
           <TabButton active={tab === "nodes"} onClick={() => setTab("nodes")}>Nodes</TabButton>
         )}
+        <TabButton active={tab === "runs"} onClick={() => setTab("runs")}>Runs</TabButton>
         <TabButton active={tab === "settings"} onClick={() => setTab("settings")}>Settings</TabButton>
       </div>
-      <div className="flex-1 overflow-y-auto">
-        {tab === "nodes" && !readOnly ? <NodePalette onAddNode={onAddNode} /> : <SettingsPanel />}
+      <div className="flex-1 overflow-hidden">
+        {tab === "nodes" && !readOnly && <NodePalette onAddNode={onAddNode} />}
+        {tab === "runs" && <RunHistoryPanel run={run} onOpenRun={onOpenRun} />}
+        {tab === "settings" && <SettingsPanel />}
       </div>
     </div>
   );
@@ -202,21 +217,23 @@ function PanelResizeHandle({ onResize }: { onResize: (delta: number) => void }) 
   return (
     <div
       onMouseDown={onMouseDown}
-      className="absolute left-0 top-0 h-full w-1 cursor-col-resize z-10 hover:bg-aurora-violet/40 active:bg-aurora-violet/60 transition-colors"
+      className="absolute left-0 top-0 h-full w-1 cursor-col-resize z-10 hover:bg-accent-soft active:bg-accent-border transition-colors"
     />
   );
 }
 
-const RIGHT_MIN = 320;
+const RIGHT_MIN = 300;
 const RIGHT_MAX = 960;
-const RIGHT_DEFAULT = 380;
+const RIGHT_DEFAULT = 340;
+
+type RightTab = "inspector" | "test";
 
 function RightPanel({
   run, tab, onTabChange,
 }: {
   run: ReturnType<typeof useWorkflowRun>;
-  tab: "inspector" | "test" | "history";
-  onTabChange: (tab: "inspector" | "test" | "history") => void;
+  tab: RightTab;
+  onTabChange: (tab: RightTab) => void;
 }) {
   const [width, setWidth] = useState(RIGHT_DEFAULT);
   const handleResize = useCallback((delta: number) => {
@@ -225,19 +242,17 @@ function RightPanel({
 
   return (
     <div
-      className="relative flex flex-col border-l border-white/[0.06] glass-deep"
+      className="relative flex flex-col border-l border-border-subtle bg-surface"
       style={{ width, minWidth: RIGHT_MIN, flexShrink: 0 }}
     >
       <PanelResizeHandle onResize={handleResize} />
-      <div className="flex shrink-0 border-b border-white/[0.06]">
+      <div className="flex shrink-0 border-b border-border-subtle">
         <TabButton active={tab === "inspector"} onClick={() => onTabChange("inspector")}>Inspector</TabButton>
         <TabButton active={tab === "test"} onClick={() => onTabChange("test")}>Test</TabButton>
-        <TabButton active={tab === "history"} onClick={() => onTabChange("history")}>History</TabButton>
       </div>
       <div className="flex-1 overflow-hidden">
         {tab === "inspector" && <InspectorPanel />}
         {tab === "test" && <TestPanel run={run} />}
-        {tab === "history" && <RunHistoryPanel run={run} onOpenRun={() => onTabChange("test")} />}
       </div>
     </div>
   );
@@ -258,7 +273,7 @@ export function WorkflowBuilder() {
   const [deleting, setDeleting] = useState(false);
   const readOnly = !isDraft;
 
-  const [rightTab, setRightTab] = useState<"inspector" | "test" | "history">(
+  const [rightTab, setRightTab] = useState<RightTab>(
     deepLinkRunId ? "test" : "inspector",
   );
   // Fire viewRun only on runId transitions so user-initiated tab
@@ -342,7 +357,12 @@ export function WorkflowBuilder() {
         />
         <div className="flex flex-1 flex-col overflow-hidden">
           <div className="flex flex-1 overflow-hidden">
-            <LeftPanel readOnly={readOnly} onAddNode={handlePaletteAdd} />
+            <LeftPanel
+              readOnly={readOnly}
+              onAddNode={handlePaletteAdd}
+              run={run}
+              onOpenRun={() => setRightTab("test")}
+            />
             <ReactFlowProvider>
               <div className="flex flex-1 overflow-hidden">
                 <Canvas readOnly={readOnly} />

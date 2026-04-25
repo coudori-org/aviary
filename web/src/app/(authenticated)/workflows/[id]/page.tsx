@@ -15,6 +15,8 @@ import {
   type SelectedVersion,
 } from "@/features/workflows/providers/version-selection-provider";
 import { WorkflowBuilder } from "@/features/workflows/components/builder/workflow-builder";
+import { WorkflowCrumb } from "@/features/workflows/components/detail/workflow-crumb";
+import { usePageCrumb } from "@/features/layout/providers/page-header-provider";
 import { routes } from "@/lib/constants/routes";
 import type { Workflow } from "@/types";
 
@@ -28,6 +30,12 @@ export default function WorkflowBuilderPage() {
   const [workflow, setWorkflow] = useState<Workflow | null>(null);
   const [versions, setVersions] = useState<WorkflowVersionData[]>([]);
   const [error, setError] = useState("");
+
+  const crumb = useMemo(
+    () => (workflow ? <WorkflowCrumb workflow={workflow} /> : null),
+    [workflow],
+  );
+  usePageCrumb(crumb);
 
   const loadAll = useCallback(async () => {
     try {

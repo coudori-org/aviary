@@ -19,19 +19,19 @@ function EmptyState({ icon, title, description, action, className }: EmptyStateP
   return (
     <div
       className={cn(
-        "flex flex-col items-center justify-center gap-3 rounded-xl",
-        "border border-dashed border-white/[0.06] py-20 px-8 text-center",
+        "flex flex-col items-center justify-center gap-3 rounded-[10px]",
+        "border border-dashed border-border-subtle py-16 px-8 text-center",
         className,
       )}
     >
       {icon && (
-        <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-raised text-fg-muted">
+        <div className="flex h-10 w-10 items-center justify-center rounded-[8px] bg-hover text-fg-tertiary">
           {icon}
         </div>
       )}
       <div className="flex flex-col items-center gap-1">
-        <p className="type-body text-fg-primary">{title}</p>
-        {description && <p className="type-caption text-fg-muted max-w-sm">{description}</p>}
+        <p className="t-body text-fg-primary">{title}</p>
+        {description && <p className="text-[12.5px] text-fg-muted max-w-sm">{description}</p>}
       </div>
       {action && <div className="mt-2">{action}</div>}
     </div>

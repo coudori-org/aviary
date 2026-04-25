@@ -63,7 +63,7 @@ export function WorkspaceContextMenu({ x, y, items, onClose }: WorkspaceContextM
     <div
       ref={ref}
       role="menu"
-      className="fixed z-50 min-w-[180px] rounded-md border border-white/10 bg-popover py-1 shadow-xl"
+      className="fixed z-50 min-w-[180px] rounded-md border border-border bg-popover py-1 shadow-xl"
       style={{ left: pos.left, top: pos.top }}
     >
       {items.map((item) => (
@@ -79,7 +79,7 @@ export function WorkspaceContextMenu({ x, y, items, onClose }: WorkspaceContextM
             "flex w-full items-center gap-2 px-3 py-1.5 text-left type-caption transition-colors",
             item.danger
               ? "text-danger hover:bg-danger/15"
-              : "text-fg-primary hover:bg-white/[0.08]",
+              : "text-fg-primary hover:bg-active",
           )}
         >
           <MenuIcon kind={item.icon} />

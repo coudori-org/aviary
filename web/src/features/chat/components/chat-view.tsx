@@ -1,12 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useChatMessages } from "@/features/chat/hooks/use-chat-messages";
 import { useConnectionStatus } from "@/features/chat/hooks/use-connection-status";
 import { useTitleEditor } from "@/features/chat/hooks/use-title-editor";
 import { useChatExport } from "@/features/chat/hooks/use-chat-export";
-import { ChatWidthProvider, useChatWidth } from "@/features/chat/hooks/use-chat-width";
+import { useChatWidth } from "@/features/chat/hooks/use-chat-width";
 import { useChatSearch } from "@/features/chat/hooks/use-chat-search";
 import { ChatSearchContextProvider } from "@/features/chat/hooks/chat-search-context";
 import { useAgentCapabilities } from "@/features/chat/hooks/use-agent-capabilities";
@@ -20,6 +20,8 @@ import { TodoPanel } from "./todos/todo-panel";
 import { LoadingState } from "@/components/feedback/loading-state";
 import { routes } from "@/lib/constants/routes";
 import { WorkspacePanel } from "@/features/workspace/components/workspace-panel";
+import { useNotificationsPush } from "@/features/notifications/notifications-provider";
+import { usePublishChatActions } from "@/features/chat/hooks/chat-actions-context";
 
 // Tools that modify the session's workspace — trigger an auto-refresh of the
 // file-tree panel after they complete. Debounced so a bash burst coalesces.
@@ -46,15 +48,50 @@ const WORKSPACE_PANEL_KEY = "aviary:workspace-panel-open";
  * ChatWidthProvider so the header, banner, message list, and input all
  * stay aligned without prop-drilling.
  */
-export function ChatView({ sessionId }: { sessionId: string }) {
+export interface ChatViewProps {
+  sessionId: string;
+  /** Hide the in-pane chat header — outer layout owns identity/actions. */
+  hideHeader?: boolean;
+  /** Skip the embedded workspace panel — outer layout owns the rail. */
+  hideWorkspace?: boolean;
+  /** Hide the input composer — read-only embed (e.g. workflow run view). */
+  hideInput?: boolean;
+  /** Open the WS subscription for live events. Default true. Set false for
+   *  terminal-state transcripts to skip retries on closed sessions. */
+  live?: boolean;
+}
+
+export function ChatView({
+  sessionId,
+  hideHeader,
+  hideWorkspace,
+  hideInput,
+  live,
+}: ChatViewProps) {
+  // ChatWidthProvider lives at AppShell level so outer layouts (e.g.
+  // AgentSubHeader) and ChatView share one width state.
   return (
-    <ChatWidthProvider>
-      <ChatViewInner sessionId={sessionId} />
-    </ChatWidthProvider>
+    <ChatViewInner
+      // Keying on sessionId forces a clean remount when the caller switches
+      // which session we're showing — critical for embedded use (workflow
+      // inspector swaps node session ids on the same component position).
+      key={sessionId}
+      sessionId={sessionId}
+      hideHeader={hideHeader}
+      hideWorkspace={hideWorkspace}
+      hideInput={hideInput}
+      live={live}
+    />
   );
 }
 
-function ChatViewInner({ sessionId }: { sessionId: string }) {
+function ChatViewInner({
+  sessionId,
+  hideHeader,
+  hideWorkspace,
+  hideInput,
+  live,
+}: ChatViewProps) {
   const { widthClass } = useChatWidth();
 
   // Workspace panel state — persisted across sessions, default closed.
@@ -97,7 +134,10 @@ function ChatViewInner({ sessionId }: { sessionId: string }) {
     };
   }, []);
 
-  const chat = useChatMessages(sessionId, { onToolCompleted: handleToolCompleted });
+  const chat = useChatMessages(sessionId, {
+    onToolCompleted: handleToolCompleted,
+    live,
+  });
   const visibleStatus = useConnectionStatus(chat.status);
   const { visionEnabled } = useAgentCapabilities(chat.session?.agent_id ?? undefined);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -120,6 +160,35 @@ function ChatViewInner({ sessionId }: { sessionId: string }) {
     loadEarlier: chat.loadEarlier,
   });
 
+  const pushNotification = useNotificationsPush();
+  const wasStreamingRef = useRef(false);
+  const docVisibleRef = useRef(
+    typeof document === "undefined" ? true : !document.hidden,
+  );
+  useEffect(() => {
+    const onVis = () => {
+      docVisibleRef.current = !document.hidden;
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, []);
+  useEffect(() => {
+    const wasStreaming = wasStreamingRef.current;
+    wasStreamingRef.current = chat.isStreaming;
+    if (!wasStreaming || chat.isStreaming) return;
+    if (docVisibleRef.current) return;
+    if (!chat.session) return;
+    pushNotification({
+      kind: "chat_reply",
+      title: chat.session.title || "Agent reply",
+      description: "Your agent finished responding.",
+      href: chat.session.agent_id
+        ? routes.agentChat(chat.session.agent_id, sessionId)
+        : routes.session(sessionId),
+      tone_id: chat.session.agent_id ?? sessionId,
+    });
+  }, [chat.isStreaming, chat.session, sessionId, pushNotification]);
+
   // Cmd+F / Ctrl+F intercepts the browser's native find (which can't
   // see paginated history anyway) and opens our search bar instead.
   useEffect(() => {
@@ -132,6 +201,31 @@ function ChatViewInner({ sessionId }: { sessionId: string }) {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [search]);
+
+  // Publish actions to outer layouts (e.g. AgentSubHeader) so the inline
+  // title edit / print / export buttons keep working when ChatView runs
+  // with hideHeader. Provider-less hosts (workflow test panel) get a no-op.
+  const publishedActions = useMemo(
+    () =>
+      hideHeader
+        ? {
+            sessionTitle: chat.session?.title ?? null,
+            saveTitle: titleEditor.saveTitle,
+            hasMessages: chat.messages.length > 0,
+            onPrintVisual: exportFns.printVisual,
+            onExportText: exportFns.exportText,
+          }
+        : null,
+    [
+      hideHeader,
+      chat.session?.title,
+      chat.messages.length,
+      titleEditor.saveTitle,
+      exportFns.printVisual,
+      exportFns.exportText,
+    ],
+  );
+  usePublishChatActions(publishedActions);
 
   const handleSend = useCallback(
     (content: string, attachments?: FileRef[]) => {
@@ -150,9 +244,11 @@ function ChatViewInner({ sessionId }: { sessionId: string }) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-4">
         <p className="type-body text-fg-muted">Session not found</p>
-        <Link href={routes.agents} className="type-caption text-info hover:opacity-80">
-          Back to agents
-        </Link>
+        {!hideInput && (
+          <Link href={routes.agents} className="type-caption text-accent hover:opacity-80">
+            Back to agents
+          </Link>
+        )}
       </div>
     );
   }
@@ -181,16 +277,18 @@ function ChatViewInner({ sessionId }: { sessionId: string }) {
     >
       <div className="flex h-full bg-canvas">
         <div className="flex h-full flex-1 flex-col min-w-0">
-          <ChatHeader
-            session={chat.session}
-            status={displayStatus}
-            hasMessages={chat.messages.length > 0}
-            onPrintVisual={exportFns.printVisual}
-            onExportText={exportFns.exportText}
-            titleEditor={titleEditor}
-            workspaceOpen={workspaceOpen}
-            onToggleWorkspace={toggleWorkspace}
-          />
+          {!hideHeader && (
+            <ChatHeader
+              session={chat.session}
+              status={displayStatus}
+              hasMessages={chat.messages.length > 0}
+              onPrintVisual={exportFns.printVisual}
+              onExportText={exportFns.exportText}
+              titleEditor={titleEditor}
+              workspaceOpen={workspaceOpen}
+              onToggleWorkspace={toggleWorkspace}
+            />
+          )}
 
           <ChatStatusBanner
             status={displayStatus}
@@ -215,28 +313,30 @@ function ChatViewInner({ sessionId }: { sessionId: string }) {
             searchQuery={activeSearchQuery}
           />
 
-          <div className="shrink-0 border-t border-white/[0.06] px-6 py-4">
-            <div className={`mx-auto ${widthClass} space-y-2`}>
-              {chat.todos.length > 0 && <TodoPanel todos={chat.todos} />}
-              <ChatInput
-                onSend={handleSend}
-                onCancel={chat.cancel}
-                disabled={isInputDisabled}
-                isStreaming={chat.isStreaming}
-                canCancel={chat.canCancel}
-                placeholder={
-                  !isReady ? "Waiting for agent…" : chat.isStreaming ? "Agent is responding…" : undefined
-                }
-                agentId={chat.session.agent_id ?? undefined}
-                visionEnabled={visionEnabled}
-                restoreDraft={chat.restoreDraft}
-                onDraftRestored={chat.clearRestoreDraft}
-              />
+          {!hideInput && (
+            <div className="shrink-0 border-t border-border-subtle px-6 py-4">
+              <div className={`mx-auto ${widthClass} space-y-2`}>
+                {chat.todos.length > 0 && <TodoPanel todos={chat.todos} />}
+                <ChatInput
+                  onSend={handleSend}
+                  onCancel={chat.cancel}
+                  disabled={isInputDisabled}
+                  isStreaming={chat.isStreaming}
+                  canCancel={chat.canCancel}
+                  placeholder={
+                    !isReady ? "Waiting for agent…" : chat.isStreaming ? "Agent is responding…" : undefined
+                  }
+                  agentId={chat.session.agent_id ?? undefined}
+                  visionEnabled={visionEnabled}
+                  restoreDraft={chat.restoreDraft}
+                  onDraftRestored={chat.clearRestoreDraft}
+                />
+              </div>
             </div>
-          </div>
+          )}
         </div>
 
-        {canShowWorkspace && (
+        {!hideWorkspace && canShowWorkspace && (
           <WorkspacePanel
             sessionId={sessionId}
             onClose={toggleWorkspace}

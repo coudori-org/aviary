@@ -116,7 +116,7 @@ export function SidebarAgentGroup({ agent, sessions }: SidebarAgentGroupProps) {
       </Link>
 
       {!isCollapsed && (
-        <div className="ml-5 space-y-0.5 border-l border-white/[0.06] pl-3">
+        <div className="ml-5 space-y-0.5 border-l border-border-subtle pl-3">
           {/* Per-agent SortableContext lives inside the parent DndContext
               (in SidebarSessions). Drag events bubble up to that context's
               handler, which routes them via the `agentId` data tag. */}

@@ -17,12 +17,12 @@ function ErrorState({
   return (
     <div
       className={cn(
-        "flex flex-col items-center justify-center gap-3 rounded-xl",
-        "border border-danger/20 bg-danger/[0.04] py-12 px-8 text-center",
+        "flex flex-col items-center justify-center gap-3 rounded-[10px]",
+        "border border-status-error/30 bg-status-error-soft py-12 px-8 text-center",
         className,
       )}
     >
-      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-danger/15 text-danger">
+      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-status-error/20 text-status-error">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
           <circle cx="12" cy="12" r="10" />
           <line x1="12" y1="8" x2="12" y2="12" />
@@ -30,14 +30,14 @@ function ErrorState({
         </svg>
       </div>
       <div className="flex flex-col items-center gap-1">
-        <p className="type-body text-fg-primary">{title}</p>
-        {description && <p className="type-caption text-fg-muted max-w-md">{description}</p>}
+        <p className="t-body text-fg-primary">{title}</p>
+        {description && <p className="text-[12.5px] text-fg-muted max-w-md">{description}</p>}
       </div>
       {onRetry && (
         <button
           type="button"
           onClick={onRetry}
-          className="mt-1 type-caption text-info hover:opacity-80 transition-opacity"
+          className="mt-1 text-[12.5px] text-accent hover:opacity-80 transition-opacity"
         >
           Try again
         </button>

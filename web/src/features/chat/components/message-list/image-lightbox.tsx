@@ -20,12 +20,12 @@ export function ImageLightbox({ src, alt, onClose }: ImageLightboxProps) {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 animate-fade-in-fast"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-overlay animate-fade-in-fast"
       onClick={onClose}
     >
       <button
         onClick={onClose}
-        className="absolute top-4 right-4 flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20 transition-colors"
+        className="absolute top-4 right-4 flex h-9 w-9 items-center justify-center rounded-full bg-active text-white hover:bg-active transition-colors"
         aria-label="Close"
       >
         <X size={18} />

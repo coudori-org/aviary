@@ -40,7 +40,7 @@ export const WebhookTriggerNode = memo(function WebhookTriggerNode({
       inputs={0}
       outputs={1}
     >
-      <p className="text-[11px] text-fg-disabled font-mono truncate">{d.path}</p>
+      <p className="text-[11px] text-fg-muted font-mono truncate">{d.path}</p>
     </BaseNode>
   );
 });
