@@ -1,210 +1,296 @@
+/* =========================================================
+ * Aviary Slate — globals.css
+ * Tailwind layers + Slate design tokens + transitional Aurora aliases.
+ * Aurora-era utilities (.glass-pane, .aurora-blob-*, .type-*, etc.) are
+ * preserved so unmigrated screens keep rendering. They are stripped
+ * stage-by-stage until none remain.
+ * ========================================================= */
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/**
- * Aurora Glass design system.
- *
- * Deep cinematic navy canvas, translucent frosted surfaces layered over a
- * site-wide aurora backdrop. Every elevated surface uses backdrop-filter
- * blur + saturate to pick up the coloured bleeds behind it.
- *
- * Sections:
- *   1. Tokens (primitive → semantic)
- *   2. Base (html, body, scrollbar, focus, selection)
- *   3. Component styles (markdown)
- *   4. Utility layer (type scale, glass, aurora, motion)
- */
+/* =========================================================
+ * 1. SLATE DESIGN TOKENS
+ * ========================================================= */
 
-/* ============================================================
- * 1. DESIGN TOKENS
- * Primitives stored as space-separated RGB so they compose with
- * rgb(var(--token) / <alpha>) in Tailwind utilities.
- * ============================================================ */
 @layer base {
-  :root {
-    /* --- Primitive surfaces (deep navy, NOT neutral black) --- */
-    --color-canvas-deep: 8 9 26;          /* #08091A */
-    --color-canvas-rise: 14 16 38;        /* #0E1026 — slight lift, for sunk inputs */
-    --color-surface-glass-1: 255 255 255; /* used at 4% alpha for frosted pane */
-    --color-surface-glass-2: 255 255 255; /* used at 7% alpha for elevated frosted pane */
-    --color-surface-glass-3: 255 255 255; /* used at 10% alpha for hover / active */
-    --color-surface-popover: 22 24 44;    /* #16182C — opaque fill for floating popovers */
-    --color-button-fg: 14 10 36;
+  :root[data-theme="dark"] {
+    --bg-canvas: #0F1115;
+    --bg-surface: #14161C;
+    --bg-raised: #191C23;
+    --bg-sunk: #0B0D11;
+    --bg-hover: rgba(255, 255, 255, 0.04);
+    --bg-active: rgba(255, 255, 255, 0.07);
+    --bg-overlay: rgba(8, 10, 14, 0.72);
 
-    /* --- Primitive text --- */
-    --color-fg-hi: 245 246 250;   /* #F5F6FA */
-    --color-fg-mid: 197 200 214;  /* #C5C8D6 */
-    --color-fg-lo: 130 137 161;   /* #8289A1 */
-    --color-fg-dim: 95 101 126;
+    --border-subtle: rgba(255, 255, 255, 0.06);
+    --border-default: rgba(255, 255, 255, 0.09);
+    --border-strong: rgba(255, 255, 255, 0.15);
 
-    /* --- Aurora brand primaries (solid fallbacks) --- */
-    --color-aurora-violet: 123 92 255;  /* #7B5CFF */
-    --color-aurora-pink: 255 79 184;    /* #FF4FB8 */
-    --color-aurora-amber: 255 179 71;   /* #FFB347 */
-    --color-aurora-cyan: 79 201 255;    /* #4FC9FF */
-    --color-aurora-mint: 92 255 204;    /* #5CFFCC */
-    --color-aurora-coral: 255 122 89;   /* #FF7A59 */
-    --color-aurora-gold: 255 216 102;   /* #FFD866 */
+    --fg-primary: #ECEDF0;
+    --fg-secondary: #B4B7C0;
+    --fg-tertiary: #878A94;
+    --fg-muted: #5E616C;
+    --fg-inverse: #0F1115;
 
-    /* --- Semantic surfaces --- */
-    --bg-canvas: var(--color-canvas-deep);
-    --bg-sunk: var(--color-canvas-rise);
-    --bg-elevated: var(--color-surface-glass-1);
-    --bg-raised: var(--color-surface-glass-2);
-    --bg-hover: var(--color-surface-glass-3);
-    --bg-popover: var(--color-surface-popover);
+    --accent-blue: #5B8DEF;
+    --accent-blue-strong: #7BA5F5;
+    --accent-blue-soft: rgba(91, 141, 239, 0.14);
+    --accent-blue-border: rgba(91, 141, 239, 0.35);
 
-    /* --- Semantic text --- */
-    --fg-primary: var(--color-fg-hi);
-    --fg-secondary: var(--color-fg-mid);
-    --fg-tertiary: var(--color-fg-mid);
-    --fg-muted: var(--color-fg-lo);
-    --fg-disabled: var(--color-fg-dim);
-    --fg-on-light: var(--color-button-fg);
+    --status-live: #4ADE80;
+    --status-live-soft: rgba(74, 222, 128, 0.15);
+    --status-warn: #F5B454;
+    --status-warn-soft: rgba(245, 180, 84, 0.14);
+    --status-error: #F07A7A;
+    --status-error-soft: rgba(240, 122, 122, 0.14);
+    --status-info: #5B8DEF;
+    --status-info-soft: rgba(91, 141, 239, 0.14);
 
-    /* --- Semantic intent
-     * brand/accent: aurora violet (picks up the full gradient on CTAs)
-     * info:         aurora cyan
-     * success:      aurora mint
-     * warning:      aurora gold
-     * danger:       aurora pink (warmer, less alarming in a jewel palette)
-     */
-    --brand-accent: var(--color-aurora-violet);
-    --intent-info: var(--color-aurora-cyan);
-    --intent-success: var(--color-aurora-mint);
-    --intent-warning: var(--color-aurora-gold);
-    --intent-danger: var(--color-aurora-pink);
+    --badge-private-bg: rgba(180, 183, 192, 0.10);
+    --badge-private-fg: #B4B7C0;
+    --badge-published-bg: rgba(91, 141, 239, 0.15);
+    --badge-published-fg: #95B4F5;
+    --badge-imported-bg: rgba(74, 222, 128, 0.13);
+    --badge-imported-fg: #7DDC9E;
 
-    --border-base: 255 255 255;
-    --border-strong: 255 255 255;
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
+    --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.40), 0 0 0 1px rgba(255, 255, 255, 0.04);
+    --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.06);
+    --shadow-xl: 0 24px 56px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(255, 255, 255, 0.08);
 
-    --glow-violet: rgba(123, 92, 255, 0.35);
-    --glow-cyan: rgba(79, 201, 255, 0.28);
-    --glow-pink: rgba(255, 79, 184, 0.28);
-    --glow-amber: rgba(255, 179, 71, 0.22);
+    /* shadcn bridge */
+    --background: var(--bg-canvas);
+    --foreground: var(--fg-primary);
+    --card: var(--bg-raised);
+    --card-foreground: var(--fg-primary);
+    --popover: var(--bg-raised);
+    --popover-foreground: var(--fg-primary);
+    --primary: var(--accent-blue);
+    --primary-foreground: #FFFFFF;
+    --secondary: var(--bg-surface);
+    --secondary-foreground: var(--fg-primary);
+    --muted: var(--bg-sunk);
+    --muted-foreground: var(--fg-tertiary);
+    --accent: var(--bg-hover);
+    --accent-foreground: var(--fg-primary);
+    --destructive: var(--status-error);
+    --destructive-foreground: #FFFFFF;
+    --border: var(--border-default);
+    --input: var(--border-default);
+    --ring: var(--accent-blue);
+    --radius: 0.4375rem; /* 7px */
 
-    /* --- Aurora gradients --- */
-    --aurora-a: linear-gradient(135deg, #7B5CFF 0%, #FF4FB8 50%, #FFB347 100%);
-    --aurora-a-soft: linear-gradient(135deg, rgba(123,92,255,0.25) 0%, rgba(255,79,184,0.18) 50%, rgba(255,179,71,0.15) 100%);
-    --aurora-b: linear-gradient(135deg, #4FC9FF 0%, #5CFFCC 100%);
-    --aurora-b-soft: linear-gradient(135deg, rgba(79,201,255,0.22) 0%, rgba(92,255,204,0.18) 100%);
-    --aurora-c: linear-gradient(135deg, #FF7A59 0%, #FFD866 100%);
-    --aurora-c-soft: linear-gradient(135deg, rgba(255,122,89,0.22) 0%, rgba(255,216,102,0.18) 100%);
-    /* Cool blue variant used for user chat bubbles — no pink, no amber. */
-    --aurora-blue: linear-gradient(135deg, #4FC9FF 0%, #3B82F6 55%, #5B4FE5 100%);
-    --aurora-blue-soft: linear-gradient(135deg, rgba(79,201,255,0.24) 0%, rgba(59,130,246,0.22) 55%, rgba(91,79,229,0.20) 100%);
-    /* Sky blue wordmark — gentle tonal shift around the logo's sky blue.
-     * Intentionally low-contrast so the gradient reads as quality, not drama. */
-    --aurora-sky: linear-gradient(135deg, #9FC3DC 0%, #94BBD5 50%, #89B6D4 100%);
-    --aurora-sky-soft: linear-gradient(135deg, rgba(159,195,220,0.26) 0%, rgba(148,187,213,0.22) 50%, rgba(137,182,212,0.20) 100%);
-
-    /* --- Radius scale (softer) --- */
-    --radius-micro: 6px;
-    --radius-xs: 8px;
-    --radius-sm: 10px;
-    --radius-md: 14px;
-    --radius-lg: 20px;
-    --radius-xl: 28px;
-    --radius-2xl: 36px;
-    --radius-pill: 9999px;
-
-    /* --- Layered shadows — every elevated surface is a floating pane --- */
-    --shadow-0: none;
-    --shadow-1:
-      0 1px 2px rgba(0, 0, 0, 0.35),
-      inset 0 1px 0 rgba(255, 255, 255, 0.05);
-    --shadow-2:
-      0 4px 16px rgba(0, 0, 0, 0.35),
-      0 0 0 1px rgba(255, 255, 255, 0.06),
-      inset 0 1px 0 rgba(255, 255, 255, 0.06);
-    --shadow-3:
-      0 8px 32px rgba(0, 0, 0, 0.45),
-      0 0 0 1px rgba(255, 255, 255, 0.08),
-      inset 0 1px 0 rgba(255, 255, 255, 0.08);
-    --shadow-4:
-      0 20px 60px rgba(6, 4, 24, 0.6),
-      0 0 0 1px rgba(255, 255, 255, 0.08),
-      inset 0 1px 0 rgba(255, 255, 255, 0.1);
-    --shadow-5:
-      0 32px 80px rgba(6, 4, 24, 0.75),
-      0 0 0 1px rgba(255, 255, 255, 0.1),
-      inset 0 1px 0 rgba(255, 255, 255, 0.12),
-      0 0 60px rgba(123, 92, 255, 0.2);
-
-    --glass-blur: 24px;
-    --glass-saturate: 140%;
-  }
-}
-
-/* ============================================================
- * 2. BASE — html/body, scrollbars, focus, selection
- * ============================================================ */
-@layer base {
-  *,
-  *::before,
-  *::after {
-    border-color: rgba(255, 255, 255, 0.07);
+    /* ── legacy Aurora primitives (rgb tuples for rgb(var() / <alpha>)) ── */
+    --legacy-elevated: 255 255 255;
+    --legacy-aurora-violet: 123 92 255;
+    --legacy-aurora-pink: 255 79 184;
+    --legacy-aurora-amber: 255 179 71;
+    --legacy-aurora-cyan: 79 201 255;
+    --legacy-aurora-mint: 92 255 204;
+    --legacy-aurora-coral: 255 122 89;
+    --legacy-aurora-gold: 255 216 102;
+    --legacy-brand: 123 92 255;
+    --legacy-info: 79 201 255;
+    --legacy-success: 92 255 204;
+    --legacy-warning: 255 216 102;
+    --legacy-danger: 255 79 184;
+    --legacy-border-base: 255 255 255;
+    --legacy-border-strong: 255 255 255;
+    --legacy-glass-blur: 24px;
   }
 
-  html {
-    font-family: var(--font-inter), 'Inter Fallback', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
-    font-feature-settings: "calt", "kern", "liga", "ss01", "cv11";
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-    text-rendering: optimizeLegibility;
+  :root[data-theme="light"] {
+    --bg-canvas: #FAF9F7;
+    --bg-surface: #F4F2EE;
+    --bg-raised: #FFFFFF;
+    --bg-sunk: #EDEAE4;
+    --bg-hover: rgba(20, 22, 28, 0.04);
+    --bg-active: rgba(20, 22, 28, 0.07);
+    --bg-overlay: rgba(60, 55, 45, 0.20);
+
+    --border-subtle: rgba(60, 55, 45, 0.08);
+    --border-default: rgba(60, 55, 45, 0.12);
+    --border-strong: rgba(60, 55, 45, 0.22);
+
+    --fg-primary: #1B1D22;
+    --fg-secondary: #4E525C;
+    --fg-tertiary: #6F7380;
+    --fg-muted: #9A9EA8;
+    --fg-inverse: #FAF9F7;
+
+    --accent-blue: #3B6FD8;
+    --accent-blue-strong: #2E5BBF;
+    --accent-blue-soft: rgba(59, 111, 216, 0.10);
+    --accent-blue-border: rgba(59, 111, 216, 0.30);
+
+    --status-live: #2FA46A;
+    --status-live-soft: rgba(47, 164, 106, 0.12);
+    --status-warn: #C9801E;
+    --status-warn-soft: rgba(201, 128, 30, 0.12);
+    --status-error: #D25151;
+    --status-error-soft: rgba(210, 81, 81, 0.12);
+    --status-info: #3B6FD8;
+    --status-info-soft: rgba(59, 111, 216, 0.10);
+
+    --badge-private-bg: rgba(78, 82, 92, 0.10);
+    --badge-private-fg: #4E525C;
+    --badge-published-bg: rgba(59, 111, 216, 0.12);
+    --badge-published-fg: #2E5BBF;
+    --badge-imported-bg: rgba(47, 164, 106, 0.13);
+    --badge-imported-fg: #1F7A4E;
+
+    --shadow-sm: 0 1px 2px rgba(60, 55, 45, 0.06);
+    --shadow-md: 0 4px 12px rgba(60, 55, 45, 0.08), 0 0 0 1px rgba(60, 55, 45, 0.04);
+    --shadow-lg: 0 12px 32px rgba(60, 55, 45, 0.10), 0 0 0 1px rgba(60, 55, 45, 0.06);
+    --shadow-xl: 0 24px 56px rgba(60, 55, 45, 0.14), 0 0 0 1px rgba(60, 55, 45, 0.08);
+
+    --background: var(--bg-canvas);
+    --foreground: var(--fg-primary);
+    --card: var(--bg-raised);
+    --card-foreground: var(--fg-primary);
+    --popover: var(--bg-raised);
+    --popover-foreground: var(--fg-primary);
+    --primary: var(--accent-blue);
+    --primary-foreground: #FFFFFF;
+    --secondary: var(--bg-surface);
+    --secondary-foreground: var(--fg-primary);
+    --muted: var(--bg-sunk);
+    --muted-foreground: var(--fg-tertiary);
+    --accent: var(--bg-hover);
+    --accent-foreground: var(--fg-primary);
+    --destructive: var(--status-error);
+    --destructive-foreground: #FFFFFF;
+    --border: var(--border-default);
+    --input: var(--border-default);
+    --ring: var(--accent-blue);
+    --radius: 0.4375rem;
+
+    --legacy-elevated: 60 55 45;
+    --legacy-aurora-violet: 110 88 196;
+    --legacy-aurora-pink: 200 85 145;
+    --legacy-aurora-amber: 201 128 30;
+    --legacy-aurora-cyan: 40 140 145;
+    --legacy-aurora-mint: 47 164 106;
+    --legacy-aurora-coral: 188 72 72;
+    --legacy-aurora-gold: 138 91 19;
+    --legacy-brand: 110 88 196;
+    --legacy-info: 40 140 145;
+    --legacy-success: 47 164 106;
+    --legacy-warning: 138 91 19;
+    --legacy-danger: 188 72 72;
+    --legacy-border-base: 60 55 45;
+    --legacy-border-strong: 60 55 45;
+    --legacy-glass-blur: 24px;
+  }
+
+  :root[data-accent="green"] {
+    --accent-blue: #2FA46A;
+    --accent-blue-strong: #3FB57B;
+    --accent-blue-soft: rgba(47, 164, 106, 0.13);
+    --accent-blue-border: rgba(47, 164, 106, 0.35);
+  }
+
+  * { border-color: var(--border-default); }
+
+  html, body {
+    background: var(--bg-canvas);
+    color: var(--fg-primary);
   }
 
   body {
-    background: rgb(var(--bg-canvas));
-    color: rgb(var(--fg-primary));
-    min-height: 100vh;
-    font-size: 14px;
-    font-weight: 450;
-    line-height: 1.65;
-    letter-spacing: 0;
+    font-family: var(--font-inter), ui-sans-serif, system-ui, -apple-system, sans-serif;
+    font-size: 13.5px;
+    line-height: 1.5;
+    font-feature-settings: "cv11", "ss01", "cv02";
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
   }
 
-  code, pre, kbd, samp {
-    font-family: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, Monaco, 'Courier New', monospace;
-    font-feature-settings: normal;
+  code, pre, .mono {
+    font-family: var(--font-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12.5px;
   }
 
-  ::-webkit-scrollbar {
-    width: 10px;
-    height: 10px;
-  }
-  ::-webkit-scrollbar-track {
-    background: transparent;
-  }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.08);
+    background: var(--border-default);
     border-radius: 10px;
     border: 2px solid transparent;
     background-clip: padding-box;
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: rgba(255, 255, 255, 0.18);
+    background: var(--border-strong);
     background-clip: padding-box;
     border: 2px solid transparent;
   }
-
-  ::selection {
-    background: rgba(123, 92, 255, 0.38);
-    color: rgb(var(--fg-primary));
-  }
+  ::selection { background: var(--accent-blue-soft); }
 
   :focus { outline: none; }
   :focus-visible {
-    outline: 2px solid rgba(123, 92, 255, 0.6);
-    outline-offset: 2px;
+    outline: none;
+    box-shadow: 0 0 0 3px var(--accent-blue-soft);
     border-radius: 6px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0ms !important;
+      transition-duration: 0ms !important;
+    }
   }
 }
 
-/* ============================================================
- * 3. COMPONENT-LAYER STYLES (markdown body)
- * ============================================================ */
+/* =========================================================
+ * 2. SLATE TYPOGRAPHY UTILITIES
+ * ========================================================= */
+
+@layer components {
+  .t-hero  { font-size: 24px; font-weight: 600; letter-spacing: -0.015em; line-height: 1.2; }
+  .t-h1    { font-size: 20px; font-weight: 600; letter-spacing: -0.012em; line-height: 1.25; }
+  .t-h2    { font-size: 16px; font-weight: 600; letter-spacing: -0.008em; line-height: 1.3; }
+  .t-h3    { font-size: 14px; font-weight: 600; letter-spacing: -0.005em; line-height: 1.35; }
+  .t-body  { font-size: 13.5px; font-weight: 400; line-height: 1.55; }
+  .t-small { font-size: 12.5px; font-weight: 400; line-height: 1.45; }
+  .t-xs    { font-size: 11.5px; font-weight: 500; line-height: 1.4; }
+  .t-over  { font-size: 10.5px; font-weight: 600; line-height: 1.3; text-transform: uppercase; letter-spacing: 0.08em; color: var(--fg-muted); }
+  .t-kbd   { font-family: var(--font-mono), monospace; font-size: 11px; }
+  .t-mono  { font-family: var(--font-mono), monospace; font-size: 12.5px; }
+
+  .num { font-variant-numeric: tabular-nums; }
+
+  .fg-primary   { color: var(--fg-primary); }
+  .fg-secondary { color: var(--fg-secondary); }
+  .fg-tertiary  { color: var(--fg-tertiary); }
+  .fg-muted     { color: var(--fg-muted); }
+  .fg-accent    { color: var(--accent-blue); }
+
+  /* ── Tone avatar classes — permanent identity colors ── */
+  .tone-blue   { background: rgba(91, 141, 239, 0.18); color: #7BA5F5; }
+  .tone-green  { background: rgba(74, 222, 128, 0.18); color: #7DDC9E; }
+  .tone-amber  { background: rgba(245, 180, 84, 0.18); color: #E8AD5F; }
+  .tone-pink   { background: rgba(236, 122, 178, 0.18); color: #E89BC0; }
+  .tone-purple { background: rgba(148, 124, 232, 0.18); color: #AA96E8; }
+  .tone-teal   { background: rgba(79, 201, 204, 0.18); color: #7BCFD1; }
+  .tone-rose   { background: rgba(232, 112, 112, 0.18); color: #E89595; }
+  .tone-slate  { background: rgba(150, 155, 170, 0.16); color: var(--fg-secondary); }
+
+  :root[data-theme="light"] .tone-blue   { background: rgba(59, 111, 216, 0.13); color: #2E5BBF; }
+  :root[data-theme="light"] .tone-green  { background: rgba(47, 164, 106, 0.15); color: #1F7A4E; }
+  :root[data-theme="light"] .tone-amber  { background: rgba(201, 128, 30, 0.14); color: #8A5B13; }
+  :root[data-theme="light"] .tone-pink   { background: rgba(200, 85, 145, 0.12); color: #A1467A; }
+  :root[data-theme="light"] .tone-purple { background: rgba(110, 88, 196, 0.13); color: #5A448F; }
+  :root[data-theme="light"] .tone-teal   { background: rgba(40, 140, 145, 0.13); color: #206266; }
+  :root[data-theme="light"] .tone-rose   { background: rgba(188, 72, 72, 0.12); color: #8F3838; }
+  :root[data-theme="light"] .tone-slate  { background: rgba(90, 95, 105, 0.10); color: var(--fg-secondary); }
+}
+
+/* =========================================================
+ * 3. MARKDOWN BODY (kept; tuned to Slate)
+ * ========================================================= */
+
 @layer components {
   .markdown-body { color: inherit; }
   .markdown-body > *:first-child { margin-top: 0; }
@@ -217,446 +303,154 @@
   .markdown-body h4,
   .markdown-body h5,
   .markdown-body h6 {
-    color: rgb(var(--fg-primary));
+    color: var(--fg-primary);
     line-height: 1.3;
-    font-feature-settings: "ss01", "ss03", "cv11";
   }
-  .markdown-body h1 {
-    font-size: 22px;
-    font-weight: 500;
-    letter-spacing: -0.01em;
-    margin: 1.5rem 0 0.5rem;
-  }
-  .markdown-body h2 {
-    font-size: 18px;
-    font-weight: 500;
-    margin: 1.25rem 0 0.5rem;
-  }
-  .markdown-body h3 {
-    font-size: 16px;
-    font-weight: 500;
-    margin: 1rem 0 0.4rem;
-  }
-  .markdown-body h4 {
-    font-size: 14px;
-    font-weight: 600;
-    margin: 0.85rem 0 0.3rem;
-  }
-  .markdown-body h5 {
-    font-size: 13px;
-    font-weight: 600;
-    margin: 0.75rem 0 0.3rem;
-  }
+  .markdown-body h1 { font-size: 20px; font-weight: 600; letter-spacing: -0.012em; margin: 1.5rem 0 0.5rem; }
+  .markdown-body h2 { font-size: 16px; font-weight: 600; letter-spacing: -0.008em; margin: 1.25rem 0 0.5rem; }
+  .markdown-body h3 { font-size: 14px; font-weight: 600; margin: 1rem 0 0.4rem; }
+  .markdown-body h4 { font-size: 13.5px; font-weight: 600; margin: 0.85rem 0 0.3rem; }
+  .markdown-body h5 { font-size: 12.5px; font-weight: 600; margin: 0.75rem 0 0.3rem; }
   .markdown-body h6 {
-    font-size: 12px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: rgb(var(--fg-muted));
-    margin: 0.75rem 0 0.3rem;
+    font-size: 11.5px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.06em; color: var(--fg-muted); margin: 0.75rem 0 0.3rem;
   }
-  .markdown-body pre code.hljs {
-    background: transparent;
-    padding: 0;
-  }
+  .markdown-body pre code.hljs { background: transparent; padding: 0; }
 }
 
-/* ============================================================
- * 4. UTILITY LAYER — typography, shadows, glass, aurora, motion
- * ============================================================ */
+/* =========================================================
+ * 4. LEGACY AURORA UTILITIES (transitional — stripped per stage)
+ * ========================================================= */
+
 @layer utilities {
-  /* --- Typography — tracked-out, breathing room --- */
-  .type-display-hero {
-    font-size: 64px;
-    font-weight: 500;
-    line-height: 1.05;
-    letter-spacing: 0em;
-    font-feature-settings: "ss01", "ss03", "cv11", "liga" 0;
-  }
-  .type-display {
-    font-size: 48px;
-    font-weight: 400;
-    line-height: 1.1;
-    letter-spacing: -0.01em;
-    font-feature-settings: "ss01", "ss03", "cv11";
-  }
-  .type-h1 {
-    font-size: 30px;
-    font-weight: 500;
-    line-height: 1.2;
-    letter-spacing: -0.005em;
-    font-feature-settings: "ss01", "ss03", "cv11";
-  }
-  .type-heading {
-    font-size: 24px;
-    font-weight: 500;
-    line-height: 1.3;
-    letter-spacing: -0.003em;
-    font-feature-settings: "ss01", "ss03", "cv11";
-  }
-  .type-card-heading {
-    font-size: 20px;
-    font-weight: 500;
-    line-height: 1.25;
-    letter-spacing: 0;
-    font-feature-settings: "ss01", "ss03", "cv11";
-  }
-  .type-subheading {
-    font-size: 18px;
-    font-weight: 500;
-    line-height: 1.5;
-    letter-spacing: 0;
-  }
-  .type-body-lg {
-    font-size: 16px;
-    font-weight: 450;
-    line-height: 1.65;
-  }
-  .type-body {
-    font-size: 14px;
-    font-weight: 450;
-    line-height: 1.65;
-    letter-spacing: 0;
-  }
-  .type-body-tight {
-    font-size: 14px;
-    font-weight: 450;
-    line-height: 1.5;
-  }
-  .type-button {
-    font-size: 14px;
-    font-weight: 500;
-    line-height: 1.2;
-    letter-spacing: 0.01em;
-  }
-  .type-nav {
-    font-size: 14px;
-    font-weight: 450;
-    line-height: 1.4;
-    letter-spacing: 0;
-  }
-  .type-caption {
-    font-size: 12px;
-    font-weight: 500;
-    line-height: 1.4;
-    letter-spacing: 0.01em;
-  }
-  .type-caption-bold {
-    font-size: 12px;
-    font-weight: 600;
-    line-height: 1.4;
-    letter-spacing: 0.01em;
-  }
-  .type-small {
-    font-size: 11px;
-    font-weight: 600;
-    line-height: 1.3;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-  }
-  .type-code {
-    font-family: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 13px;
-    font-weight: 450;
-    line-height: 1.65;
-    letter-spacing: 0;
-  }
-  .type-code-sm {
-    font-family: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 11px;
-    font-weight: 400;
-    line-height: 1.6;
-    letter-spacing: 0;
-  }
+  /* Legacy type-* classes still used by unmigrated screens. */
+  .type-display-hero { font-size: 64px; font-weight: 500; line-height: 1.05; letter-spacing: 0; }
+  .type-display { font-size: 48px; font-weight: 400; line-height: 1.1; letter-spacing: -0.01em; }
+  .type-h1 { font-size: 30px; font-weight: 500; line-height: 1.2; letter-spacing: -0.005em; }
+  .type-heading { font-size: 24px; font-weight: 500; line-height: 1.3; }
+  .type-card-heading { font-size: 20px; font-weight: 500; line-height: 1.25; }
+  .type-subheading { font-size: 18px; font-weight: 500; line-height: 1.5; }
+  .type-body-lg { font-size: 16px; font-weight: 450; line-height: 1.65; }
+  .type-body { font-size: 14px; font-weight: 450; line-height: 1.65; }
+  .type-body-tight { font-size: 14px; font-weight: 450; line-height: 1.5; }
+  .type-button { font-size: 14px; font-weight: 500; line-height: 1.2; letter-spacing: 0.01em; }
+  .type-nav { font-size: 14px; font-weight: 450; line-height: 1.4; }
+  .type-caption { font-size: 12px; font-weight: 500; line-height: 1.4; letter-spacing: 0.01em; }
+  .type-caption-bold { font-size: 12px; font-weight: 600; line-height: 1.4; letter-spacing: 0.01em; }
+  .type-small { font-size: 11px; font-weight: 600; line-height: 1.3; letter-spacing: 0.08em; text-transform: uppercase; }
+  .type-code { font-family: var(--font-mono), ui-monospace, monospace; font-size: 13px; line-height: 1.65; }
+  .type-code-sm { font-family: var(--font-mono), ui-monospace, monospace; font-size: 11px; line-height: 1.6; }
 
-  /* --- Shadow level utilities --- */
-  .shadow-level-0 { box-shadow: var(--shadow-0); }
-  .shadow-level-1 { box-shadow: var(--shadow-1); }
-  .shadow-level-2 { box-shadow: var(--shadow-2); }
-  .shadow-level-3 { box-shadow: var(--shadow-3); }
-  .shadow-level-4 { box-shadow: var(--shadow-4); }
-  .shadow-level-5 { box-shadow: var(--shadow-5); }
+  /* Legacy shadow-level utilities (mapped to Slate shadows). */
+  .shadow-level-0 { box-shadow: none; }
+  .shadow-level-1 { box-shadow: var(--shadow-sm); }
+  .shadow-level-2 { box-shadow: var(--shadow-md); }
+  .shadow-level-3 { box-shadow: var(--shadow-lg); }
+  .shadow-level-4 { box-shadow: var(--shadow-xl); }
+  .shadow-level-5 { box-shadow: var(--shadow-xl); }
 
-  .glow-violet { box-shadow: 0 0 28px var(--glow-violet); }
-  .glow-cyan { box-shadow: 0 0 24px var(--glow-cyan); }
-  .glow-pink { box-shadow: 0 0 24px var(--glow-pink); }
-  .glow-amber { box-shadow: 0 0 22px var(--glow-amber); }
-  /* legacy alias used by a few components */
-  .glow-warm { box-shadow: 0 0 28px var(--glow-violet); }
-  .glow-info { box-shadow: 0 0 16px var(--glow-cyan); }
-  .glow-danger { box-shadow: 0 0 16px var(--glow-pink); }
-
-  /* --- Glass surfaces — the heart of Aurora Glass ---
-   * Safari TP + older Chromium lack backdrop-filter; @supports blocks
-   * swap a solid fallback so nothing turns invisible.
-   */
+  /* Legacy glass surfaces — kept so old panels don't go invisible. */
   .glass-pane {
-    background-color: rgba(255, 255, 255, 0.04);
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    background-color: var(--bg-surface);
+    border: 1px solid var(--border-subtle);
   }
   .glass-raised {
-    background-color: rgba(255, 255, 255, 0.07);
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    background-color: var(--bg-raised);
+    border: 1px solid var(--border-default);
   }
   .glass-deep {
-    background-color: rgba(10, 12, 30, 0.55);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-  }
-  @supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
-    .glass-pane,
-    .glass-raised,
-    .glass-deep {
-      backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
-      -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
-    }
+    background-color: var(--bg-raised);
+    border: 1px solid var(--border-default);
   }
 
-  /* --- Aurora gradient utilities --- */
-  .bg-aurora-a { background-image: var(--aurora-a); }
-  .bg-aurora-a-soft { background-image: var(--aurora-a-soft); }
-  .bg-aurora-b { background-image: var(--aurora-b); }
-  .bg-aurora-b-soft { background-image: var(--aurora-b-soft); }
-  .bg-aurora-c { background-image: var(--aurora-c); }
-  .bg-aurora-c-soft { background-image: var(--aurora-c-soft); }
-  .bg-aurora-blue { background-image: var(--aurora-blue); }
-  .bg-aurora-blue-soft { background-image: var(--aurora-blue-soft); }
-  .bg-aurora-sky { background-image: var(--aurora-sky); }
-  .bg-aurora-sky-soft { background-image: var(--aurora-sky-soft); }
+  /* Legacy aurora gradient utilities — flat to Slate accents. */
+  .bg-aurora-a { background-image: linear-gradient(135deg, rgb(var(--legacy-aurora-violet)) 0%, rgb(var(--legacy-aurora-pink)) 50%, rgb(var(--legacy-aurora-amber)) 100%); }
+  .bg-aurora-a-soft { background-image: linear-gradient(135deg, rgb(var(--legacy-aurora-violet) / 0.25) 0%, rgb(var(--legacy-aurora-pink) / 0.18) 50%, rgb(var(--legacy-aurora-amber) / 0.15) 100%); }
+  .bg-aurora-b { background-image: linear-gradient(135deg, rgb(var(--legacy-aurora-cyan)) 0%, rgb(var(--legacy-aurora-mint)) 100%); }
+  .bg-aurora-b-soft { background-image: linear-gradient(135deg, rgb(var(--legacy-aurora-cyan) / 0.22) 0%, rgb(var(--legacy-aurora-mint) / 0.18) 100%); }
+  .bg-aurora-c { background-image: linear-gradient(135deg, rgb(var(--legacy-aurora-coral)) 0%, rgb(var(--legacy-aurora-gold)) 100%); }
+  .bg-aurora-c-soft { background-image: linear-gradient(135deg, rgb(var(--legacy-aurora-coral) / 0.22) 0%, rgb(var(--legacy-aurora-gold) / 0.18) 100%); }
+  .bg-aurora-blue { background-image: linear-gradient(135deg, rgb(var(--legacy-aurora-cyan)) 0%, var(--accent-blue) 55%, rgb(var(--legacy-aurora-violet)) 100%); }
+  .bg-aurora-blue-soft { background-image: linear-gradient(135deg, rgb(var(--legacy-aurora-cyan) / 0.24) 0%, rgb(var(--accent-blue) / 0.22) 55%, rgb(var(--legacy-aurora-violet) / 0.20) 100%); }
+  .bg-aurora-sky { background-image: linear-gradient(135deg, #9FC3DC 0%, #94BBD5 50%, #89B6D4 100%); }
+  .bg-aurora-sky-soft { background-image: linear-gradient(135deg, rgba(159,195,220,0.26) 0%, rgba(148,187,213,0.22) 50%, rgba(137,182,212,0.20) 100%); }
 
-  .text-aurora-a {
-    background-image: var(--aurora-a);
-    -webkit-background-clip: text;
-    background-clip: text;
-    color: transparent;
-  }
-  .text-aurora-b {
-    background-image: var(--aurora-b);
-    -webkit-background-clip: text;
-    background-clip: text;
-    color: transparent;
-  }
-  .text-aurora-sky {
-    background-image: var(--aurora-sky);
-    -webkit-background-clip: text;
-    background-clip: text;
-    color: transparent;
-  }
+  .text-aurora-a { background-image: linear-gradient(135deg, rgb(var(--legacy-aurora-violet)) 0%, rgb(var(--legacy-aurora-pink)) 50%, rgb(var(--legacy-aurora-amber)) 100%); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .text-aurora-b { background-image: linear-gradient(135deg, rgb(var(--legacy-aurora-cyan)) 0%, rgb(var(--legacy-aurora-mint)) 100%); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .text-aurora-sky { background-image: linear-gradient(135deg, #9FC3DC 0%, #94BBD5 50%, #89B6D4 100%); -webkit-background-clip: text; background-clip: text; color: transparent; }
 
-  /* --- Gradient border — draws an aurora-A hairline around an element.
-   * Implemented via masked dual background so the interior stays fully
-   * transparent (lets glass + aurora backdrop show through).
-   */
-  .gradient-border-a {
-    position: relative;
-    isolation: isolate;
+  .gradient-border-a, .gradient-border-b, .gradient-border-c, .gradient-border-blue {
+    position: relative; isolation: isolate;
   }
-  .gradient-border-a::before {
-    content: "";
-    position: absolute;
-    inset: 0;
-    padding: 1px;
-    border-radius: inherit;
-    background: var(--aurora-a);
-    -webkit-mask:
-      linear-gradient(#000 0 0) content-box,
-      linear-gradient(#000 0 0);
-    -webkit-mask-composite: xor;
-    mask-composite: exclude;
-    pointer-events: none;
-    opacity: 0.7;
+  .gradient-border-a::before, .gradient-border-b::before, .gradient-border-c::before, .gradient-border-blue::before {
+    content: ""; position: absolute; inset: 0; padding: 1px; border-radius: inherit;
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor; mask-composite: exclude;
+    pointer-events: none; opacity: 0.7;
   }
-  .gradient-border-b::before {
-    background: var(--aurora-b);
-  }
-  .gradient-border-c::before {
-    background: var(--aurora-c);
-  }
-  .gradient-border-blue::before {
-    background: var(--aurora-blue);
+  .gradient-border-a::before { background: linear-gradient(135deg, rgb(var(--legacy-aurora-violet)) 0%, rgb(var(--legacy-aurora-pink)) 50%, rgb(var(--legacy-aurora-amber)) 100%); }
+  .gradient-border-b::before { background: linear-gradient(135deg, rgb(var(--legacy-aurora-cyan)) 0%, rgb(var(--legacy-aurora-mint)) 100%); }
+  .gradient-border-c::before { background: linear-gradient(135deg, rgb(var(--legacy-aurora-coral)) 0%, rgb(var(--legacy-aurora-gold)) 100%); }
+  .gradient-border-blue::before { background: linear-gradient(135deg, rgb(var(--legacy-aurora-cyan)) 0%, var(--accent-blue) 55%, rgb(var(--legacy-aurora-violet)) 100%); }
+
+  /* Legacy aurora blob & login backdrops — visually neutral on Slate canvas. */
+  .aurora-blob, .aurora-blob-violet, .aurora-blob-pink, .aurora-blob-cyan,
+  .aurora-blob-red, .aurora-blob-blue, .aurora-blob-warm {
+    display: none;
   }
 
-  /* --- Subtle grain overlay — breaks banding on smooth gradients.
-   * Inline SVG so no asset lookup; stays under 200 bytes.
-   */
-  .grain-overlay {
-    position: relative;
-  }
-  .grain-overlay::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
-    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.55'/%3E%3C/svg%3E");
-    opacity: 0.03;
-    mix-blend-mode: overlay;
-    border-radius: inherit;
-  }
-
-  /* --- Animations --- */
-  @keyframes fade-in {
-    from { opacity: 0; transform: translateY(6px); }
-    to { opacity: 1; transform: translateY(0); }
-  }
-  @keyframes fade-in-fast {
-    from { opacity: 0; }
-    to { opacity: 1; }
-  }
-  @keyframes slide-up {
-    from { opacity: 0; transform: translateY(14px); }
-    to { opacity: 1; transform: translateY(0); }
-  }
-  @keyframes slide-down {
-    from { opacity: 0; transform: translateY(-8px); }
-    to { opacity: 1; transform: translateY(0); }
-  }
-  @keyframes pulse-soft {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.5; }
-  }
-  @keyframes pulse-bg-info {
-    0%, 100% { background-color: rgb(var(--intent-info) / 0.06); }
-    50%      { background-color: rgb(var(--intent-info) / 0.14); }
-  }
-  @keyframes shimmer {
-    0% { background-position: -200% 0; }
-    100% { background-position: 200% 0; }
-  }
-  @keyframes aurora-sheen {
-    0%   { background-position: 0% 50%; }
-    50%  { background-position: 100% 50%; }
-    100% { background-position: 0% 50%; }
-  }
-
-  .animate-fade-in {
-    animation: fade-in 320ms cubic-bezier(0.16, 1, 0.3, 1);
-  }
-  .animate-fade-in-fast {
-    animation: fade-in-fast 160ms ease-out;
-  }
-  .animate-slide-up {
-    animation: slide-up 400ms cubic-bezier(0.16, 1, 0.3, 1);
-  }
-  .animate-slide-down {
-    animation: slide-down 280ms cubic-bezier(0.16, 1, 0.3, 1);
-  }
-  .animate-pulse-soft {
-    animation: pulse-soft 2s ease-in-out infinite;
-  }
-  .animate-pulse-bg-info {
-    animation: pulse-bg-info 2s ease-in-out infinite;
-  }
-  .animate-shimmer {
-    background: linear-gradient(
-      90deg,
-      rgba(255, 255, 255, 0.04) 25%,
-      rgba(255, 255, 255, 0.08) 50%,
-      rgba(255, 255, 255, 0.04) 75%
-    );
-    background-size: 200% 100%;
-    animation: shimmer 1.6s ease-in-out infinite;
-  }
-  /* Continuous aurora shimmer on primary gradient buttons — subtle. */
-  .animate-aurora-sheen {
-    background-size: 200% 200%;
-    animation: aurora-sheen 8s ease-in-out infinite;
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .animate-fade-in,
-    .animate-fade-in-fast,
-    .animate-slide-up,
-    .animate-slide-down,
-    .animate-pulse-soft,
-    .animate-shimmer,
-    .animate-aurora-sheen {
-      animation: none !important;
-    }
-  }
-
-  /* --- Decorative --- */
-  .text-balance {
-    text-wrap: balance;
-  }
-
-  /* --- Site-wide aurora backdrop ---
-   * Do NOT animate the blobs: their movement invalidates every downstream
-   * backdrop-filter cache per frame and pins the GPU process. */
-  .aurora-blob {
-    position: absolute;
-    border-radius: 9999px;
-    filter: blur(120px);
-    pointer-events: none;
-  }
-  .aurora-blob-violet {
-    top: -12%;
-    left: -8%;
-    width: 720px;
-    height: 720px;
-    background: radial-gradient(circle, rgba(123, 92, 255, 0.42), transparent 68%);
-  }
-  .aurora-blob-pink {
-    top: 18%;
-    right: -12%;
-    width: 640px;
-    height: 640px;
-    background: radial-gradient(circle, rgba(255, 79, 184, 0.32), transparent 70%);
-  }
-  .aurora-blob-cyan {
-    bottom: -14%;
-    left: 22%;
-    width: 680px;
-    height: 680px;
-    background: radial-gradient(circle, rgba(79, 201, 255, 0.26), transparent 70%);
-  }
-
-  /* Legacy login blob classes — kept to avoid touching call sites. */
-  .aurora-blob-red {
-    top: -10%;
-    left: -12%;
-    width: 640px;
-    height: 640px;
-    background: radial-gradient(circle, rgba(255, 79, 184, 0.3), transparent 68%);
-    filter: blur(120px);
-    border-radius: 9999px;
-    position: absolute;
-  }
-  .aurora-blob-blue {
-    top: 4%;
-    right: -10%;
-    width: 600px;
-    height: 600px;
-    background: radial-gradient(circle, rgba(79, 201, 255, 0.28), transparent 68%);
-    filter: blur(120px);
-    border-radius: 9999px;
-    position: absolute;
-  }
-  .aurora-blob-warm {
-    top: 32%;
-    left: 34%;
-    width: 520px;
-    height: 520px;
-    background: radial-gradient(circle, rgba(255, 179, 71, 0.2), transparent 70%);
-    filter: blur(120px);
-    border-radius: 9999px;
-    position: absolute;
-  }
-
-  /* Diagonal stripe pattern — retained for back-compat, retuned with aurora-A hue. */
   .stripe-pattern {
     background-image: repeating-linear-gradient(
       135deg,
-      rgba(123, 92, 255, 0.16) 0px,
-      rgba(123, 92, 255, 0.16) 2px,
+      var(--accent-blue-soft) 0px,
+      var(--accent-blue-soft) 2px,
       transparent 2px,
       transparent 12px
     );
   }
 
+  .glow-violet, .glow-cyan, .glow-pink, .glow-amber, .glow-warm, .glow-info, .glow-danger {
+    box-shadow: var(--shadow-md);
+  }
+
+  /* Animations (unified Slate timing). */
+  @keyframes fade-in-fast { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes slide-down { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes pulse-soft { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+  @keyframes pulse-bg-info {
+    0%, 100% { background-color: var(--status-info-soft); }
+    50%      { background-color: var(--accent-blue-soft); }
+  }
+  @keyframes shimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
+  @keyframes aurora-sheen { 0% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } 100% { background-position: 0% 50%; } }
+
+  .animate-fade-in { animation: fade-in 180ms cubic-bezier(0.16, 1, 0.3, 1); }
+  .animate-fade-in-fast { animation: fade-in-fast 160ms ease-out; }
+  .animate-slide-up { animation: slide-up 220ms cubic-bezier(0.16, 1, 0.3, 1); }
+  .animate-slide-down { animation: slide-down 220ms cubic-bezier(0.16, 1, 0.3, 1); }
+  .animate-pulse-soft { animation: pulse-soft 2s ease-in-out infinite; }
+  .animate-pulse-bg-info { animation: pulse-bg-info 2s ease-in-out infinite; }
+  .animate-shimmer {
+    background: linear-gradient(90deg, var(--bg-hover) 25%, var(--bg-active) 50%, var(--bg-hover) 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.6s ease-in-out infinite;
+  }
+  .animate-aurora-sheen { background-size: 200% 200%; animation: aurora-sheen 8s ease-in-out infinite; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .animate-fade-in, .animate-fade-in-fast, .animate-slide-up, .animate-slide-down,
+    .animate-pulse-soft, .animate-pulse-bg-info, .animate-shimmer, .animate-aurora-sheen {
+      animation: none !important;
+    }
+  }
+
+  .text-balance { text-wrap: balance; }
+
   mark.chat-search-highlight {
-    background-color: rgba(255, 216, 102, 0.5);
-    color: rgb(var(--fg-primary));
+    background-color: var(--status-warn-soft);
+    color: var(--fg-primary);
     border-radius: 2px;
     padding: 0;
-    box-shadow: 0 0 0 1px rgba(255, 216, 102, 0.35);
+    box-shadow: 0 0 0 1px var(--status-warn);
   }
 }
