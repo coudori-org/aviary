@@ -19,6 +19,8 @@ interface AgentFormProps {
   initialToolInfo?: Map<string, McpToolInfo>;
   onSubmit: (data: AgentFormData) => Promise<void>;
   submitLabel: string;
+  onCancel?: () => void;
+  cancelLabel?: string;
 }
 
 /**
@@ -26,7 +28,14 @@ interface AgentFormProps {
  * components and the useAgentForm hook. This file is intentionally tiny
  * (~50 lines): it composes, it doesn't decide.
  */
-export function AgentForm({ initialData, initialToolInfo, onSubmit, submitLabel }: AgentFormProps) {
+export function AgentForm({
+  initialData,
+  initialToolInfo,
+  onSubmit,
+  submitLabel,
+  onCancel,
+  cancelLabel = "Cancel",
+}: AgentFormProps) {
   const { data, setField, setModelConfig, setName } = useAgentForm(initialData);
   const [toolInfoMap, setToolInfoMap] = useState<Map<string, McpToolInfo>>(
     initialToolInfo ?? new Map(),
@@ -60,9 +69,9 @@ export function AgentForm({ initialData, initialToolInfo, onSubmit, submitLabel 
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-10">
+    <form onSubmit={handleSubmit} className="space-y-8">
       {error && (
-        <div className="rounded-md border border-danger/30 bg-danger/[0.04] p-4 type-caption text-danger">
+        <div className="rounded-[7px] border border-status-error bg-status-error-soft px-4 py-3 text-[12.5px] text-status-error">
           {error}
         </div>
       )}
@@ -78,11 +87,16 @@ export function AgentForm({ initialData, initialToolInfo, onSubmit, submitLabel 
         setToolInfoMap={setToolInfoMap}
       />
 
-      <div className="flex items-center justify-end border-t border-white/[0.06] pt-6">
-        <Button type="submit" disabled={submitting} variant="cta" size="lg">
+      <div className="flex items-center justify-end gap-2 border-t border-border-subtle pt-5">
+        {onCancel && (
+          <Button type="button" variant="ghost" size="default" onClick={onCancel}>
+            {cancelLabel}
+          </Button>
+        )}
+        <Button type="submit" disabled={submitting} size="default">
           {submitting ? (
             <>
-              <Spinner size={14} className="text-fg-on-light" />
+              <Spinner size={12} className="text-white" />
               Saving…
             </>
           ) : (

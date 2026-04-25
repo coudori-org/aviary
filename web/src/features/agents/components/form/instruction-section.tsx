@@ -26,7 +26,7 @@ export function InstructionSection({ data, setField }: InstructionSectionProps) 
           onChange={(e) => setField("instruction", e.target.value)}
           placeholder="You are a helpful assistant that specializes in… (Type @ to reference another agent)"
           rows={8}
-          className="font-mono type-code-sm"
+          className="font-mono text-[12.5px]"
         />
         <MentionAutocomplete
           textareaRef={ref}

@@ -7,15 +7,15 @@ interface FormSectionProps {
 }
 
 /**
- * FormSection — consistent header + body wrapper used by every form
- * section so spacing and typography stay in lockstep.
+ * Consistent header + body wrapper used by every form section so spacing
+ * and typography stay in lockstep with the Slate design system.
  */
 export function FormSection({ title, description, children }: FormSectionProps) {
   return (
-    <section className="space-y-5">
+    <section className="space-y-4">
       <div>
-        <h2 className="type-button text-fg-primary">{title}</h2>
-        <p className="type-caption text-fg-muted mt-1">{description}</p>
+        <h2 className="t-h3 fg-primary">{title}</h2>
+        <p className="t-small fg-tertiary mt-1">{description}</p>
       </div>
       {children}
     </section>
