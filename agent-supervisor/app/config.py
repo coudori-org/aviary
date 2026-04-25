@@ -12,8 +12,11 @@ class Settings(BaseSettings):
     # Expose /metrics (Prometheus text format).
     metrics_enabled: bool = True
 
-    # OIDC — the supervisor validates the caller's user JWT (Bearer) and
-    # uses the resulting `sub` to look up per-user credentials in Vault.
+    # OIDC — see aviary_shared.auth.IdpSettings for the canonical schema.
+    # The supervisor validates the caller's user JWT (Bearer) and uses the
+    # resulting `sub` to look up per-user credentials in Vault.
+    # `oidc_provider` selects the ClaimMapper (keycloak | okta | generic).
+    oidc_provider: str = "keycloak"
     oidc_issuer: str
     oidc_internal_issuer: str | None = None
     oidc_audience: str | None = None

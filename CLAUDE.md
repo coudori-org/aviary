@@ -109,7 +109,19 @@ No background loops. No per-agent state. No 0↔1 activation — environments ar
 ## Critical Patterns & Gotchas
 
 ### OIDC Dual-URL Pattern
-Keycloak tokens have `iss=http://localhost:8080/...` (browser URL), but API container must fetch OIDC metadata from `http://keycloak:8080/...` (internal DNS). Two env vars: `OIDC_ISSUER` (public, for token validation) and `OIDC_INTERNAL_ISSUER` (internal, for discovery/JWKS/exchange). See `_rewrite_url()` / `to_public_url()` in `auth/oidc.py`.
+Keycloak tokens have `iss=http://localhost:8080/...` (browser URL), but API container must fetch OIDC metadata from `http://keycloak:8080/...` (internal DNS). Two env vars: `OIDC_ISSUER` (public, for token validation) and `OIDC_INTERNAL_ISSUER` (internal, for discovery/JWKS/exchange). See `_rewrite_url()` / `to_public_url()` in `auth/oidc.py`. For hosted IdPs (Okta, Auth0) the public URL is reachable from every container — set `OIDC_INTERNAL_ISSUER` equal to `OIDC_ISSUER` (or leave unset).
+
+### IdP Abstraction — Swapping Keycloak for Okta (or others)
+All IdP-specific knowledge lives in `shared/aviary_shared/auth/`. The `OIDCValidator` handles generic OIDC (discovery + JWKS + RS256 verify); the IdP-specific claim shape is handled by a pluggable `ClaimMapper` (`KeycloakClaimMapper`, `OktaClaimMapper`, `GenericOIDCClaimMapper`). Services select a mapper by setting `OIDC_PROVIDER=keycloak|okta|generic` — `build_oidc_validator(settings)` does the wiring. Every service (api, supervisor) calls that one helper; there are no service-specific JWT paths to maintain.
+
+**To switch to Okta:**
+1. Set env vars on api + supervisor: `OIDC_PROVIDER=okta`, `OIDC_ISSUER=https://<tenant>.okta.com/oauth2/default`, `OIDC_INTERNAL_ISSUER=` (empty — Okta is publicly reachable), `OIDC_AUDIENCE=<api-audience>`, `OIDC_CLIENT_ID=<okta-app-client-id>`.
+2. Register the Okta app with `Authorization Code + PKCE`, set `Login redirect URI` to `<web>/auth/callback`, `Post Logout redirect URI` to `<web>/login`, and enable the `offline_access` scope so you get a refresh token.
+3. In Okta authorization server settings, add `groups` (and optionally `roles`) claims to the access token so `OktaClaimMapper` can pick them up.
+4. Remove the `keycloak` service from `docker-compose.yml` (or keep it as a local-dev-only profile).
+5. The logout flow already includes `id_token_hint` (required by Okta) — no code change needed.
+
+The LiteLLM patches (`config/litellm/patches/aviary_jwt_util.py`) extract only the `sub` claim, which is standard across all OIDC providers — no mapper change needed there.
 
 ### Pydantic v2 `model_config` Conflict
 `model_config` is a reserved Pydantic class variable. Use `Field(alias="model_config")` with `model_config_json` as the Python field name — the shared `MODEL_CONFIG_ALIAS` in `api/app/schemas/_common.py` centralizes this. The `ConfigDict(populate_by_name=True, protected_namespaces=())` class var must be declared BEFORE field definitions. See `api/app/schemas/agent.py`.
@@ -263,8 +275,9 @@ API/Admin: dedicated `aviary_test` database with `NullPool`, no lifespan.
 
 | Variable | Purpose |
 |----------|---------|
-| `OIDC_ISSUER` | Public Keycloak URL (token `iss` validation) |
-| `OIDC_INTERNAL_ISSUER` | Internal Keycloak URL (discovery/JWKS fetch) |
+| `OIDC_PROVIDER` | ClaimMapper selector (`keycloak` \| `okta` \| `generic`, default `keycloak`) |
+| `OIDC_ISSUER` | Public IdP URL (token `iss` validation) |
+| `OIDC_INTERNAL_ISSUER` | Internal IdP URL (discovery/JWKS fetch) — leave empty for hosted IdPs |
 | `DATABASE_URL` | PostgreSQL async connection |
 | `REDIS_URL` | Redis for pub/sub, caching, presence |
 | `AGENT_SUPERVISOR_URL` | Agent Supervisor URL (default: `http://localhost:9000`) |
@@ -292,8 +305,9 @@ API/Admin: dedicated `aviary_test` database with `NullPool`, no lifespan.
 | `REDIS_URL` | Redis DSN for publishing agent stream events (default: `redis://redis:6379/0`) |
 | `SUPERVISOR_DEFAULT_RUNTIME_ENDPOINT` | Fallback endpoint used when a caller passes `runtime_endpoint=null` |
 | `METRICS_ENABLED` | Toggle Prometheus `/metrics` (default: true) |
-| `OIDC_ISSUER` | Public Keycloak URL (Bearer token `iss` validation on `/publish` and `/a2a`) |
-| `OIDC_INTERNAL_ISSUER` | Internal Keycloak URL (JWKS fetch) |
+| `OIDC_PROVIDER` | ClaimMapper selector (`keycloak` \| `okta` \| `generic`, default `keycloak`) |
+| `OIDC_ISSUER` | Public IdP URL (Bearer token `iss` validation on `/publish` and `/a2a`) |
+| `OIDC_INTERNAL_ISSUER` | Internal IdP URL (JWKS fetch) — leave empty for hosted IdPs |
 | `VAULT_ADDR` / `VAULT_TOKEN` | Vault connection for per-user credential lookup (keyed by JWT `sub`) |
 
 ## Key Environment Variables (LiteLLM Gateway)

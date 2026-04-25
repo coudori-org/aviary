@@ -1,19 +1,18 @@
-"""OIDC auth — thin wrapper over shared OIDCValidator.
+"""OIDC auth — thin wrapper over the shared validator.
 
-Keeps the same public API (module-level functions) used by the API server,
-but delegates all JWT logic to aviary_shared.auth.oidc.
+Provider-agnostic: `aviary_shared.auth.build_oidc_validator` reads
+`settings.oidc_provider` and plugs in the right ClaimMapper. Switching
+IdP = flip `OIDC_PROVIDER` + point the issuer at the new IdP.
 """
 
-from aviary_shared.auth.oidc import OIDCValidator, TokenClaims  # noqa: F401
+import httpx
+
+from aviary_shared.auth import build_oidc_validator
+from aviary_shared.auth.oidc import TokenClaims  # noqa: F401 — re-exported
 
 from app.config import settings
 
-# Singleton validator for this service
-_validator = OIDCValidator(
-    issuer=settings.oidc_issuer,
-    internal_issuer=settings.oidc_internal_issuer,
-    audience=settings.oidc_audience,
-)
+_validator = build_oidc_validator(settings)
 
 
 async def init_oidc() -> None:
@@ -51,8 +50,6 @@ async def refresh_tokens(refresh_token: str) -> dict:
     config = await get_oidc_config()
     token_endpoint = _rewrite_url(config["token_endpoint"])
 
-    import httpx
-
     async with httpx.AsyncClient() as client:
         resp = await client.post(
             token_endpoint,
@@ -71,8 +68,6 @@ async def exchange_code(code: str, redirect_uri: str, code_verifier: str) -> dic
     """Exchange an authorization code for tokens via the OIDC token endpoint."""
     config = await get_oidc_config()
     token_endpoint = _rewrite_url(config["token_endpoint"])
-
-    import httpx
 
     async with httpx.AsyncClient() as client:
         resp = await client.post(

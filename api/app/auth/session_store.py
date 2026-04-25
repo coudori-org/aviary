@@ -170,3 +170,8 @@ async def delete_session(session_id: str) -> None:
     if not client:
         return
     await client.delete(_redis_key(session_id))
+
+
+async def peek_session(session_id: str) -> SessionData | None:
+    """Read session without refresh — used by logout to grab the id_token."""
+    return await _load(session_id)

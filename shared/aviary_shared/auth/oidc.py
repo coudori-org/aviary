@@ -1,14 +1,24 @@
 """Shared OIDC JWT validation.
 
-Parameterized — no dependency on service-specific config.
-Each service creates an OIDCValidator instance with its own OIDC settings.
+IdP-agnostic: discovery + JWKS caching + RS256 signature verification. The
+IdP-specific bit (how roles/groups/etc. are laid out in the payload) is
+delegated to an injected `ClaimMapper` — see `aviary_shared.auth.claims`.
+
+Each service constructs one `OIDCValidator` on startup, wired from its
+`IdpSettings`.
 """
+
+from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 import httpx
 from jose import JWTError, jwt
+
+if TYPE_CHECKING:
+    from aviary_shared.auth.claims import ClaimMapper
 
 
 @dataclass
@@ -29,11 +39,19 @@ class OIDCValidator:
         internal_issuer: str | None = None,
         audience: str | None = None,
         jwks_cache_ttl: int = 3600,
+        claim_mapper: "ClaimMapper | None" = None,
     ):
         self.issuer = issuer
         self.internal_issuer = internal_issuer or issuer
         self.audience = audience
         self._jwks_cache_ttl = jwks_cache_ttl
+
+        if claim_mapper is None:
+            # Defer import to avoid circular-dep churn while keeping the
+            # default ergonomic for tests that don't care about provider.
+            from aviary_shared.auth.claims import KeycloakClaimMapper
+            claim_mapper = KeycloakClaimMapper()
+        self._claim_mapper = claim_mapper
 
         self._oidc_config: dict | None = None
         self._jwks: dict | None = None
@@ -128,22 +146,4 @@ class OIDCValidator:
         except JWTError as e:
             raise ValueError(f"Token validation failed: {e}") from e
 
-        sub = payload.get("sub")
-        email = payload.get("email", "")
-        display_name = payload.get("name") or payload.get("preferred_username") or email
-
-        roles: list[str] = []
-        if "realm_roles" in payload:
-            roles = payload["realm_roles"]
-        elif "realm_access" in payload:
-            roles = payload.get("realm_access", {}).get("roles", [])
-
-        raw_groups: list[str] = payload.get("groups", [])
-        groups = [g.lstrip("/") for g in raw_groups if g]
-
-        if not sub:
-            raise ValueError("Token missing 'sub' claim")
-
-        return TokenClaims(
-            sub=sub, email=email, display_name=display_name, roles=roles, groups=groups
-        )
+        return self._claim_mapper.map(payload)

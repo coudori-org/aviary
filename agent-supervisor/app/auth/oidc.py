@@ -1,14 +1,11 @@
-"""OIDC auth — thin wrapper over shared OIDCValidator."""
+"""OIDC auth — thin wrapper over the shared validator. See api/app/auth/oidc.py."""
 
-from aviary_shared.auth.oidc import OIDCValidator, TokenClaims  # noqa: F401
+from aviary_shared.auth import build_oidc_validator
+from aviary_shared.auth.oidc import TokenClaims  # noqa: F401 — re-exported
 
 from app.config import settings
 
-_validator = OIDCValidator(
-    issuer=settings.oidc_issuer,
-    internal_issuer=settings.oidc_internal_issuer,
-    audience=settings.oidc_audience,
-)
+_validator = build_oidc_validator(settings)
 
 
 async def init_oidc() -> None:

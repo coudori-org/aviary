@@ -135,6 +135,8 @@ services:
       METRICS_ENABLED: "true"
       # OIDC — supervisor validates the caller's user JWT (Bearer) on
       # /publish and /a2a before looking up Vault credentials.
+      # `OIDC_PROVIDER` selects the ClaimMapper (keycloak | okta | generic).
+      OIDC_PROVIDER: keycloak
       OIDC_ISSUER: http://localhost:8080/realms/aviary
       OIDC_INTERNAL_ISSUER: http://keycloak:8080/realms/aviary
       # Vault — per-user GitHub token lookup keyed by the JWT's `sub`.
@@ -362,6 +364,8 @@ services:
       ENV: ${ENV:-development}
       DATABASE_URL: postgresql+asyncpg://aviary:aviary@postgres:5432/aviary
       REDIS_URL: redis://redis:6379/0
+      # `OIDC_PROVIDER` selects the ClaimMapper (keycloak | okta | generic).
+      OIDC_PROVIDER: keycloak
       # Public issuer (must match token's iss claim — browser URL)
       OIDC_ISSUER: http://localhost:8080/realms/aviary
       # Internal issuer (container-to-container — for fetching discovery/JWKS/token exchange)

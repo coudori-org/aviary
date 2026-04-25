@@ -13,7 +13,9 @@ class Settings(BaseSettings):
     # Redis
     redis_url: str
 
-    # OIDC
+    # OIDC — see aviary_shared.auth.IdpSettings for the canonical schema.
+    # `oidc_provider` selects the ClaimMapper (keycloak | okta | generic).
+    oidc_provider: str = "keycloak"
     oidc_issuer: str
     oidc_internal_issuer: str | None = None
     oidc_client_id: str

@@ -74,25 +74,26 @@ export async function handleCallback(code: string, state: string): Promise<void>
 }
 
 export async function logout(): Promise<void> {
+  // Server builds the full end_session URL (including id_token_hint for
+  // Okta compatibility) and returns it. We just pass our desired
+  // post-logout destination.
+  let endSessionUrl = "";
   try {
-    await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
+    const res = await fetch("/api/auth/logout", {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        post_logout_redirect_uri: `${window.location.origin}/login`,
+      }),
+    });
+    if (res.ok) {
+      const body = (await res.json().catch(() => null)) as { end_session_url?: string } | null;
+      endSessionUrl = body?.end_session_url ?? "";
+    }
   } catch {
     // Logout must always succeed locally — fall through to redirect.
   }
 
-  try {
-    const config = await fetchAuthConfig();
-    if (config.end_session_endpoint) {
-      const params = new URLSearchParams({
-        post_logout_redirect_uri: `${window.location.origin}/login`,
-        client_id: config.client_id,
-      });
-      window.location.href = `${config.end_session_endpoint}?${params}`;
-      return;
-    }
-  } catch {
-    // OIDC discovery failed — fall through to local redirect.
-  }
-
-  window.location.href = "/login";
+  window.location.href = endSessionUrl || "/login";
 }

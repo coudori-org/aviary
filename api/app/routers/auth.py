@@ -1,3 +1,5 @@
+from urllib.parse import urlencode
+
 import httpx
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -9,12 +11,15 @@ from app.auth.session_store import (
     SESSION_TTL_SECONDS,
     create_session,
     delete_session,
+    peek_session,
 )
 from app.config import settings
 from app.db.models import User
 from app.db.session import get_db
 from app.schemas.common import (
     AuthConfigResponse,
+    LogoutRequest,
+    LogoutResponse,
     PreferencesUpdateRequest,
     TokenExchangeRequest,
     UserResponse,
@@ -118,12 +123,47 @@ async def update_preferences(
     return UserResponse.model_validate(user)
 
 
-@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+@router.post("/logout", response_model=LogoutResponse)
 async def logout(
     response: Response,
+    body: LogoutRequest | None = None,
     aviary_session: str | None = Cookie(default=None, alias=SESSION_COOKIE_NAME),
 ):
+    """Clear the server session and return the IdP's RP-initiated-logout URL.
+
+    The browser then navigates there to end the SSO session. We build the
+    URL server-side so we can include `id_token_hint` (required by Okta,
+    recommended by Keycloak post-18). The browser no longer needs to know
+    the IdP's exact end_session shape.
+    """
+    end_session_url = ""
+
     if aviary_session:
+        session_data = await peek_session(aviary_session)
+        id_token_hint = session_data.id_token if session_data else None
+
+        try:
+            config = await get_oidc_config()
+            end_session_endpoint = config.get("end_session_endpoint")
+        except Exception:
+            end_session_endpoint = None
+
+        if end_session_endpoint and body and body.post_logout_redirect_uri:
+            params: dict[str, str] = {
+                "post_logout_redirect_uri": body.post_logout_redirect_uri,
+            }
+            if id_token_hint:
+                params["id_token_hint"] = id_token_hint
+            else:
+                # Keycloak 18+ accepts client_id as a fallback when the
+                # id_token is unavailable; Okta rejects this — but in
+                # that case the user has no active SSO session anyway.
+                params["client_id"] = settings.oidc_client_id
+            end_session_url = (
+                to_public_url(end_session_endpoint) + "?" + urlencode(params)
+            )
+
         await delete_session(aviary_session)
+
     _clear_session_cookie(response)
-    return None
+    return LogoutResponse(end_session_url=end_session_url)
