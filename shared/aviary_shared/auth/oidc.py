@@ -70,7 +70,8 @@ class OIDCValidator:
         return url
 
     async def _fetch_oidc_config(self) -> dict:
-        url = f"{self.internal_issuer}/.well-known/openid-configuration"
+        # rstrip: Auth0 issuers end with `/`, which the `iss` claim requires verbatim
+        url = f"{self.internal_issuer.rstrip('/')}/.well-known/openid-configuration"
         async with httpx.AsyncClient() as client:
             resp = await client.get(url, timeout=10)
             resp.raise_for_status()

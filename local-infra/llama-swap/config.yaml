@@ -13,10 +13,10 @@ models:
       -np 1 -ctk q8_0 -ctv q8_0
     concurrencyLimit: 8
 
-  "llamacpp/qwen3.6-27b":
+  "llamacpp/qwen3.6-35b":
     cmd: |
       llama-server \
-      -hf unsloth/Qwen3.6-27B-GGUF:Q4_K_M \
+      -hf unsloth/Qwen3.6-35B-A3B-GGUF:UD-Q4_K_M \
       --fit on \
       --ctx-size 131072 \
       --cache-ram 2048 -ctxcp 2 \
@@ -29,7 +29,7 @@ models:
       --repeat-penalty 1.0 \
       --reasoning on \
       --chat-template-kwargs '{"preserve_thinking": true}' \
-      -ngl 99 -np 1 \
+      -ngl 99 -np 4 \
       -fa on -ctk q8_0 -ctv q8_0 \
       --port ${PORT}
     concurrencyLimit: 8

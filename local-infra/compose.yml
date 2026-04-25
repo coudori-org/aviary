@@ -1,6 +1,6 @@
-services:
-  # ── Infrastructure ──────────────────────────────────────────
+name: aviary-local-infra
 
+services:
   postgres:
     image: postgres:16
     environment:
@@ -50,11 +50,6 @@ services:
       postgres:
         condition: service_healthy
     healthcheck:
-      # Probe the realm's OIDC discovery endpoint — this is exactly what
-      # downstream services hit on startup to bootstrap their JWKS, so it's
-      # the most accurate "ready" signal. Keycloak image has no curl/wget,
-      # so we use bash's /dev/tcp + a hand-rolled HTTP/1.1 GET, then
-      # confirm the response is 200 OK.
       test:
         - "CMD-SHELL"
         - |
@@ -70,8 +65,6 @@ services:
 
   vault:
     image: hashicorp/vault:1.17
-    # Bypass the image's docker-entrypoint.sh — it auto-injects dev-mode flags
-    # when invoked with `server`, which collide with our HCL listener block.
     entrypoint: ["vault"]
     command: ["server", "-config=/vault/config/vault.hcl"]
     environment:
@@ -85,7 +78,6 @@ services:
       - vaultdata:/vault/data
       - ./config/vault/vault.hcl:/vault/config/vault.hcl:ro
     healthcheck:
-      # Accept sealed/uninitialized as healthy so vault-init can run.
       test: ["CMD-SHELL", "wget --spider --quiet 'http://127.0.0.1:8200/v1/sys/health?standbyok=true&sealedcode=200&uninitcode=200' || exit 1"]
       interval: 5s
       timeout: 5s
@@ -105,6 +97,7 @@ services:
     command: ["/usr/local/bin/vault-init.sh"]
 
   k8s:
+    profiles: ["k3s"]
     image: rancher/k3s:v1.31.4-k3s1
     command: server --disable=traefik --write-kubeconfig-mode=644 --node-name=aviary-node
     hostname: aviary-node
@@ -113,66 +106,13 @@ services:
       K3S_TOKEN: aviary-dev-token
     ports:
       - "6443:6443"
-      - "30300:30300"   # aviary-env-default NodePort (supervisor → runtime)
+      - "30300:30300"   # aviary-env-default NodePort
+      - "30301:30301"   # aviary-env-custom NodePort
     volumes:
       - k8sdata:/var/lib/rancher/k3s
       - workspacedata:/var/lib/aviary-workspace
       - ./config/k3s/registries.yaml:/etc/rancher/k3s/registries.yaml
 
-  supervisor:
-    build:
-      context: .
-      dockerfile: agent-supervisor/Dockerfile
-      args:
-        UV_INDEX_URL: ${UV_INDEX_URL:-}
-    ports:
-      - "9000:9000"
-    environment:
-      REDIS_URL: redis://redis:6379/0
-      # Runtime env endpoint used when agent.runtime_endpoint is NULL.
-      # Points at k3s NodePort for aviary-env-default.
-      SUPERVISOR_DEFAULT_RUNTIME_ENDPOINT: http://k8s:30300
-      METRICS_ENABLED: "true"
-      # OIDC — supervisor validates the caller's user JWT (Bearer) on
-      # /publish and /a2a before looking up Vault credentials.
-      # `OIDC_PROVIDER` selects the ClaimMapper (keycloak | okta | generic).
-      OIDC_PROVIDER: keycloak
-      OIDC_ISSUER: http://localhost:8080/realms/aviary
-      OIDC_INTERNAL_ISSUER: http://keycloak:8080/realms/aviary
-      # Vault — per-user GitHub token lookup keyed by the JWT's `sub`.
-      VAULT_ADDR: http://vault:8200
-      VAULT_TOKEN: dev-root-token
-      # Shared secret authenticating the workflow worker. Keep in sync with
-      # the `workflow-worker` service.
-      WORKER_SHARED_SECRET: ${WORKER_SHARED_SECRET:-dev-worker-secret-change-me}
-    depends_on:
-      redis:
-        condition: service_healthy
-      vault:
-        condition: service_healthy
-      keycloak:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:9000/v1/health || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
-
-  db-migrate:
-    build:
-      context: ./shared
-      args:
-        UV_INDEX_URL: ${UV_INDEX_URL:-}
-    environment:
-      DATABASE_URL: postgresql+asyncpg://aviary:aviary@postgres:5432/aviary
-    depends_on:
-      postgres:
-        condition: service_healthy
-
-  # Temporal server hosts workflow execution state. auto-setup applies its
-  # own schema migrations to the temporal + temporal_visibility databases on
-  # first boot and registers the `default` namespace.
   temporal:
     image: temporalio/auto-setup:1.25
     ports:
@@ -185,16 +125,12 @@ services:
       POSTGRES_SEEDS: postgres
       DBNAME: temporal
       VISIBILITY_DBNAME: temporal_visibility
-      # Default namespace is auto-created; SKIP_DEFAULT_NAMESPACE_CREATION=false is default.
       DEFAULT_NAMESPACE: default
       DEFAULT_NAMESPACE_RETENTION: 7d
     depends_on:
       postgres:
         condition: service_healthy
     healthcheck:
-      # The frontend binds to the container IP, not 127.0.0.1, so we address
-      # it by hostname. `temporal` CLI (not `tctl`) returns the correct exit
-      # code on failure; we also grep for SERVING to double-check the output.
       test: ["CMD-SHELL", "temporal --address $(hostname):7233 operator cluster health | grep -q SERVING"]
       interval: 10s
       timeout: 5s
@@ -211,33 +147,6 @@ services:
     depends_on:
       temporal:
         condition: service_healthy
-
-  # Long-running Temporal worker. Hosts the WorkflowRun workflow and all
-  # node activities (agent_step, template, condition, …). Scales
-  # independently of api/admin.
-  workflow-worker:
-    build:
-      context: .
-      dockerfile: workflow-worker/Dockerfile
-      args:
-        UV_INDEX_URL: ${UV_INDEX_URL:-}
-    environment:
-      TEMPORAL_HOST: temporal:7233
-      TEMPORAL_NAMESPACE: default
-      TEMPORAL_TASK_QUEUE: aviary-workflows
-      DATABASE_URL: postgresql+asyncpg://aviary:aviary@postgres:5432/aviary
-      REDIS_URL: redis://redis:6379/0
-      SUPERVISOR_URL: http://supervisor:9000
-      WORKER_SHARED_SECRET: ${WORKER_SHARED_SECRET:-dev-worker-secret-change-me}
-    depends_on:
-      temporal:
-        condition: service_healthy
-      db-migrate:
-        condition: service_completed_successfully
-      redis:
-        condition: service_healthy
-
-  # ── Platform MCP Servers ────────────────────────────────────
 
   mcp-jira:
     build:
@@ -267,8 +176,6 @@ services:
       retries: 3
       start_period: 5s
 
-  # ── Platform Services ───────────────────────────────────────
-
   litellm:
     image: ghcr.io/berriai/litellm:main-latest
     command: ["--config", "/app/config.yaml", "--port", "4000"]
@@ -276,9 +183,6 @@ services:
       - "8090:4000"
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    # `LITELLM_SITE_PACKAGES` pins where to mount the .pth patches into the
-    # image's Python site-packages dir. Override in `.env` whenever the
-    # upstream LiteLLM image bumps its Python version.
     volumes:
       - ./config/litellm/config.yaml:/app/config.yaml
       - ./config/litellm/patches/aviary_jwt_util.py:${LITELLM_SITE_PACKAGES:-/usr/lib/python3.13/site-packages}/aviary_jwt_util.py
@@ -289,9 +193,6 @@ services:
       - ./config/litellm/mcp-secret-injection.yaml:/app/aviary-mcp-secret-injection.yaml:ro
     environment:
       LITELLM_MASTER_KEY: "sk-aviary-dev"
-      # DB-backed UI: keys, teams, spend in Postgres. Models stay file-based
-      # (config.yaml) so we get a single source of truth and no UI-added
-      # shadow entries in /v1/model/info.
       DATABASE_URL: "postgresql://aviary:aviary@postgres:5432/litellm"
       UI_USERNAME: "${LITELLM_UI_USERNAME:-admin}"
       UI_PASSWORD: "${LITELLM_UI_PASSWORD:-admin}"
@@ -302,7 +203,6 @@ services:
       VAULT_TOKEN: "dev-root-token"
       OIDC_ISSUER: "http://localhost:8080/realms/aviary"
       OIDC_INTERNAL_ISSUER: "http://keycloak:8080/realms/aviary"
-      # Keep Aviary's `{server}__{tool}` naming so frontend bindings stay stable.
       MCP_TOOL_PREFIX_SEPARATOR: "__"
       AVIARY_MCP_INJECTION_CONFIG: "/app/aviary-mcp-secret-injection.yaml"
     depends_on:
@@ -331,6 +231,8 @@ services:
       - "--storage.tsdb.retention.time=7d"
     ports:
       - "9090:9090"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./config/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheusdata:/prometheus
@@ -349,95 +251,6 @@ services:
       - grafanadata:/var/lib/grafana
     depends_on:
       - prometheus
-
-  # ── Application ─────────────────────────────────────────────
-
-  api:
-    build:
-      context: .
-      dockerfile: api/Dockerfile
-      args:
-        UV_INDEX_URL: ${UV_INDEX_URL:-}
-    ports:
-      - "8000:8000"
-    environment:
-      ENV: ${ENV:-development}
-      DATABASE_URL: postgresql+asyncpg://aviary:aviary@postgres:5432/aviary
-      REDIS_URL: redis://redis:6379/0
-      # `OIDC_PROVIDER` selects the ClaimMapper (keycloak | okta | generic).
-      OIDC_PROVIDER: keycloak
-      # Public issuer (must match token's iss claim — browser URL)
-      OIDC_ISSUER: http://localhost:8080/realms/aviary
-      # Internal issuer (container-to-container — for fetching discovery/JWKS/token exchange)
-      OIDC_INTERNAL_ISSUER: http://keycloak:8080/realms/aviary
-      OIDC_CLIENT_ID: aviary-web
-      AGENT_SUPERVISOR_URL: http://supervisor:9000
-      LITELLM_URL: http://litellm:4000
-      LITELLM_API_KEY: "sk-aviary-dev"
-      INTERNAL_API_KEY: sk-aviary-internal
-      CORS_ORIGINS: '["http://localhost:3000"]'
-      TEMPORAL_HOST: temporal:7233
-      TEMPORAL_NAMESPACE: default
-      TEMPORAL_TASK_QUEUE: aviary-workflows
-    depends_on:
-      db-migrate:
-        condition: service_completed_successfully
-      redis:
-        condition: service_healthy
-      keycloak:
-        condition: service_healthy
-      temporal:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:8000/api/health || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
-
-  web:
-    build:
-      context: ./web
-      target: runner
-      args:
-        NPM_CONFIG_REGISTRY: ${NPM_CONFIG_REGISTRY:-}
-        # NEXT_PUBLIC_* bake into the client bundle; INTERNAL_API_URL bakes
-        # into routes-manifest.json via next.config.ts's rewrites() — both
-        # must land at build time.
-        NEXT_PUBLIC_API_URL: http://localhost:8000
-        NEXT_PUBLIC_WS_URL: ws://localhost:8000
-        NEXT_PUBLIC_OIDC_ISSUER: http://localhost:8080/realms/aviary
-        NEXT_PUBLIC_OIDC_CLIENT_ID: aviary-web
-        INTERNAL_API_URL: http://api:8000
-    ports:
-      - "3000:3000"
-    environment:
-      # Server-side only: Next.js rewrites proxy → container-to-container
-      INTERNAL_API_URL: http://api:8000
-      HOSTNAME: "0.0.0.0"
-    depends_on:
-      api:
-        condition: service_healthy
-
-  admin:
-    build:
-      context: .
-      dockerfile: admin/Dockerfile
-      args:
-        UV_INDEX_URL: ${UV_INDEX_URL:-}
-    ports:
-      - "8001:8001"
-    environment:
-      DATABASE_URL: postgresql+asyncpg://aviary:aviary@postgres:5432/aviary
-    depends_on:
-      db-migrate:
-        condition: service_completed_successfully
-    healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:8001/health || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 5s
 
 volumes:
   pgdata:

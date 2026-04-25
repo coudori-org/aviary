@@ -1,24 +1,9 @@
 #!/usr/bin/env bash
-# ─────────────────────────────────────────────────────────
-# Quick Rebuild — only rebuild what changed
-#
-# Usage:
-#   ./scripts/quick-rebuild.sh runtime           # Rebuild runtime image (K3s) + rolling restart
-#   ./scripts/quick-rebuild.sh agent-supervisor  # Rebuild supervisor (compose) + restart
-#   ./scripts/quick-rebuild.sh compose          # Rebuild all docker compose services
-#   ./scripts/quick-rebuild.sh full             # docker compose down + setup-dev.sh
-#   ./scripts/quick-rebuild.sh real             # docker compose down + setup-real.sh (built mode)
-#   ./scripts/quick-rebuild.sh smoke            # Just run smoke test
-#
-# Add --smoke --backend <name> to run smoke test after rebuild:
-#   ./scripts/quick-rebuild.sh runtime --smoke --backend ollama
-# ─────────────────────────────────────────────────────────
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=_common.sh
 source "$SCRIPT_DIR/_common.sh"
-cd "$PROJECT_DIR"
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; CYAN='\033[0;36m'
 NC='\033[0m'; BOLD='\033[1m'
@@ -47,20 +32,18 @@ load_k8s_image_with_status() {
 
 rebuild_runtime() {
   echo -e "${BOLD}Rebuilding runtime (+ custom variant)...${NC}"
-  docker build ${BUILD_ARGS[@]+"${BUILD_ARGS[@]}"} -t aviary-runtime:latest ./runtime/
+  docker build ${BUILD_ARGS[@]+"${BUILD_ARGS[@]}"} -t aviary-runtime:latest "$PROJECT_DIR/runtime/"
   load_k8s_image_with_status "aviary-runtime:latest"
-  # The custom variant layers on top of the base, so rebuild it too — any
-  # change to the base should propagate to the `custom` environment.
-  docker build ${BUILD_ARGS[@]+"${BUILD_ARGS[@]}"} -f ./runtime/Dockerfile.custom -t aviary-runtime-custom:latest ./runtime/
+  docker build ${BUILD_ARGS[@]+"${BUILD_ARGS[@]}"} -f "$PROJECT_DIR/runtime/Dockerfile.custom" -t aviary-runtime-custom:latest "$PROJECT_DIR/runtime/"
   load_k8s_image_with_status "aviary-runtime-custom:latest"
   echo -e "${CYAN}Rolling restart runtime pods...${NC}"
-  docker compose exec -T k8s kubectl rollout restart deployment -n agents \
+  local_infra_compose --profile k3s exec -T k8s kubectl rollout restart deployment -n agents \
     -l aviary/role=agent-runtime 2>/dev/null || true
 }
 
 rebuild_agent_supervisor() {
-  echo -e "${BOLD}Rebuilding agent-supervisor (docker compose)...${NC}"
-  docker compose up -d --build supervisor
+  echo -e "${BOLD}Rebuilding agent-supervisor...${NC}"
+  services_compose up -d --build supervisor
 }
 
 case "$TARGET" in
@@ -70,45 +53,46 @@ case "$TARGET" in
   agent-supervisor)
     rebuild_agent_supervisor
     ;;
-  compose)
-    echo -e "${BOLD}Rebuilding compose services...${NC}"
-    docker compose up -d --build
+  services|compose)
+    echo -e "${BOLD}Rebuilding all service images...${NC}"
+    services_compose up -d --build
     ;;
   full)
-    echo -e "${BOLD}Full rebuild (DB / Vault / chat history / session workspaces preserved, K8s reset)...${NC}"
-    docker compose down
-    docker volume rm "$(basename "$PROJECT_DIR")_k8sdata" 2>/dev/null || true
-    ./scripts/setup-dev.sh
+    echo -e "${BOLD}Full rebuild (volumes preserved, K8s reset)...${NC}"
+    services_compose down
+    local_infra_compose --profile k3s down --remove-orphans
+    docker volume rm aviary-local-infra_k8sdata 2>/dev/null || true
+    "$SCRIPT_DIR/dev-up.sh"
     ;;
   full-clean)
     echo -e "${BOLD}Full clean rebuild (everything wiped)...${NC}"
-    docker compose down -v
-    ./scripts/setup-dev.sh
+    services_compose down -v
+    local_infra_compose --profile k3s down -v --remove-orphans
+    "$SCRIPT_DIR/dev-up.sh"
     ;;
   real)
-    echo -e "${BOLD}Real (built) rebuild — prod-like local run, named volumes preserved, K8s reset...${NC}"
-    docker compose down
-    docker volume rm "$(basename "$PROJECT_DIR")_k8sdata" 2>/dev/null || true
-    ./scripts/setup-real.sh
+    echo -e "${BOLD}Real (built) rebuild — volumes preserved, K8s reset...${NC}"
+    services_compose down
+    local_infra_compose --profile k3s down --remove-orphans
+    docker volume rm aviary-local-infra_k8sdata 2>/dev/null || true
+    "$SCRIPT_DIR/dev-up-real.sh"
     ;;
   smoke)
     RUN_SMOKE=true
     ;;
   help|*)
-    echo "Usage: $0 <target> [--smoke]"
-    echo ""
-    echo "Targets:"
-    echo "  runtime            Rebuild runtime image (K3s) + rolling restart"
-    echo "  agent-supervisor   Rebuild supervisor (docker compose) + restart"
-    echo "  compose            Rebuild all docker compose services (hot-reload)"
-    echo "  full               Full rebuild (dev) — preserves DB, Vault, chat history, and session workspaces"
-    echo "  full-clean         Full rebuild (dev) — wipes all volumes including chat history and workspaces"
-    echo "  real               Full rebuild in built (prod-like) mode — named volumes preserved, K8s reset"
-    echo "  smoke              Just run smoke test"
-    echo ""
-    echo "Options:"
-    echo "  --smoke              Run smoke test after rebuild (requires --backend)"
-    echo "  --backend <name>     Inference backend for smoke test (ollama|vllm)"
+    cat <<'EOF'
+Usage: ./scripts/quick-rebuild.sh <target> [--smoke --backend <name>]
+
+Targets:
+  runtime            Rebuild runtime image (K3s) + rolling restart
+  agent-supervisor   Rebuild supervisor + restart
+  services           Rebuild all service images (alias: compose)
+  full               Full rebuild — preserves volumes (DB / Vault / chat / workspaces)
+  full-clean         Full rebuild — wipes all volumes
+  real               Full rebuild in built (prod-like) mode
+  smoke              Just run smoke test
+EOF
     exit 0
     ;;
 esac
@@ -120,5 +104,5 @@ if [ "$RUN_SMOKE" = true ]; then
   fi
   echo ""
   echo -e "${BOLD}Running smoke test (backend=${SMOKE_BACKEND})...${NC}"
-  ./scripts/smoke-test.sh --no-cleanup --backend "$SMOKE_BACKEND"
+  "$SCRIPT_DIR/smoke-test.sh" --no-cleanup --backend "$SMOKE_BACKEND"
 fi

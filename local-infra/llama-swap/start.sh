@@ -2,12 +2,12 @@
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-project_dir="$(cd "$script_dir/../.." && pwd)"
+infra_dir="$(cd "$script_dir/.." && pwd)"
 config="$script_dir/config.yaml"
 
-if [ -f "$project_dir/.env" ]; then
+if [ -f "$infra_dir/.env" ]; then
   set -a
-  source "$project_dir/.env"
+  source "$infra_dir/.env"
   set +a
 fi
 

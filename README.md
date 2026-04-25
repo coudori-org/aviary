@@ -104,10 +104,12 @@ The platform is designed to be dropped into an existing organization: it plugs i
 ```bash
 git clone <repository-url>
 cd aviary
-./scripts/setup-dev.sh
+./scripts/dev-up.sh
 ```
 
-One command builds every image, starts every service, applies database migrations, and installs the Helm charts that define the runtime environments.
+`dev-up.sh` brings up the local-infra stack (`local-infra/compose.yml` — postgres, redis, keycloak, vault, temporal, litellm, observability, MCP backends) and then the project-root services (`compose.yml` — api, admin, web, agent-supervisor, workflow-worker), runs database migrations, and waits for everything to report ready.
+
+K3s + the Helm charts that define the runtime environments are no longer started by default — that flow is opt-in via `./scripts/chart-test.sh`.
 
 Once the script finishes:
 
@@ -126,12 +128,16 @@ Test accounts: `user1@test.com` and `user2@test.com` (password: `password`).
 Day-to-day commands:
 
 ```bash
-docker compose up -d          # Start
-docker compose down           # Stop (data preserved)
-docker compose down -v        # Reset everything, including data
+./scripts/dev-up.sh                          # Bring up everything (infra → services)
+./scripts/dev-down.sh                        # Stop (volumes preserved)
+./scripts/dev-down.sh --volumes              # Reset everything, including data
+
+cd infra    && docker compose up -d          # Just the infra stack
+cd services && docker compose up -d --build  # Just the services stack (assumes infra is up)
+cd services && docker compose restart api    # Single-service restart
 ```
 
-Source code is bind-mounted into the application containers, so changes to `api/`, `admin/`, and `web/` hot-reload.
+Source code is bind-mounted into the application containers, so changes to `api/`, `admin/`, `web/`, and `agent-supervisor/` hot-reload.
 
 ## Usage
 
@@ -145,28 +151,36 @@ Source code is bind-mounted into the application containers, so changes to `api/
 
 ```
 aviary/
-├── web/                  # Next.js Web UI
 ├── api/                  # API Server (user-facing)
 ├── admin/                # Admin Console (operator-facing)
-├── runtime/              # Agent Runtime (pool member)
+├── web/                  # Next.js Web UI
 ├── agent-supervisor/     # SSE proxy + Prometheus metrics
+├── workflow-worker/      # Temporal worker
+├── runtime/              # Agent Runtime image (deployed to K3s)
 ├── shared/               # Shared Python package (models, migrations, OIDC)
-├── mcp-servers/          # Example MCP server implementations
-├── charts/
-│   ├── aviary-platform/       # Cluster-wide resources (namespaces, baseline egress, shared workspace)
-│   └── aviary-environment/    # One runtime environment per release
-├── config/               # LiteLLM, Keycloak, observability configuration
-├── scripts/              # Setup and utility scripts
-└── docker-compose.yml
+├── compose.yml           # Wires the services above for local dev
+├── compose.override.yml  # bind-mounts + dev commands
+├── pyproject.toml        # uv workspace root
+├── uv.lock
+├── local-infra/          # Pre-provisioned in prod; reproduced locally
+│   ├── compose.yml             # postgres, redis, keycloak, vault, temporal,
+│   │                           # litellm, prometheus, grafana, mcp-*, k3s (profile)
+│   ├── config/                 # litellm patches, keycloak realm, vault, k3s, observability
+│   ├── mcp-servers/            # Example MCP server implementations (jira, confluence)
+│   └── scripts/                # init-db.sql, vault-init.sh
+├── charts/               # Helm charts (we own these — gitops-deployed in prod)
+│   ├── aviary-platform/        # Cluster-wide resources (namespaces, egress, shared workspace)
+│   └── aviary-environment/     # One runtime environment per release
+└── scripts/              # dev-up / dev-down / chart-test / quick-rebuild / smoke-test
 ```
 
 ## Configuration
 
-Most settings live in `docker-compose.yml`, the Helm `values-*.yaml` files under `charts/`, and the configuration files in `config/`. Notable knobs:
+Compose-level knobs live in `local-infra/compose.yml` / project-root `compose.yml`; runtime overrides go in each stack's `.env`. Helm `values-*.yaml` files under `charts/` cover K8s deploy. Notable knobs:
 
-- **Model routing** — `config/litellm/config.yaml` defines which LLM backends LiteLLM forwards to based on model name.
-- **MCP servers** — declare platform-wide MCP servers in `config/litellm/config.yaml`; operators can register additional servers at runtime through the Admin Console.
-- **Runtime environments** — each environment is a Helm release of `charts/aviary-environment` with its own image, egress rules, and resource limits. Add or clone a values file and apply it.
+- **Model routing** — `local-infra/config/litellm/config.yaml` defines which LLM backends LiteLLM forwards to based on model name.
+- **MCP servers** — declare platform-wide MCP servers in `local-infra/config/litellm/config.yaml`; operators can register additional servers at runtime through LiteLLM's UI.
+- **Runtime environments** — each environment is a Helm release of `charts/aviary-environment` with its own image, egress rules, and resource limits. Add or clone a values file and apply it via `./scripts/helm-apply.sh`.
 - **Egress policy** — a baseline `NetworkPolicy` from `charts/aviary-platform` always applies; extra rules per environment are unioned in.
 - **Secrets** — per-user credentials (model API keys, tool tokens) are stored in Vault under a per-user path and injected by the gateway, never by the runtime pods.
 

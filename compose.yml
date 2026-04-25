@@ -1,0 +1,138 @@
+name: aviary
+
+services:
+  db-migrate:
+    build:
+      context: ./shared
+      args:
+        UV_INDEX_URL: ${UV_INDEX_URL:-}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://aviary:aviary@host.docker.internal:5432/aviary}
+    restart: "no"
+
+  api:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+      args:
+        UV_INDEX_URL: ${UV_INDEX_URL:-}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "8000:8000"
+    environment:
+      ENV: ${ENV:-development}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://aviary:aviary@host.docker.internal:5432/aviary}
+      REDIS_URL: ${REDIS_URL:-redis://host.docker.internal:6379/0}
+      OIDC_PROVIDER: ${OIDC_PROVIDER:-keycloak}
+      OIDC_ISSUER: ${OIDC_ISSUER:-http://localhost:8080/realms/aviary}
+      OIDC_INTERNAL_ISSUER: ${OIDC_INTERNAL_ISSUER:-http://host.docker.internal:8080/realms/aviary}
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-aviary-web}
+      AGENT_SUPERVISOR_URL: ${AGENT_SUPERVISOR_URL:-http://supervisor:9000}
+      LITELLM_URL: ${LITELLM_URL:-http://host.docker.internal:8090}
+      LITELLM_API_KEY: ${LITELLM_API_KEY:-sk-aviary-dev}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-sk-aviary-internal}
+      CORS_ORIGINS: ${CORS_ORIGINS:-["http://localhost:3000"]}
+      TEMPORAL_HOST: ${TEMPORAL_HOST:-host.docker.internal:7233}
+      TEMPORAL_NAMESPACE: ${TEMPORAL_NAMESPACE:-default}
+      TEMPORAL_TASK_QUEUE: ${TEMPORAL_TASK_QUEUE:-aviary-workflows}
+    depends_on:
+      db-migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8000/api/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  admin:
+    build:
+      context: .
+      dockerfile: admin/Dockerfile
+      args:
+        UV_INDEX_URL: ${UV_INDEX_URL:-}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "8001:8001"
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://aviary:aviary@host.docker.internal:5432/aviary}
+    depends_on:
+      db-migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8001/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+  supervisor:
+    build:
+      context: .
+      dockerfile: agent-supervisor/Dockerfile
+      args:
+        UV_INDEX_URL: ${UV_INDEX_URL:-}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "9000:9000"
+    environment:
+      REDIS_URL: ${REDIS_URL:-redis://host.docker.internal:6379/0}
+      SUPERVISOR_DEFAULT_RUNTIME_ENDPOINT: ${SUPERVISOR_DEFAULT_RUNTIME_ENDPOINT:-http://host.docker.internal:30300}
+      METRICS_ENABLED: ${METRICS_ENABLED:-true}
+      OIDC_PROVIDER: ${OIDC_PROVIDER:-keycloak}
+      OIDC_ISSUER: ${OIDC_ISSUER:-http://localhost:8080/realms/aviary}
+      OIDC_INTERNAL_ISSUER: ${OIDC_INTERNAL_ISSUER:-http://host.docker.internal:8080/realms/aviary}
+      VAULT_ADDR: ${VAULT_ADDR:-http://host.docker.internal:8200}
+      VAULT_TOKEN: ${VAULT_TOKEN:-dev-root-token}
+      WORKER_SHARED_SECRET: ${WORKER_SHARED_SECRET:-dev-worker-secret-change-me}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9000/v1/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  workflow-worker:
+    build:
+      context: .
+      dockerfile: workflow-worker/Dockerfile
+      args:
+        UV_INDEX_URL: ${UV_INDEX_URL:-}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      TEMPORAL_HOST: ${TEMPORAL_HOST:-host.docker.internal:7233}
+      TEMPORAL_NAMESPACE: ${TEMPORAL_NAMESPACE:-default}
+      TEMPORAL_TASK_QUEUE: ${TEMPORAL_TASK_QUEUE:-aviary-workflows}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://aviary:aviary@host.docker.internal:5432/aviary}
+      REDIS_URL: ${REDIS_URL:-redis://host.docker.internal:6379/0}
+      SUPERVISOR_URL: ${SUPERVISOR_URL:-http://supervisor:9000}
+      WORKER_SHARED_SECRET: ${WORKER_SHARED_SECRET:-dev-worker-secret-change-me}
+    depends_on:
+      db-migrate:
+        condition: service_completed_successfully
+
+  web:
+    build:
+      context: ./web
+      target: runner
+      args:
+        NPM_CONFIG_REGISTRY: ${NPM_CONFIG_REGISTRY:-}
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+        NEXT_PUBLIC_WS_URL: ${NEXT_PUBLIC_WS_URL:-ws://localhost:8000}
+        NEXT_PUBLIC_OIDC_ISSUER: ${NEXT_PUBLIC_OIDC_ISSUER:-http://localhost:8080/realms/aviary}
+        NEXT_PUBLIC_OIDC_CLIENT_ID: ${NEXT_PUBLIC_OIDC_CLIENT_ID:-aviary-web}
+        INTERNAL_API_URL: ${INTERNAL_API_URL:-http://api:8000}
+    ports:
+      - "3000:3000"
+    environment:
+      INTERNAL_API_URL: ${INTERNAL_API_URL:-http://api:8000}
+      HOSTNAME: "0.0.0.0"
+    depends_on:
+      api:
+        condition: service_healthy

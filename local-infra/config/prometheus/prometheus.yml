@@ -1,0 +1,9 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: supervisor
+    static_configs:
+      # supervisor runs in the project-root compose; reach it via host-gateway
+      - targets: ["host.docker.internal:9000"]
