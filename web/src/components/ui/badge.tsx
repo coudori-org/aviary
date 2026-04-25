@@ -2,42 +2,40 @@ import * as React from "react";
 import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
 
-/**
- * Badge — Aurora Glass.
- *
- * Soft glass pill with intent-tinted wash. The `brand` variant uses the
- * aurora-A gradient for status markers that should stand out (e.g. Beta,
- * Featured).
- */
+const newVariants = {
+  default: "bg-hover text-fg-secondary border-transparent",
+  secondary: "bg-hover text-fg-secondary border-transparent",
+  outline: "bg-transparent text-fg-secondary border-border",
+  accent: "bg-accent-soft text-accent border-transparent",
+  destructive: "bg-status-error-soft text-status-error border-transparent",
+} as const;
+
+const legacyVariants = {
+  neutral: newVariants.default,
+  muted: newVariants.secondary,
+  info: "bg-status-info-soft text-status-info border-transparent",
+  success: "bg-status-live-soft text-status-live border-transparent",
+  warning: "bg-status-warn-soft text-status-warn border-transparent",
+  danger: newVariants.destructive,
+  brand: newVariants.accent,
+} as const;
+
 const badgeVariants = cva(
-  "inline-flex items-center gap-1 rounded-pill px-2 py-0.5 type-caption",
+  "inline-flex items-center gap-1 h-[22px] px-2 rounded-[5px] text-[11.5px] font-medium border",
   {
     variants: {
-      variant: {
-        neutral: "bg-white/[0.07] text-fg-primary ring-1 ring-inset ring-white/10",
-        muted: "bg-white/[0.04] text-fg-muted ring-1 ring-inset ring-white/[0.06]",
-        info: "bg-aurora-cyan/12 text-aurora-cyan ring-1 ring-inset ring-aurora-cyan/25",
-        success: "bg-aurora-mint/12 text-aurora-mint ring-1 ring-inset ring-aurora-mint/25",
-        warning: "bg-aurora-gold/14 text-aurora-gold ring-1 ring-inset ring-aurora-gold/25",
-        danger: "bg-aurora-pink/12 text-aurora-pink ring-1 ring-inset ring-aurora-pink/25",
-        brand: [
-          "bg-aurora-a text-white",
-          "shadow-[0_0_16px_rgba(123,92,255,0.35),inset_0_1px_0_rgba(255,255,255,0.2)]",
-        ].join(" "),
-      },
+      variant: { ...newVariants, ...legacyVariants },
     },
-    defaultVariants: {
-      variant: "neutral",
-    },
-  },
+    defaultVariants: { variant: "default" },
+  }
 );
 
 export interface BadgeProps
   extends React.HTMLAttributes<HTMLSpanElement>,
     VariantProps<typeof badgeVariants> {}
 
-function Badge({ className, variant, ...props }: BadgeProps) {
-  return <span className={cn(badgeVariants({ variant, className }))} {...props} />;
+export function Badge({ className, variant, ...props }: BadgeProps) {
+  return <span className={cn(badgeVariants({ variant }), className)} {...props} />;
 }
 
-export { Badge, badgeVariants };
+export { badgeVariants };
