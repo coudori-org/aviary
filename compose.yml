@@ -35,7 +35,6 @@ services:
       AGENT_SUPERVISOR_URL: ${AGENT_SUPERVISOR_URL:-http://supervisor:9000}
       LITELLM_URL: ${LITELLM_URL:-http://host.docker.internal:8090}
       LITELLM_API_KEY: ${LITELLM_API_KEY:-sk-aviary-dev}
-      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-sk-aviary-internal}
       CORS_ORIGINS: ${CORS_ORIGINS:-["http://localhost:3000"]}
       TEMPORAL_HOST: ${TEMPORAL_HOST:-host.docker.internal:7233}
       TEMPORAL_NAMESPACE: ${TEMPORAL_NAMESPACE:-default}

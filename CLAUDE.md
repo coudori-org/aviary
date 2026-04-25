@@ -318,7 +318,7 @@ API/Admin: dedicated `aviary_test` database with `NullPool`, no lifespan.
 |----------|---------|
 | `LITELLM_URL` | LiteLLM gateway URL (`http://litellm.platform.svc:4000`) — serves inference + aggregated MCP at `/mcp` |
 | `LITELLM_API_KEY` | LiteLLM master key (`sk-aviary-dev`) |
-| `AVIARY_API_URL` / `AVIARY_INTERNAL_API_KEY` | Service URLs for runtime-side tools |
+| `AVIARY_API_URL` | Service URL for runtime-side tools |
 
 ## Key Environment Variables (Agent Supervisor)
 
