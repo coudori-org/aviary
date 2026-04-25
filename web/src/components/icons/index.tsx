@@ -109,4 +109,6 @@ export {
   Key,
   Sliders,
   Tag,
+  Star,
+  ArrowUpDown,
 } from "lucide-react";

@@ -7,3 +7,4 @@ export * from "./agent";
 export * from "./chat";
 export * from "./workflow";
 export * from "./mcp";
+export * from "./marketplace";

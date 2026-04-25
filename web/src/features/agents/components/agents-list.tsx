@@ -64,8 +64,10 @@ export function AgentsList() {
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" disabled title="Available once Marketplace ships">
-              <Upload size={13} /> Import
+            <Button asChild variant="outline" size="sm">
+              <Link href={routes.marketplace}>
+                <Upload size={13} /> Import
+              </Link>
             </Button>
             <Button asChild size="sm">
               <Link href={routes.agentNew}>

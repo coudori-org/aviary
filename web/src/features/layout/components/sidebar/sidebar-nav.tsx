@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutGrid, GitBranch } from "@/components/icons";
+import { LayoutGrid, GitBranch, Store } from "@/components/icons";
 import { useSidebar } from "@/features/layout/providers/sidebar-provider";
 import { routes } from "@/lib/constants/routes";
 import { cn } from "@/lib/utils";
@@ -62,6 +62,13 @@ export function SidebarNav() {
         collapsed={collapsed}
         icon={<GitBranch size={16} strokeWidth={1.75} />}
         label="Workflows"
+      />
+      <NavLink
+        href={routes.marketplace}
+        active={pathname.startsWith(routes.marketplace)}
+        collapsed={collapsed}
+        icon={<Store size={16} strokeWidth={1.75} />}
+        label="Marketplace"
       />
     </div>
   );

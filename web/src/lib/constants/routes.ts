@@ -24,4 +24,6 @@ export const routes = {
     runId
       ? `/workflows/${id}?runId=${runId}&versionId=${versionId}`
       : `/workflows/${id}?versionId=${versionId}`,
+  marketplace: "/marketplace",
+  marketplaceItem: (id: string) => `/marketplace/${id}`,
 } as const;
