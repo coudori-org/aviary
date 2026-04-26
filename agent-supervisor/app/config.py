@@ -19,10 +19,10 @@ class Settings(BaseSettings):
     oidc_internal_issuer: str | None = None
     dev_user_sub: str = "dev-user"
 
-    # Vault — per-user credentials (GitHub token, etc.) live at
-    # secret/aviary/credentials/{sub}/{key_name}. Leave both empty to
-    # fall back to the ``secrets:`` table in config.yaml (single-machine
-    # dev without a real Vault).
+    # Vault — per-user credentials live at
+    # secret/aviary/credentials/{sub}/{namespace}/{key_name}. Leave both
+    # empty to fall back to the ``secrets:`` table in config.yaml
+    # (single-machine dev without a real Vault).
     vault_addr: str = ""
     vault_token: str = ""
 

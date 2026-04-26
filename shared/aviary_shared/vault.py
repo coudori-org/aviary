@@ -1,18 +1,25 @@
 """Async Vault KV v2 client.
 
-Per-user credentials live at ``secret/aviary/credentials/{sub}/{key_name}``
-where ``sub`` is the OIDC subject claim. Methods return ``None`` for missing
-secrets but raise ``httpx.HTTPError`` for transport failures so callers can
-tell "no credential" apart from "Vault unreachable".
+Per-user credentials live at ``secret/aviary/credentials/{sub}/{namespace}/{key_name}``
+where ``sub`` is the OIDC subject claim and ``namespace`` partitions keys by
+owner — ``aviary`` for platform-level credentials (anthropic-api-key,
+github-token), or an MCP server name (``jira``, ``confluence``, …) so two
+servers can use the same key name without colliding.
+
+Methods return ``None`` for missing secrets but raise ``httpx.HTTPError`` for
+transport failures so callers can tell "no credential" apart from "Vault
+unreachable".
 """
 
 from __future__ import annotations
 
 import httpx
 
+PLATFORM_NAMESPACE = "aviary"
 
-def credential_path(user_external_id: str, key_name: str) -> str:
-    return f"aviary/credentials/{user_external_id}/{key_name}"
+
+def credential_path(user_external_id: str, namespace: str, key_name: str) -> str:
+    return f"aviary/credentials/{user_external_id}/{namespace}/{key_name}"
 
 
 class VaultClient:
@@ -66,23 +73,33 @@ class VaultClient:
             return resp.json().get("data", {}).get("keys", [])
 
     async def read_user_credential(
-        self, user_external_id: str, key_name: str,
+        self, user_external_id: str, namespace: str, key_name: str,
     ) -> str | None:
-        secret = await self.read(credential_path(user_external_id, key_name))
+        secret = await self.read(credential_path(user_external_id, namespace, key_name))
         if secret is None:
             return None
         return secret.get("value")
 
     async def write_user_credential(
-        self, user_external_id: str, key_name: str, value: str,
+        self, user_external_id: str, namespace: str, key_name: str, value: str,
     ) -> None:
-        await self.write(credential_path(user_external_id, key_name), {"value": value})
+        await self.write(
+            credential_path(user_external_id, namespace, key_name), {"value": value},
+        )
 
     async def delete_user_credential(
-        self, user_external_id: str, key_name: str,
+        self, user_external_id: str, namespace: str, key_name: str,
     ) -> None:
-        await self.delete(credential_path(user_external_id, key_name))
+        await self.delete(credential_path(user_external_id, namespace, key_name))
 
-    async def list_user_credentials(self, user_external_id: str) -> list[str]:
+    async def list_user_namespaces(self, user_external_id: str) -> list[str]:
         keys = await self.list_keys(f"aviary/credentials/{user_external_id}")
-        return [k.rstrip("/") for k in keys]
+        return [k.rstrip("/") for k in keys if k.endswith("/")]
+
+    async def list_user_credential_keys(
+        self, user_external_id: str, namespace: str,
+    ) -> list[str]:
+        keys = await self.list_keys(
+            f"aviary/credentials/{user_external_id}/{namespace}",
+        )
+        return [k.rstrip("/") for k in keys if not k.endswith("/")]

@@ -29,7 +29,7 @@ async def test_fetch_uses_vault_when_addr_set(monkeypatch):
         creds = await vault_client.fetch_user_credentials("dev-user")
 
     assert creds == {"github_token": "ghp_from_vault"}
-    fake.assert_awaited_once_with("dev-user", "github-token")
+    fake.assert_awaited_once_with("dev-user", "aviary", "github-token")
 
 
 @pytest.mark.asyncio
@@ -38,7 +38,8 @@ async def test_fetch_falls_back_to_config_when_vault_disabled(monkeypatch, tmp_p
     cfg.write_text(
         "secrets:\n"
         "  dev-user:\n"
-        "    github-token: ghp_from_config\n"
+        "    aviary:\n"
+        "      github-token: ghp_from_config\n"
     )
     monkeypatch.setattr(settings, "vault_addr", "")
     monkeypatch.setattr(settings, "vault_token", "")
@@ -51,7 +52,12 @@ async def test_fetch_falls_back_to_config_when_vault_disabled(monkeypatch, tmp_p
 @pytest.mark.asyncio
 async def test_fetch_returns_empty_when_neither_source_has_creds(monkeypatch, tmp_path):
     cfg = tmp_path / "config.yaml"
-    cfg.write_text("secrets:\n  other-user:\n    github-token: ghp_x\n")
+    cfg.write_text(
+        "secrets:\n"
+        "  other-user:\n"
+        "    aviary:\n"
+        "      github-token: ghp_x\n"
+    )
     monkeypatch.setattr(settings, "vault_addr", "")
     monkeypatch.setattr(settings, "vault_token", "")
     monkeypatch.setattr(settings, "llm_backends_config_path", str(cfg))

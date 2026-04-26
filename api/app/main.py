@@ -13,6 +13,7 @@ from app.routers import (
     agents,
     auth,
     catalog,
+    credentials,
     inference,
     mcp,
     search,
@@ -64,6 +65,7 @@ app.include_router(
     agent_autocomplete.router, prefix="/api/agents/autocomplete", tags=["agents"]
 )
 app.include_router(catalog.router, prefix="/api/catalog", tags=["catalog"])
+app.include_router(credentials.router, prefix="/api/credentials", tags=["credentials"])
 app.include_router(inference.router, prefix="/api/inference", tags=["inference"])
 app.include_router(mcp.router, prefix="/api/mcp", tags=["mcp"])
 app.include_router(sessions.router, prefix="/api", tags=["sessions"])

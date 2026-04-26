@@ -54,16 +54,22 @@ mcp_servers:
 # Per-user credential fallback used ONLY when VAULT_ADDR is unset (no
 # real Vault available). When VAULT_ADDR is set this section is ignored
 # and credentials always come from Vault. Mirrors the Vault path
-# convention `secret/aviary/credentials/{sub}/{key_name}`.
+# convention `secret/aviary/credentials/{sub}/{namespace}/{key_name}`.
 #
 # Top-level keys are user `sub` values (OIDC claim, or DEV_USER_SUB in
-# no-IdP mode). Inner keys match the credential names the runtime/
-# LiteLLM hooks look up (e.g. `anthropic-api-key`, `github-token`,
-# `jira-token`, `confluence-token`).
+# no-IdP mode). Each user has one entry per *namespace*:
+#   - `aviary`     — platform-level credentials (anthropic-api-key,
+#                    github-token).
+#   - `<server>`   — credentials scoped to one MCP server, mapped through
+#                    `local-infra/config/litellm/mcp-secret-injection.yaml`
+#                    (so two servers can use the same key name).
 
 secrets:
   dev-user:
-    anthropic-api-key: sk-ant-...
-    github-token: ghp_...
-    jira-token: you@example.com:atlassian-api-token
-    confluence-token: you@example.com:atlassian-api-token
+    aviary:
+      anthropic-api-key: sk-ant-...
+      github-token: ghp_...
+    jira:
+      jira-token: you@example.com:atlassian-api-token
+    confluence:
+      confluence-token: you@example.com:atlassian-api-token

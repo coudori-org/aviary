@@ -10,7 +10,7 @@ import time
 from functools import lru_cache
 
 from aviary_shared.config_secrets import ConfigSecrets, load_secrets
-from aviary_shared.vault import VaultClient
+from aviary_shared.vault import PLATFORM_NAMESPACE, VaultClient
 
 from app import metrics
 from app.config import settings
@@ -38,10 +38,12 @@ async def fetch_user_credentials(user_external_id: str) -> dict[str, str]:
     try:
         if settings.vault_enabled:
             github_token = await _vault().read_user_credential(
-                user_external_id, "github-token",
+                user_external_id, PLATFORM_NAMESPACE, "github-token",
             )
         else:
-            github_token = _config_secrets().lookup(user_external_id, "github-token")
+            github_token = _config_secrets().lookup(
+                user_external_id, PLATFORM_NAMESPACE, "github-token",
+            )
     finally:
         metrics.vault_fetch_duration_seconds.record(time.monotonic() - started)
     if github_token:

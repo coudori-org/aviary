@@ -1,73 +1,34 @@
-/**
- * Credentials surface — *placeholder* until the backend exposes per-user
- * Vault management. The real path is `secret/aviary/credentials/{sub}/{key}`
- * (see CLAUDE.md). Today we only render whether a key is connected; the
- * UI mutates nothing.
- */
+import { http } from "@/lib/http";
 
-export interface CredentialKey {
-  /** Stable key as stored in Vault (also the path leaf). */
-  id: string;
-  /** Human-readable label. */
+export interface CredentialKeyStatus {
+  key: string;
   label: string;
-  /** What this credential unlocks for the user. */
-  description: string;
-  /** Whether the key is presently set in Vault. */
-  status: "connected" | "missing";
-  /** When the value was last rotated, if known. */
-  last_rotated?: string;
-  /** Where the key gets injected at runtime — surfaced in the UI for
-   *  context. */
-  scope: string;
+  configured: boolean;
 }
 
-const NOW = Date.now();
-const day = (n: number) => new Date(NOW - n * 86_400_000).toISOString();
+export interface CredentialNamespace {
+  namespace: string;
+  label: string;
+  description: string | null;
+  keys: CredentialKeyStatus[];
+}
 
-const MOCK: CredentialKey[] = [
-  {
-    id: "anthropic-api-key",
-    label: "Anthropic API key",
-    description:
-      "Used by the LLM gateway when this user calls Claude.",
-    status: "connected",
-    last_rotated: day(12),
-    scope: "Inference",
-  },
-  {
-    id: "github-token",
-    label: "GitHub token",
-    description:
-      "Authenticates `git`, `gh`, and the GitHub MCP server inside the runtime.",
-    status: "connected",
-    last_rotated: day(34),
-    scope: "Runtime · MCP",
-  },
-  {
-    id: "slack-token",
-    label: "Slack token",
-    description: "Lets the Slack MCP server post on your behalf.",
-    status: "missing",
-    scope: "MCP",
-  },
-  {
-    id: "jira-token",
-    label: "Jira token",
-    description: "Lets the Jira MCP server read tickets and transition status.",
-    status: "missing",
-    scope: "MCP",
-  },
-  {
-    id: "notion-token",
-    label: "Notion token",
-    description: "Lets the Notion MCP server read and write pages.",
-    status: "missing",
-    scope: "MCP",
-  },
-];
+export interface CredentialsResponse {
+  vault_enabled: boolean;
+  namespaces: CredentialNamespace[];
+}
 
 export const credentialsApi = {
-  async list(): Promise<CredentialKey[]> {
-    return new Promise((resolve) => setTimeout(() => resolve(MOCK), 80));
-  },
+  list: () => http.get<CredentialsResponse>("/credentials"),
+
+  write: (namespace: string, key: string, value: string) =>
+    http.put<void>(
+      `/credentials/${encodeURIComponent(namespace)}/${encodeURIComponent(key)}`,
+      { value },
+    ),
+
+  remove: (namespace: string, key: string) =>
+    http.delete(
+      `/credentials/${encodeURIComponent(namespace)}/${encodeURIComponent(key)}`,
+    ),
 };

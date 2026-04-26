@@ -31,6 +31,16 @@ class Settings(BaseSettings):
     mcp_gateway_api_key: str | None = None
     llm_backends_config_path: str = "/workspace/config.yaml"
 
+    # Per-user credentials live at
+    # secret/aviary/credentials/{sub}/{namespace}/{key_name}. Leave both
+    # empty to fall back to the ``secrets:`` table in config.yaml.
+    vault_addr: str = ""
+    vault_token: str = ""
+
+    # Per-server MCP credential injection schema. Drives the credentials
+    # screen: each server's required vault keys are surfaced to the user.
+    mcp_injection_config_path: str = "/workspace/mcp-secret-injection.yaml"
+
     # Temporal — workflow orchestration
     temporal_host: str = "temporal:7233"
     temporal_namespace: str = "default"
@@ -45,6 +55,10 @@ class Settings(BaseSettings):
     @property
     def direct_llm_mode(self) -> bool:
         return not self.llm_gateway_url
+
+    @property
+    def vault_enabled(self) -> bool:
+        return bool(self.vault_addr and self.vault_token)
 
 
 settings = Settings()

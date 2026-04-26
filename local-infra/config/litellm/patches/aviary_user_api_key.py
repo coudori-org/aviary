@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from aviary_vault_util import fetch_credential
+from aviary_vault_util import PLATFORM_NAMESPACE, fetch_credential
 
 logger = logging.getLogger("aviary.user_api_key")
 
@@ -59,7 +59,9 @@ def _register() -> None:
                 return data
 
             try:
-                api_key = await fetch_credential(sub, VAULT_CREDENTIAL_NAME)
+                api_key = await fetch_credential(
+                    sub, PLATFORM_NAMESPACE, VAULT_CREDENTIAL_NAME,
+                )
             except Exception as exc:
                 raise _auth_error(f"Credential service error: {exc}") from exc
 

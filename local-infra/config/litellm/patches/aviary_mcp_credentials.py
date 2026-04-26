@@ -329,7 +329,7 @@ def _register() -> None:
                 vault_key = mapping.get("vault_key") if isinstance(mapping, dict) else None
                 if not vault_key:
                     continue
-                secret = await fetch_credential(sub, vault_key)
+                secret = await fetch_credential(sub, server_name, vault_key)
                 if secret is None:
                     missing.append(vault_key)
                     continue
