@@ -44,9 +44,9 @@ model_list:
           - tools
           - thinking
 
-  - model_name: "local/llamacpp/qwen3.6-27b"
+  - model_name: "local/llamacpp/qwen3.6-35b"
     litellm_params:
-      model: "anthropic/llamacpp/qwen3.6-27b"
+      model: "anthropic/llamacpp/qwen3.6-35b"
       api_base: "http://host.docker.internal:9292"
       api_key: "none"
     model_info:
