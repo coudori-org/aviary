@@ -332,7 +332,7 @@ docker compose up -d --build supervisor    # or api, admin, web, workflow-worker
 | `REDIS_URL` | Redis DSN for publishing agent stream events (default: `redis://redis:6379/0`) |
 | `SUPERVISOR_DEFAULT_RUNTIME_ENDPOINT` | Fallback endpoint used when a caller passes `runtime_endpoint=null` |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | OTel Collector URL. Unset → metric export disabled. |
-| `OTEL_SERVICE_NAME` | Resource attribute `service.name` (default: `aviary-supervisor`) |
+| `OTEL_SERVICE_NAME` | Resource attribute `service.name`. Unset by default — set when enabling OTel export. |
 | `OIDC_ISSUER` | Public IdP URL (Bearer token `iss` validation on `/publish` and `/a2a`). Unset → no-IdP mode. |
 | `OIDC_INTERNAL_ISSUER` | Internal IdP URL (JWKS fetch) — leave empty for hosted IdPs |
 | `DEV_USER_SUB` | `sub` used when `OIDC_ISSUER` is unset (default: `dev-user`) |
