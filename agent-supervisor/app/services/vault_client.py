@@ -32,20 +32,25 @@ def _config_secrets() -> ConfigSecrets:
     return load_secrets(settings.llm_backends_config_path)
 
 
-async def fetch_user_credentials(user_external_id: str) -> dict[str, str]:
-    creds: dict[str, str] = {}
+async def fetch_user_credential(
+    user_external_id: str, namespace: str, key_name: str,
+) -> str | None:
     started = time.monotonic()
     try:
         if settings.vault_enabled:
-            github_token = await _vault().read_user_credential(
-                user_external_id, PLATFORM_NAMESPACE, "github-token",
+            return await _vault().read_user_credential(
+                user_external_id, namespace, key_name,
             )
-        else:
-            github_token = _config_secrets().lookup(
-                user_external_id, PLATFORM_NAMESPACE, "github-token",
-            )
+        return _config_secrets().lookup(user_external_id, namespace, key_name)
     finally:
         metrics.vault_fetch_duration_seconds.record(time.monotonic() - started)
+
+
+async def fetch_user_credentials(user_external_id: str) -> dict[str, str]:
+    creds: dict[str, str] = {}
+    github_token = await fetch_user_credential(
+        user_external_id, PLATFORM_NAMESPACE, "github-token",
+    )
     if github_token:
         creds["github_token"] = github_token
     return creds

@@ -7,16 +7,18 @@ import logging
 
 from fastapi import HTTPException
 
+from aviary_shared.vault import PLATFORM_NAMESPACE
+
 from app.auth.dependencies import IdentityContext
 from app.config import settings
 from app.services import llm_backends_resolver
-from app.services.vault_client import fetch_user_credentials
+from app.services.vault_client import fetch_user_credential, fetch_user_credentials
 
 
 logger = logging.getLogger(__name__)
 
 
-def _inject_direct_llm(agent_config: dict) -> None:
+async def _inject_direct_llm(agent_config: dict, sub: str) -> None:
     mc = agent_config.get("model_config") or {}
     backend = mc.get("backend")
     model = mc.get("model")
@@ -36,7 +38,14 @@ def _inject_direct_llm(agent_config: dict) -> None:
         mc["api_base"] = entry.api_base
     else:
         mc.pop("api_base", None)
-    mc["api_key"] = entry.api_key or ""
+    # Literal `api_key` in llm_backends wins (e.g. local models pinned to "none");
+    # otherwise fall back to per-user secret at aviary/{backend}-api-key.
+    api_key = entry.api_key
+    if api_key is None:
+        api_key = await fetch_user_credential(
+            sub, PLATFORM_NAMESPACE, f"{backend}-api-key",
+        )
+    mc["api_key"] = api_key or ""
     agent_config["model_config"] = mc
 
 
@@ -58,7 +67,7 @@ async def enrich_agent_config(body: dict, identity: IdentityContext) -> None:
         agent_config.pop("credentials", None)
 
     if settings.direct_llm_mode:
-        _inject_direct_llm(agent_config)
+        await _inject_direct_llm(agent_config, identity.sub)
     else:
         # Caller can't redirect the runtime by smuggling api_base/api_key in the body.
         mc = agent_config.get("model_config")

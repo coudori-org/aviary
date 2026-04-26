@@ -9,15 +9,19 @@
 #                (e.g. Anthropic). For host services, use
 #                http://host.k8s.internal:<port> so the runtime Pod
 #                reaches them via hostAliases.
-# - api_key      sent as ANTHROPIC_API_KEY. Any non-empty placeholder
-#                works for local backends with no auth.
+# - api_key      optional. When set wins (use it for local backends with
+#                no auth — e.g. `api_key: none`). When omitted the
+#                supervisor falls back to per-user secret at
+#                `secrets.{sub}.aviary.{backend}-api-key` (Vault or
+#                config.yaml — see ``secrets:`` below).
 # - max_tokens   caps the form's max-output-tokens slider.
 # - capabilities badges in the form (vision / tools / thinking).
 
 llm_backends:
   anthropic:
+    # No api_key here → resolved per-user from
+    # secrets.{sub}.aviary.anthropic-api-key
     - model: claude-sonnet-4-6
-      api_key: sk-ant-...
       max_tokens: 32000
       capabilities:
         - vision
@@ -26,8 +30,8 @@ llm_backends:
 
   local:
     - model: llamacpp/gemma4-26b
-      api_base: http://host.k8s.internal:9292
-      api_key: none
+      api_base: http://host.docker.internal:9292
+      api_key: none   # local server doesn't authenticate — pin literal
       max_tokens: 32000
       capabilities:
         - vision
@@ -58,8 +62,11 @@ mcp_servers:
 #
 # Top-level keys are user `sub` values (OIDC claim, or DEV_USER_SUB in
 # no-IdP mode). Each user has one entry per *namespace*:
-#   - `aviary`     — platform-level credentials (anthropic-api-key,
-#                    github-token).
+#   - `aviary`     — platform-level credentials. Convention:
+#                      {backend}-api-key  → resolved by supervisor in
+#                                           direct-LLM mode for any
+#                                           llm_backends.{backend}.<model>
+#                      github-token       → injected into agent runtime
 #   - `<server>`   — credentials scoped to one MCP server, mapped through
 #                    `local-infra/config/litellm/mcp-secret-injection.yaml`
 #                    (so two servers can use the same key name).

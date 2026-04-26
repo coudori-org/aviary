@@ -216,7 +216,7 @@ For Anthropic backends, each user's personal API key is injected from Vault via 
 
 ### Vault Credential Path Convention
 Per-user credentials live at `secret/aviary/credentials/{user_external_id}/{namespace}/{key_name}` with JSON body `{"value": "<secret_string>"}`. The `namespace` segment partitions keys by owner so two MCP servers can use the same key name without colliding:
-- `aviary` — platform-level credentials (`anthropic-api-key`, `github-token`).
+- `aviary` — platform-level credentials. Convention: `{backend}-api-key` (e.g. `anthropic-api-key`, `openai-api-key`) — supervisor resolves these in direct-LLM mode when `llm_backends.{backend}.<model>.api_key` is omitted (literal in llm_backends always wins, used for local models with `api_key: none`). Plus `github-token` for runtime git/gh auth.
 - `<mcp-server>` — credentials scoped to one MCP server (e.g. `jira/jira-token`, `confluence/confluence-token`). The mapping from server arg → vault key lives in [mcp-secret-injection.yaml](local-infra/config/litellm/mcp-secret-injection.yaml); the server's top-level key in that file is the namespace.
 
 The `user_external_id` is the OIDC `sub` claim from Keycloak.
