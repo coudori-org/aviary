@@ -1,0 +1,35 @@
+# Direct-mode LLM backends — used when LLM_GATEWAY_URL is unset.
+#
+# Copy to config.yaml and fill in the keys / endpoints you want to use.
+# Each top-level key is a `backend` shown in the agent form's backend
+# dropdown; each list entry is one selectable model.
+#
+# - `model`        bare model name the upstream provider expects
+# - `api_base`     optional — omit for providers that use the SDK default
+#                  (e.g. Anthropic). For services running on the host,
+#                  use `http://host.k8s.internal:<port>` so the runtime
+#                  Pod can reach them through hostAliases.
+# - `api_key`      string sent as ANTHROPIC_API_KEY. Use any non-empty
+#                  placeholder for local backends with no auth.
+# - `max_tokens`   drives the agent form's max-output-tokens slider cap.
+# - `capabilities` shown as badges in the form (vision / tools / thinking).
+
+llm_backends:
+  anthropic:
+    - model: claude-sonnet-4-6
+      api_key: sk-ant-...
+      max_tokens: 32000
+      capabilities:
+        - vision
+        - tools
+        - thinking
+
+  local:
+    - model: llamacpp/gemma4-26b
+      api_base: http://host.k8s.internal:9292
+      api_key: none
+      max_tokens: 32000
+      capabilities:
+        - vision
+        - tools
+        - thinking
