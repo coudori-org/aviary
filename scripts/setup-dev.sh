@@ -7,6 +7,14 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/_lib.sh"
 parse_groups "${1:-}"
 ensure_env_symlink
 
+# Service first — postgres/redis live here and local-infra services
+# (keycloak, litellm, temporal) reach them via host.docker.internal.
+if has_group service; then
+  echo "[service] building & starting services..."
+  service_compose build
+  service_compose up -d
+fi
+
 if has_group infra; then
   echo "[infra] building & starting local-infra..."
   infra_compose build
@@ -46,10 +54,4 @@ if has_group runtime; then
   k8s kubectl -n agents rollout restart deploy/aviary-env-default deploy/aviary-env-custom
   k8s kubectl -n agents rollout status  deploy/aviary-env-default --timeout=180s
   k8s kubectl -n agents rollout status  deploy/aviary-env-custom  --timeout=180s
-fi
-
-if has_group service; then
-  echo "[service] building & starting services..."
-  service_compose build
-  service_compose up -d
 fi

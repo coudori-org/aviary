@@ -7,6 +7,11 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/_lib.sh"
 parse_groups "${1:-}"
 ensure_env_symlink
 
+if has_group service; then
+  echo "[service] starting services..."
+  service_compose start
+fi
+
 if has_group infra; then
   echo "[infra] starting local-infra..."
   infra_compose start
@@ -21,9 +26,4 @@ if has_group runtime; then
     echo "[runtime] k3s not running — start infra first (or run setup-dev.sh runtime)" >&2
     exit 1
   fi
-fi
-
-if has_group service; then
-  echo "[service] starting services..."
-  service_compose start
 fi
