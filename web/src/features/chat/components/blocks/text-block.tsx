@@ -9,7 +9,7 @@ import { MarkdownContent } from "@/features/chat/components/markdown/markdown-co
  */
 export const TextBlockView = memo(function TextBlockView({ content }: { content: string }) {
   return (
-    <div className="rounded-xl rounded-tl-sm bg-elevated shadow-2 px-4 py-3">
+    <div className="rounded-xl rounded-tl-sm bg-raised border border-border-subtle shadow-sm px-4 py-3 transition-shadow">
       <div className="markdown-body break-words type-body text-fg-secondary">
         <MarkdownContent content={content} />
       </div>
