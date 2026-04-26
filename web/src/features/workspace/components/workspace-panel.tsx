@@ -51,16 +51,19 @@ interface WorkspacePanelProps {
   refreshSignal?: number;
 }
 
-const TREE_WIDTH_WITH_EDITOR = 360;
+const TREE_INNER_DEFAULT_WIDTH = 360;
+const TREE_INNER_MIN_WIDTH = 200;
+const EDITOR_INNER_MIN_WIDTH = 360;
 const TREE_ONLY_MIN_WIDTH = 240;
 const TREE_ONLY_DEFAULT_WIDTH = 360;
-const TREE_PLUS_EDITOR_MIN_WIDTH = TREE_WIDTH_WITH_EDITOR + 360;
-const TREE_PLUS_EDITOR_DEFAULT_WIDTH = TREE_WIDTH_WITH_EDITOR + 1024;
+const TREE_PLUS_EDITOR_MIN_WIDTH = TREE_INNER_MIN_WIDTH + EDITOR_INNER_MIN_WIDTH;
+const TREE_PLUS_EDITOR_DEFAULT_WIDTH = TREE_INNER_DEFAULT_WIDTH + 1024;
 const CHAT_MIN_WIDTH = 480;
 const SIDEBAR_COLLAPSED_WIDTH = 64; // tailwind w-16
 const SIDEBAR_EXPANDED_WIDTH = 280; // tailwind w-[17.5rem]
 const STORAGE_KEY_COLLAPSED = "aviary:workspace-panel-width:collapsed";
 const STORAGE_KEY_EXPANDED = "aviary:workspace-panel-width:expanded";
+const STORAGE_KEY_TREE_INNER = "aviary:workspace-tree-width";
 
 type ContextMenuState = {
   x: number;
@@ -121,6 +124,20 @@ export function WorkspacePanel({ sessionId, onClose, refreshSignal = 0 }: Worksp
     defaultWidth: editorOpen ? TREE_PLUS_EDITOR_DEFAULT_WIDTH : TREE_ONLY_DEFAULT_WIDTH,
     minWidth: editorOpen ? TREE_PLUS_EDITOR_MIN_WIDTH : TREE_ONLY_MIN_WIDTH,
     reserveForMain: sidebarWidth + CHAT_MIN_WIDTH,
+  });
+
+  // Inner splitter between tree and editor — only meaningful when editor is open.
+  // Anchored on the tree side; max keeps the editor from being squeezed below its min.
+  const {
+    width: treeInnerWidth,
+    isResizing: treeResizing,
+    onMouseDown: onTreeResizeMouseDown,
+  } = usePanelResize({
+    storageKey: STORAGE_KEY_TREE_INNER,
+    defaultWidth: TREE_INNER_DEFAULT_WIDTH,
+    minWidth: TREE_INNER_MIN_WIDTH,
+    maxWidth: Math.max(TREE_INNER_MIN_WIDTH, panelWidth - EDITOR_INNER_MIN_WIDTH),
+    side: "left",
   });
 
   // Session is switched upstream; we can't block the change, so just warn.
@@ -590,10 +607,10 @@ export function WorkspacePanel({ sessionId, onClose, refreshSignal = 0 }: Worksp
 
       <div
         className={cn(
-          "flex h-full flex-col border-l border-border-subtle",
+          "relative flex h-full flex-col border-l border-border-subtle",
           editorOpen ? "border-r border-border-subtle" : "flex-1",
         )}
-        style={editorOpen ? { width: TREE_WIDTH_WITH_EDITOR } : undefined}
+        style={editorOpen ? { width: treeInnerWidth } : undefined}
       >
         <WorkspaceToolbar
           showHidden={tree.showHidden}
@@ -606,6 +623,14 @@ export function WorkspacePanel({ sessionId, onClose, refreshSignal = 0 }: Worksp
           onExpandEditor={() => setEditorCollapsed(false)}
         />
         <FileTree tree={tree} ui={ui} />
+        {editorOpen && (
+          <ResizeHandle
+            onMouseDown={onTreeResizeMouseDown}
+            active={treeResizing}
+            align="right"
+            ariaLabel="Resize file tree"
+          />
+        )}
       </div>
 
       {editorOpen && (
@@ -761,20 +786,27 @@ function PaneView({
 interface ResizeHandleProps {
   onMouseDown: (e: React.MouseEvent) => void;
   active: boolean;
+  /** Which edge of the parent the handle sits on. Default "left" matches
+   *  the outer panel handle (sits at panel's left, drag-left grows it). */
+  align?: "left" | "right";
+  ariaLabel?: string;
 }
 
-function ResizeHandle({ onMouseDown, active }: ResizeHandleProps) {
+function ResizeHandle({
+  onMouseDown, active, align = "left", ariaLabel = "Resize workspace panel",
+}: ResizeHandleProps) {
   return (
     <div
       role="separator"
       aria-orientation="vertical"
-      aria-label="Resize workspace panel"
+      aria-label={ariaLabel}
       onMouseDown={onMouseDown}
       className={cn(
-        "group absolute top-0 bottom-0 z-20 w-2 -translate-x-1/2 cursor-col-resize",
+        "group absolute top-0 bottom-0 z-20 w-2 cursor-col-resize",
+        align === "left" ? "-translate-x-1/2" : "translate-x-1/2",
         active && "select-none",
       )}
-      style={{ left: 0 }}
+      style={align === "left" ? { left: 0 } : { right: 0 }}
     >
       <div
         className={cn(

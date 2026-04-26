@@ -7,8 +7,12 @@ interface UsePanelResizeOptions {
   storageKey: string;
   defaultWidth: number;
   minWidth: number;
-  /** Reserved viewport width for the main column — panel is clamped to fit. */
-  reserveForMain: number;
+  /** Reserved viewport width for the main column — panel is clamped to fit.
+   *  Omit for inner panels whose ceiling comes from `maxWidth` instead. */
+  reserveForMain?: number;
+  /** Hard ceiling that overrides the viewport-derived one when smaller.
+   *  Used for inner splitters whose room depends on a parent container size. */
+  maxWidth?: number;
   /** Which side of the viewport the panel is anchored to. Drag direction
    *  follows: for a left-anchored panel the handle is on its right edge and
    *  pulling rightward grows it; for a right-anchored panel it's the inverse.
@@ -17,7 +21,7 @@ interface UsePanelResizeOptions {
 }
 
 export function usePanelResize({
-  storageKey, defaultWidth, minWidth, reserveForMain, side = "right",
+  storageKey, defaultWidth, minWidth, reserveForMain, maxWidth, side = "right",
 }: UsePanelResizeOptions) {
   const [width, setWidth] = useState(defaultWidth);
   const [isResizing, setIsResizing] = useState(false);
@@ -29,14 +33,20 @@ export function usePanelResize({
 
   const clamp = useCallback((px: number): number => {
     if (typeof window === "undefined") return px;
-    const ceiling = Math.max(minWidth, window.innerWidth - reserveForMain);
+    const reserve = reserveForMain ?? 0;
+    const viewportCeiling = window.innerWidth - reserve;
+    const hardCeiling = maxWidth ?? Infinity;
+    const ceiling = Math.max(minWidth, Math.min(hardCeiling, viewportCeiling));
     return Math.max(minWidth, Math.min(ceiling, px));
-  }, [minWidth, reserveForMain]);
+  }, [minWidth, reserveForMain, maxWidth]);
 
   useEffect(() => {
     widthRef.current = width;
   }, [width]);
 
+  // Load from storage on mount / storageKey change. Intentionally NOT
+  // depending on `clamp` so re-clamp triggered by `maxWidth` change doesn't
+  // re-read storage every parent-resize frame.
   useEffect(() => {
     activeKeyRef.current = storageKey;
     let next = defaultWidth;
@@ -50,7 +60,13 @@ export function usePanelResize({
       // Private mode / quota — stay on defaultWidth.
     }
     setWidth(clamp(next));
-  }, [storageKey, defaultWidth, clamp]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [storageKey, defaultWidth]);
+
+  // Re-clamp current width when constraints (viewport / maxWidth) change.
+  useEffect(() => {
+    setWidth((w) => clamp(w));
+  }, [clamp]);
 
   useEffect(() => {
     const onResize = () => setWidth((w) => clamp(w));
