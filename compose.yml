@@ -28,6 +28,41 @@ services:
       timeout: 5s
       retries: 5
 
+  temporal:
+    image: temporalio/auto-setup:1.25
+    ports:
+      - "7233:7233"
+    environment:
+      DB: postgres12
+      DB_PORT: "5432"
+      POSTGRES_USER: aviary
+      POSTGRES_PWD: aviary
+      POSTGRES_SEEDS: postgres
+      DBNAME: temporal
+      VISIBILITY_DBNAME: temporal_visibility
+      DEFAULT_NAMESPACE: default
+      DEFAULT_NAMESPACE_RETENTION: 7d
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "temporal --address $(hostname):7233 operator cluster health | grep -q SERVING"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+
+  temporal-ui:
+    image: temporalio/ui:2.30.1
+    ports:
+      - "8233:8080"
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_CORS_ORIGINS: http://localhost:3000
+    depends_on:
+      temporal:
+        condition: service_healthy
+
   db-migrate:
     build:
       context: ./shared
@@ -65,7 +100,7 @@ services:
       MCP_GATEWAY_URL: ${MCP_GATEWAY_URL:-}
       MCP_GATEWAY_API_KEY: ${MCP_GATEWAY_API_KEY:-}
       CORS_ORIGINS: ${CORS_ORIGINS:-["http://localhost:3000"]}
-      TEMPORAL_HOST: ${TEMPORAL_HOST:-host.docker.internal:7233}
+      TEMPORAL_HOST: ${TEMPORAL_HOST:-temporal:7233}
       TEMPORAL_NAMESPACE: ${TEMPORAL_NAMESPACE:-default}
       TEMPORAL_TASK_QUEUE: ${TEMPORAL_TASK_QUEUE:-aviary-workflows}
       VAULT_ADDR: ${VAULT_ADDR-}
@@ -150,7 +185,7 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
-      TEMPORAL_HOST: ${TEMPORAL_HOST:-host.docker.internal:7233}
+      TEMPORAL_HOST: ${TEMPORAL_HOST:-temporal:7233}
       TEMPORAL_NAMESPACE: ${TEMPORAL_NAMESPACE:-default}
       TEMPORAL_TASK_QUEUE: ${TEMPORAL_TASK_QUEUE:-aviary-workflows}
       DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://aviary:aviary@postgres:5432/aviary}

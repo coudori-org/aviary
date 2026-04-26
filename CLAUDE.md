@@ -24,8 +24,8 @@ cd local-infra && docker compose restart litellm   # tweak litellm config
 
 The repo is two compose stacks that mirror the production split:
 
-- **Project root** — the services we own end-to-end (api, admin, web, agent-supervisor, workflow-worker, runtime) **plus** the only two infra deps that are non-negotiable for the app to boot: **postgres** and **redis**. Service compose alone is enough for full E2E — no IdP, Vault, LLM gateway, MCP gateway, or OTel collector required. The `runtime` service is the supervisor's default target (`DEFAULT_RUNTIME_ENDPOINT=http://runtime:3000`); the K3s-managed runtime pool is an opt-in per-agent override.
-- **[local-infra/](local-infra/)** — opt-in *local* simulation of platform-team infra that's normally external in prod (keycloak, vault, temporal, litellm, prometheus, grafana, mcp-jira/confluence, optional K3s under the `k3s` profile). These pieces depend on the service-compose postgres via `host.docker.internal:5432` — so start the service stack first.
+- **Project root** — the services we own end-to-end (api, admin, web, agent-supervisor, workflow-worker, runtime) **plus** the infra deps that are non-negotiable for the app to boot: **postgres**, **redis**, **temporal**. Service compose alone is enough for full E2E (including workflow execution) — no IdP, Vault, LLM gateway, MCP gateway, or OTel collector required. The `runtime` service is the supervisor's default target (`DEFAULT_RUNTIME_ENDPOINT=http://runtime:3000`); the K3s-managed runtime pool is an opt-in per-agent override.
+- **[local-infra/](local-infra/)** — opt-in *local* simulation of platform-team infra that's normally external in prod (keycloak, vault, litellm, prometheus, grafana, mcp-jira/confluence, optional K3s under the `k3s` profile). These pieces reach the service-compose stack via `host.docker.internal:5432` (postgres) — so start the service stack first.
 
 Both stacks read the **same `.env`** — `local-infra/.env` is a symlink to the root `.env` (created by `setup-dev.sh`). Per-stack variables are organized into `Aviary services` / `Local-infra` sections in [.env.example](.env.example) but live in one file.
 
@@ -53,14 +53,15 @@ Browser → Next.js (:3000) → API rewrite proxy → FastAPI (:8000)
 Admin Console (:8001) → DB (no infra calls)
 
 Project root (docker compose — minimal stack that boots E2E on its own):
-  postgres, redis, api, admin, agent-supervisor, workflow-worker, web,
-  db-migrate, runtime ← default agent runtime; supervisor's
-                        DEFAULT_RUNTIME_ENDPOINT points at it.
+  postgres, redis, temporal, temporal-ui (:8233), api, admin,
+  agent-supervisor, workflow-worker, web, db-migrate,
+  runtime  ← default agent runtime; supervisor's DEFAULT_RUNTIME_ENDPOINT
+            points at it.
 
 local-infra/ (docker compose — opt-in simulation of external infra):
-  Keycloak, Vault, Temporal, LiteLLM (:8090 — inference + MCP), Prometheus,
-  Grafana, mcp-jira / mcp-confluence, optional K3s (profile: k3s).
-  Reaches the service-compose postgres via host.docker.internal:5432.
+  Keycloak, Vault, LiteLLM (:8090 — inference + MCP), Prometheus, Grafana,
+  mcp-jira / mcp-confluence, optional K3s (profile: k3s). Reaches the
+  service-compose postgres via host.docker.internal:5432.
 
 K8s cluster (Helm-managed; the only thing in K3s/EKS):
   charts/aviary-platform — namespaces, baseline egress NP,
