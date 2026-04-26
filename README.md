@@ -4,185 +4,282 @@
 
 [한국어](./README.ko.md)
 
-Aviary is an open-source, multi-tenant platform for teams that want to build and operate their own AI agents. Create an agent in the web UI, give it an instruction and a set of tools (including [MCP](https://modelcontextprotocol.io/) servers), pick a model, and chat with it — or compose several agents into a workflow. Agents run inside sandboxed, network-policed runtimes so you can safely let them touch code, data, and the internet.
+Aviary lets a team build their own AI agents in a web UI — give an agent an instruction, a model, and a set of tools (including [MCP](https://modelcontextprotocol.io/) servers), then chat with it or chain several agents into a workflow. Agents run inside sandboxed runtimes with per-environment network policies, so it is safe to let them touch code, data, and the internet.
 
-The platform is designed to be dropped into an existing organization: it plugs into your identity provider (OIDC), your secrets store (Vault), your model providers (Anthropic / AWS Bedrock / self-hosted Ollama or vLLM), and your Kubernetes cluster.
+The platform is designed to drop into an existing organization: it plugs into your IdP (any OIDC provider), your secrets store (HashiCorp Vault), your model providers (Anthropic, AWS Bedrock, Ollama, vLLM, …), and your Kubernetes cluster.
 
 ## Highlights
 
-- **Web UI for the whole lifecycle** — browse, create, configure, chat with, and delete agents; compose them into workflows; monitor past runs.
-- **Bring your own models** — swap between hosted Anthropic, AWS Bedrock, and self-hosted Ollama or vLLM by changing a model name.
-- **First-class MCP tool integration** — plug in MCP servers, let users pick which tools each agent can use, and inject per-user credentials from Vault so tool calls are authenticated without leaking secrets.
-- **Agent-to-Agent (A2A)** — agents can call other agents as sub-tools via `@mention`; sub-agent activity renders inline in the parent conversation.
-- **Workflows** — chain agents and deterministic steps into DAGs backed by a durable workflow engine; resume, replay, and inspect runs from the UI.
-- **Safe by default** — every agent turn runs inside a [bubblewrap](https://github.com/containers/bubblewrap) sandbox with its own mount, PID, and network view; outbound traffic is restricted by a Kubernetes NetworkPolicy you control per environment.
-- **Multi-tenant and per-user** — OIDC login, per-user API keys and tool credentials stored in Vault, isolated workspaces per session.
-- **Declarative infrastructure** — runtime environments are Helm releases; spin up a new environment (different image, different egress policy, different model pool) by applying a values file.
-- **Production-ready ops** — Prometheus metrics, a pre-provisioned Grafana dashboard, structured logs, and a supervisor that cleanly aborts in-flight streams on user cancel.
-- **Single-command local bring-up** — one script builds the images, applies the Helm charts, and starts every service on your laptop.
+- **Web UI for the whole lifecycle** — create, configure, chat with, and delete agents; compose them into workflows; review past runs.
+- **Bring your own models** — switch between hosted Anthropic, AWS Bedrock, and self-hosted Ollama or vLLM by changing a model name.
+- **First-class MCP tool integration** — register MCP servers, pick which tools each agent can use, and inject per-user credentials from Vault.
+- **Agent-to-Agent (A2A)** — agents can call other agents as sub-tools via `@mention`; the sub-agent's activity renders inline in the parent conversation.
+- **Workflows** — chain agents and deterministic steps into DAGs on top of [Temporal](https://temporal.io/); resume, replay, and inspect runs from the UI.
+- **Safe by default** — every agent turn runs inside a [bubblewrap](https://github.com/containers/bubblewrap) sandbox; outbound traffic is restricted by a Kubernetes NetworkPolicy you control per environment.
+- **Multi-tenant, per-user** — OIDC login, per-user API keys and tool credentials in Vault, isolated workspaces per session.
+- **Declarative infrastructure** — runtime environments are Helm releases; spin up a new one (different image, different egress) by applying a values file.
 
 ## Architecture
 
 ```
         ┌──────────────────────────────────────────────────────┐
         │                      Web UI                          │
-        │    Agents · Workflows · Chat · Runs · Admin          │
+        │     Agents · Workflows · Chat · Runs · Admin         │
         └──────────────┬─────────────────────┬─────────────────┘
                        │ REST + WebSocket    │
         ┌──────────────▼─────────┐   ┌───────▼─────────────────┐
         │      API Server        │   │      Admin Console      │
-        │   Auth · CRUD · Chat   │   │  Agent / tool / secret  │
-        │   Workflow control     │   │       management        │
-        └──────┬─────────────┬───┘   └─────────────┬───────────┘
-               │             │                     │
-               │    ┌────────▼─────────────────────▼──────────┐
+        │   Auth · CRUD · Chat   │   │  Agent / workflow defs  │
+        └──────┬─────────────┬───┘   └─────────────────────────┘
+               │             │
+               │    ┌────────▼─────────────────────────────────┐
                │    │           Platform Services              │
-               │    │                                          │
                │    │   LiteLLM Gateway                        │
-               │    │    ├─ LLM routing (Anthropic, Bedrock,   │
-               │    │    │   Ollama, vLLM, …)                  │
+               │    │    ├─ LLM routing (Anthropic / Bedrock / │
+               │    │    │   Ollama / vLLM …)                  │
                │    │    └─ Aggregated MCP endpoint            │
-               │    │                                          │
                │    │   Vault · Keycloak · Postgres · Redis    │
-               │    │   Prometheus · Grafana                   │
+               │    │   Temporal · Prometheus · Grafana        │
                │    └──────────────────┬───────────────────────┘
                │                       │
         ┌──────▼───────────────────┐   │
         │    Agent Supervisor      │   │
-        │  Streams agent output,   │   │
-        │  handles abort, emits    │   │
-        │  metrics                 │   │
+        │   SSE proxy · abort ·    │   │
+        │   metrics                │   │
         └──────────────┬───────────┘   │
                        │ HTTP          │
         ┌──────────────▼───────────────▼───────────────────────┐
-        │                 Kubernetes Cluster                   │
-        │                                                      │
-        │   Runtime environments (Helm releases):              │
-        │     • default  — locked-down egress, base image      │
-        │     • custom   — open internet + extra tooling       │
-        │     • …add your own                                  │
-        │                                                      │
-        │   Each environment = Deployment + Service,           │
-        │   sharing one cluster-wide workspace volume.         │
-        │   Every pod is agent-agnostic; isolation happens     │
-        │   per-request via bubblewrap + per-session paths.    │
+        │              Agent Runtime Pool                      │
+        │   Compose: in-stack `runtime` container (default)    │
+        │   K8s   : per-env Helm releases                      │
+        │           • default — locked-down egress, base image │
+        │           • custom  — open internet + extra tooling  │
+        │   Each pod is agent-agnostic; isolation is per-      │
+        │   request via bubblewrap + per-session paths.        │
         └──────────────────────────────────────────────────────┘
 ```
 
-### Component responsibilities
+## Components
 
-- **Web UI** — Next.js application for end users and operators.
-- **API Server** — OIDC-authenticated REST + WebSocket API for agents, sessions, messages, and workflows.
-- **Admin Console** — operator UI for agent definitions, MCP server registration, and per-user credential management.
-- **Agent Supervisor** — streams agent output from the runtime pools, fans events out to connected clients, and cancels in-flight runs on user abort.
-- **LiteLLM Gateway** — single entry point for both LLM inference and MCP tool calls; routes by model name and injects per-user credentials.
-- **Agent Runtime** — the pool of pods that actually execute agents. Every pod serves every agent; per-request sandboxing is kernel-level.
-- **Shared workspace volume** — a single cluster-wide volume where each session's files live. Agents in the same session can exchange files; sessions are isolated from each other.
-- **Platform services** — Postgres (application state), Redis (pub/sub + caches), Keycloak (identity), Vault (secrets), Prometheus + Grafana (observability).
+| Component | What it does |
+|-----------|--------------|
+| **Web UI** ([web/](web/)) | Next.js frontend for end users and operators. |
+| **API Server** ([api/](api/)) | OIDC-authenticated REST + WebSocket API for agents, sessions, messages, and workflows. |
+| **Admin Console** ([admin/](admin/)) | Local-only operator UI for agent and workflow definitions. |
+| **Agent Supervisor** ([agent-supervisor/](agent-supervisor/)) | Streams agent output from the runtime, fans events out via Redis, injects per-user credentials, handles abort. |
+| **Workflow Worker** ([workflow-worker/](workflow-worker/)) | Temporal worker that drives workflow execution. |
+| **Agent Runtime** ([runtime/](runtime/)) | Node.js + [claude-agent-sdk](https://github.com/anthropics/claude-agent-sdk-typescript) container that actually runs the agent. Used both as the in-compose default and as the K8s pool image. |
+| **LiteLLM Gateway** ([local-infra/config/litellm/](local-infra/config/litellm/)) | Single entry point for both LLM inference and MCP tool calls; routes by model name and injects per-user secrets. |
+| **Helm charts** ([charts/](charts/)) | `aviary-platform` (cluster-wide: namespaces, baseline egress, shared workspace PVC) and `aviary-environment` (one release per runtime environment). |
+| **Shared Python package** ([shared/](shared/)) | SQLAlchemy models, migrations, and OIDC helpers used by API + Admin + Supervisor. |
 
 ## Tech stack
 
 | Layer | Technology |
 |-------|-----------|
 | Web UI | Next.js, TypeScript, Tailwind CSS, shadcn/ui |
-| API + Admin | Python, FastAPI, SQLAlchemy 2.0 (async), Pydantic v2 |
+| API + Admin + Supervisor | Python, FastAPI, SQLAlchemy 2.0 (async), Pydantic v2 |
 | Agent Runtime | Node.js, [claude-agent-sdk](https://github.com/anthropics/claude-agent-sdk-typescript), Claude Code CLI |
-| Agent Supervisor | Python, FastAPI, Redis, Prometheus client |
 | Workflows | [Temporal](https://temporal.io/) |
 | LLM + MCP Gateway | [LiteLLM](https://github.com/BerriAI/litellm) |
-| Identity | [Keycloak](https://www.keycloak.org/) (OIDC) |
-| Secrets | [HashiCorp Vault](https://www.vaultproject.io/) |
+| Identity | OIDC (any provider; [Keycloak](https://www.keycloak.org/) shipped for local) |
+| Secrets | [HashiCorp Vault](https://www.vaultproject.io/) (with vaultless fallback for dev) |
 | Data | PostgreSQL, Redis |
-| Observability | Prometheus, Grafana |
-| Deployment | Helm, Kubernetes (K3s for local dev, EKS for production) |
+| Observability | OpenTelemetry, Prometheus, Grafana |
+| Deployment | Helm + Kubernetes (K3s for local; EKS / your cluster for prod) |
 | Sandbox | [bubblewrap](https://github.com/containers/bubblewrap), Kubernetes NetworkPolicy |
 
-## Getting started
+## Installation
 
-**Prerequisites:** Docker Desktop (or any compatible container runtime).
+### Prerequisites
+
+- Docker (Docker Desktop, OrbStack, Rancher Desktop, …) with `docker compose v2`
+- ~10 GB free disk for images and volumes
+- Linux / macOS / WSL2
+
+### Repo layout — two compose stacks
+
+The repo is two compose stacks plus Helm charts. Everything is grouped into three controllable units:
+
+| Group | What it contains | Stack |
+|-------|------------------|-------|
+| `service` | api, admin, web, supervisor, workflow-worker, **in-compose runtime**, postgres, redis, temporal, temporal-ui | Project root [compose.yml](compose.yml) |
+| `infra` | keycloak, vault, litellm, prometheus, grafana, otel-collector, sample MCP servers (jira, confluence) | [local-infra/compose.yml](local-infra/compose.yml) |
+| `runtime` | K3s + the `aviary-environment` Helm releases (`default`, `custom`) — sandboxed per-env runtime pool | [local-infra/compose.yml](local-infra/compose.yml) (`k3s` profile) + [charts/](charts/) |
+
+The `service` stack alone is enough to chat with an agent end-to-end. `infra` and `runtime` are opt-in.
+
+### One-shot bring-up
 
 ```bash
 git clone <repository-url>
 cd aviary
-./scripts/dev-up.sh
+./scripts/setup-dev.sh        # build + start all three groups
 ```
 
-`dev-up.sh` brings up the local-infra stack (`local-infra/compose.yml` — postgres, redis, keycloak, vault, temporal, litellm, observability, MCP backends) and then the project-root services (`compose.yml` — api, admin, web, agent-supervisor, workflow-worker), runs database migrations, and waits for everything to report ready.
-
-K3s + the Helm charts that define the runtime environments are no longer started by default — that flow is opt-in via `./scripts/chart-test.sh`.
-
-Once the script finishes:
-
-| Service | URL |
-|---------|-----|
-| Web UI | http://localhost:3000 |
-| API Server | http://localhost:8000 |
-| Admin Console | http://localhost:8001 |
-| LiteLLM Proxy / UI | http://localhost:8090 · http://localhost:8090/ui |
-| Grafana | http://localhost:3001 |
-| Prometheus | http://localhost:9090 |
-| Keycloak | http://localhost:8080 |
-
-Test accounts: `user1@test.com` and `user2@test.com` (password: `password`).
-
-Day-to-day commands:
+`setup-dev.sh` accepts a comma-separated subset:
 
 ```bash
-./scripts/dev-up.sh                          # Bring up everything (infra → services)
-./scripts/dev-down.sh                        # Stop (volumes preserved)
-./scripts/dev-down.sh --volumes              # Reset everything, including data
-
-cd infra    && docker compose up -d          # Just the infra stack
-cd services && docker compose up -d --build  # Just the services stack (assumes infra is up)
-cd services && docker compose restart api    # Single-service restart
+./scripts/setup-dev.sh service              # services only — fastest path
+./scripts/setup-dev.sh service,infra        # services + IdP/Vault/LiteLLM/observability
+./scripts/setup-dev.sh runtime              # (re)build runtime images, helm apply, rollout
+./scripts/setup-dev.sh                      # everything
 ```
 
-Source code is bind-mounted into the application containers, so changes to `api/`, `admin/`, `web/`, and `agent-supervisor/` hot-reload.
+The script:
 
-## Usage
+1. Symlinks `local-infra/.env` to the root `.env` (single source of truth).
+2. For `service` / `infra`: `docker compose build` → `docker compose up -d`.
+3. For `runtime`: starts K3s, builds `aviary-runtime:latest` and `aviary-runtime-custom:latest`, imports them into K3s's containerd, renders the `aviary-platform` and two `aviary-environment` releases via `alpine/helm template | kubectl apply -f -`, and waits for rollout.
 
-1. **Log in** to the Web UI with a test account.
-2. **Create an agent** — give it a name, an instruction, and pick a model. Optionally attach MCP tools and other agents (for A2A).
-3. **Chat** with the agent. Agent output streams in real time; click *Stop* any time to abort.
-4. **Compose workflows** — chain multiple agent calls and deterministic steps into a DAG; trigger them from the UI or the API.
-5. **Monitor** activity in Grafana; operators manage agents, MCP servers, and per-user credentials from the Admin Console.
+Volumes are preserved across re-runs.
 
-## Project structure
+### Day-to-day script reference
 
+All scripts take the same `[group|csv]` argument; no argument means all groups.
+
+```bash
+./scripts/start-dev.sh  [groups]          # start stopped containers / scale runtime back to 1
+./scripts/stop-dev.sh   [groups]          # stop containers / scale runtime to 0 (volumes kept)
+./scripts/clean-dev.sh  [groups]          # remove containers AND volumes (full wipe)
+./scripts/logs.sh       {infra|runtime|service}   # tail logs for one group
 ```
-aviary/
-├── api/                  # API Server (user-facing)
-├── admin/                # Admin Console (operator-facing)
-├── web/                  # Next.js Web UI
-├── agent-supervisor/     # SSE proxy + Prometheus metrics
-├── workflow-worker/      # Temporal worker
-├── runtime/              # Agent Runtime image (deployed to K3s)
-├── shared/               # Shared Python package (models, migrations, OIDC)
-├── compose.yml           # Wires the services above for local dev
-├── compose.override.yml  # bind-mounts + dev commands
-├── pyproject.toml        # uv workspace root
-├── uv.lock
-├── local-infra/          # Pre-provisioned in prod; reproduced locally
-│   ├── compose.yml             # postgres, redis, keycloak, vault, temporal,
-│   │                           # litellm, prometheus, grafana, mcp-*, k3s (profile)
-│   ├── config/                 # litellm patches, keycloak realm, vault, k3s, observability
-│   ├── mcp-servers/            # Example MCP server implementations (jira, confluence)
-│   └── scripts/                # init-db.sql, vault-init.sh
-├── charts/               # Helm charts (we own these — gitops-deployed in prod)
-│   ├── aviary-platform/        # Cluster-wide resources (namespaces, egress, shared workspace)
-│   └── aviary-environment/     # One runtime environment per release
-└── scripts/              # dev-up / dev-down / chart-test / quick-rebuild / smoke-test
+
+For finer-grained iteration, talk to the compose stacks directly:
+
+```bash
+docker compose up -d --build api                   # rebuild + restart one root service
+docker compose restart supervisor                  # restart without rebuild
+cd local-infra && docker compose restart litellm   # tweak a LiteLLM patch / config
 ```
+
+Source for `api/`, `admin/`, `web/`, `agent-supervisor/`, and `workflow-worker/` is bind-mounted, so most changes hot-reload via `--reload` / `npm run dev` (see [compose.override.yml](compose.override.yml)).
+
+## Usage by scenario
+
+Pick the smallest group set that satisfies your scenario — there is no penalty for adding `infra` or `runtime` later.
+
+### Scenario A — Just try it (fastest path, ~2 min)
+
+Use the `service` group only. No IdP, no Vault, no LiteLLM, no K8s. The supervisor talks straight to the in-compose `runtime` container; LLM and MCP calls go to `llm_backends` / `mcp_servers` declared in [config.yaml](config.example.yaml).
+
+```bash
+cp config.example.yaml config.yaml          # edit: add your Anthropic API key under llm_backends
+./scripts/setup-dev.sh service
+```
+
+Open the Web UI, log in as `dev-user`, create an agent, chat. See [Service endpoints](#service-endpoints) below.
+
+### Scenario B — Full local stack (real OIDC, Vault, LiteLLM, MCP, observability)
+
+Add the `infra` group. Now Keycloak validates JWTs, Vault stores per-user credentials, LiteLLM aggregates LLM + MCP, Grafana shows the supervisor dashboard, and the bundled `mcp-jira` / `mcp-confluence` examples are reachable.
+
+```bash
+./scripts/setup-dev.sh service,infra
+```
+
+Set the OIDC and gateway vars in `.env` (Keycloak issuer + LiteLLM URL — see [.env.example](.env.example)) and restart `api` + `supervisor`. Test users `user1@test.com` / `user2@test.com` (password `password`) are seeded in the Keycloak realm.
+
+### Scenario C — Sandboxed per-environment runtime pool (K8s)
+
+Add the `runtime` group when you need:
+
+- per-environment egress policies (locked-down vs. open internet),
+- per-environment custom images (extra CLIs, language toolchains),
+- a realistic preview of the K8s deploy you will run in prod.
+
+```bash
+./scripts/setup-dev.sh                       # all three groups
+# or, on top of an existing service+infra stack:
+./scripts/setup-dev.sh runtime
+```
+
+Two runtime environments come pre-configured:
+
+- **default** — base `aviary-runtime` image, locked-down egress (DNS + platform only). NodePort `30300`.
+- **custom** — `aviary-runtime-custom` image (base + `cowsay` as a demo extra), `extraEgress: 0.0.0.0/0`. NodePort `30301`.
+
+Per-agent routing: in the Admin Console, set `agent.runtime_endpoint` to `http://host.docker.internal:30300` (or `:30301`) to send that agent to the K8s pool instead of the in-compose runtime.
+
+### Scenario D — Iterating on a single component
+
+```bash
+# Edit Python in api/ — already hot-reloads. Edit the Dockerfile? Rebuild:
+docker compose up -d --build api
+
+# Edit a LiteLLM patch (local-infra/config/litellm/patches/*.py):
+cd local-infra && docker compose restart litellm
+
+# Edit runtime/src/* or a Helm values file → must rebuild image + redeploy:
+./scripts/setup-dev.sh runtime
+
+# Watch logs while iterating:
+./scripts/logs.sh service       # all root services
+./scripts/logs.sh infra         # local-infra (litellm, keycloak, …)
+./scripts/logs.sh runtime       # K8s runtime pods
+```
+
+### Scenario E — Pause / resume / wipe
+
+```bash
+./scripts/stop-dev.sh                # stop everything; volumes (DB, Vault, workspace) preserved
+./scripts/start-dev.sh               # bring it back, no rebuild
+
+./scripts/stop-dev.sh runtime        # only scale runtime pool to 0 (save laptop battery)
+./scripts/start-dev.sh runtime
+
+./scripts/clean-dev.sh service       # wipe app DB + Redis but keep Vault / Keycloak / K3s state
+./scripts/clean-dev.sh               # nuke everything, full reset
+```
+
+## Service endpoints
+
+After `setup-dev.sh` finishes, these URLs are reachable on the host. Endpoints per group:
+
+### `service` group
+
+| Service | URL | Purpose |
+|---------|-----|---------|
+| Web UI | http://localhost:3000 | End-user app |
+| API Server | http://localhost:8000 | REST + WebSocket |
+| Admin Console | http://localhost:8001 | Operator UI (no auth, local-only) |
+| Agent Supervisor | http://localhost:9000 | Bearer-gated; streaming proxy |
+| Temporal UI | http://localhost:8233 | Workflow inspector |
+| Postgres | localhost:5432 | App + LiteLLM databases |
+| Redis | localhost:6379 | Pub/sub, unread counters |
+| Temporal | localhost:7233 | gRPC (workers connect here) |
+
+### `infra` group
+
+| Service | URL | Login |
+|---------|-----|-------|
+| Keycloak | http://localhost:8080 | `admin` / `admin` |
+| Vault | http://localhost:8200 | Token: `aviary-dev-token` |
+| LiteLLM Proxy | http://localhost:8090 | Master key `sk-aviary-dev` |
+| LiteLLM UI | http://localhost:8090/ui | `admin` / `admin` |
+| LiteLLM MCP endpoint | http://localhost:8090/mcp | Aggregated MCP |
+| Grafana | http://localhost:3001 | Anonymous admin; Aviary Supervisor dashboard auto-provisioned |
+| Prometheus | http://localhost:9090 | — |
+| OTel Collector | localhost:4317 (gRPC) / 4318 (HTTP) | OTLP receiver |
+
+Test accounts (in Keycloak realm `aviary`): `user1@test.com`, `user2@test.com`, password `password`.
+
+### `runtime` group
+
+| Endpoint | Purpose |
+|----------|---------|
+| http://localhost:30300 | `aviary-env-default` runtime pool (NodePort) |
+| http://localhost:30301 | `aviary-env-custom` runtime pool (NodePort) |
+| `kubectl` via container | `cd local-infra && docker compose --profile k3s exec k8s kubectl …` |
 
 ## Configuration
 
-Compose-level knobs live in `local-infra/compose.yml` / project-root `compose.yml`; runtime overrides go in each stack's `.env`. Helm `values-*.yaml` files under `charts/` cover K8s deploy. Notable knobs:
-
-- **Model routing** — `local-infra/config/litellm/config.yaml` defines which LLM backends LiteLLM forwards to based on model name.
-- **MCP servers** — declare platform-wide MCP servers in `local-infra/config/litellm/config.yaml`; operators can register additional servers at runtime through LiteLLM's UI.
-- **Runtime environments** — each environment is a Helm release of `charts/aviary-environment` with its own image, egress rules, and resource limits. Add or clone a values file and apply it via `./scripts/helm-apply.sh`.
-- **Egress policy** — a baseline `NetworkPolicy` from `charts/aviary-platform` always applies; extra rules per environment are unioned in.
-- **Secrets** — per-user credentials (model API keys, tool tokens) are stored in Vault under a per-user path and injected by the gateway, never by the runtime pods.
+- **Single .env** — both compose stacks share [.env](.env.example) at the project root; `local-infra/.env` is auto-symlinked.
+- **`config.yaml`** — declares LLM backends, MCP servers, and (in vaultless dev) per-user secrets when `VAULT_ADDR` / `VAULT_TOKEN` and `LLM_GATEWAY_URL` / `MCP_GATEWAY_URL` are unset. Start from [config.example.yaml](config.example.yaml).
+- **LiteLLM** — model routing and platform-wide MCP servers in [local-infra/config/litellm/config.yaml](local-infra/config/litellm/config.yaml); per-server Vault key map in [mcp-secret-injection.yaml](local-infra/config/litellm/mcp-secret-injection.yaml).
+- **Runtime environments** — each is a Helm release of `charts/aviary-environment`. Clone a `values-*.yaml`, set `image`, `extraEgress`, resource limits, and re-run `./scripts/setup-dev.sh runtime`.
+- **Egress policy** — baseline `NetworkPolicy` from `charts/aviary-platform` is always applied; per-env `extraEgress` is unioned in.
+- **Secrets** — per-user credentials live at `secret/aviary/credentials/{user_sub}/{namespace}/{key}` in Vault (or under the `secrets:` block in `config.yaml` for the vaultless fallback).
 
 ## Testing
 
@@ -192,14 +289,16 @@ docker compose exec admin pytest tests/ -v
 cd agent-supervisor && uv run pytest tests/ -v
 ```
 
+API/Admin tests run against a dedicated `aviary_test` Postgres database with `NullPool`, no lifespan.
+
 ## Deployment
 
-The same Helm charts run in local K3s and in production clusters. Moving to production is primarily a matter of:
+The same Helm charts run in local K3s and in production clusters. Moving to production is primarily:
 
-- pointing the charts at a production-grade `StorageClass` for the shared workspace volume (for example EFS on AWS),
-- replacing the example Keycloak realm and Vault bootstrap with your organization's IdP and secrets store,
-- supplying production-appropriate model credentials and MCP server configurations,
-- and exposing the Web UI, API, and LiteLLM through your ingress of choice.
+- pointing `aviary-platform` at a production-grade RWX `StorageClass` for the shared workspace PVC (e.g. EFS on AWS),
+- replacing the example Keycloak realm and Vault bootstrap with your IdP and secrets store,
+- supplying production model credentials and MCP server configurations,
+- exposing Web, API, and LiteLLM through your ingress.
 
 ## License
 
