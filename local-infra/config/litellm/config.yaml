@@ -1,18 +1,18 @@
 model_list:
   # --- Anthropic (Claude) ---
-  - model_name: "anthropic/claude-sonnet-4-6"
-    litellm_params:
-      model: "anthropic/claude-sonnet-4-6"
-      api_key: "sk-placeholder"
-    model_info:
-      max_input_tokens: 1015808
-      max_output_tokens: 32768
-      max_tokens: 32000
-      _ui:
-        capabilities:
-          - vision
-          - tools
-          - thinking
+  # - model_name: "anthropic/claude-sonnet-4-6"
+  #   litellm_params:
+  #     model: "anthropic/claude-sonnet-4-6"
+  #     api_key: "sk-placeholder"
+  #   model_info:
+  #     max_input_tokens: 1015808
+  #     max_output_tokens: 32768
+  #     max_tokens: 32000
+  #     _ui:
+  #       capabilities:
+  #         - vision
+  #         - tools
+  #         - thinking
 
   # - model_name: "anthropic/claude-opus-4-6"
   #   litellm_params:
