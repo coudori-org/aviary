@@ -7,8 +7,7 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/_lib.sh"
 parse_groups "${1:-}"
 ensure_env_symlink
 
-# Service first — postgres/redis live here and local-infra services
-# (keycloak, litellm, temporal) reach them via host.docker.internal.
+# Services first (postgres/redis); infra services depend on them via host.docker.internal.
 if has_group service; then
   echo "[service] building & starting services..."
   service_compose build

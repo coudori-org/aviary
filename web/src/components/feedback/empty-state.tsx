@@ -9,12 +9,6 @@ interface EmptyStateProps {
   className?: string;
 }
 
-/**
- * EmptyState — single source of truth for "nothing to show" UI.
- *
- * Centered icon block, title, optional description, optional action.
- * Used by lists, search results, and any feature that can be empty.
- */
 function EmptyState({ icon, title, description, action, className }: EmptyStateProps) {
   return (
     <div

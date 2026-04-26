@@ -1,12 +1,4 @@
-# Template for building a customized runtime image on top of the base.
-# Used by the `custom` Helm environment; copy + edit this file (and the
-# corresponding values-<name>.yaml) when you need a differently-provisioned
-# environment. Everything else — sandbox wrapper, Claude SDK, Python venv
-# bootstrap — is inherited verbatim from the base image.
-#
-# Add whatever your environment needs the same way `cowsay` is installed
-# below.
-
+# Template for per-environment customization on top of the base runtime image.
 FROM aviary-runtime:latest
 
 USER root

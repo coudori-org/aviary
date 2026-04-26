@@ -1,11 +1,3 @@
-"""Aviary Admin Console — platform management service.
-
-No authentication. Local access only.
-Manages agent and workflow definitions. Runtime infrastructure
-(environments) is pre-provisioned via Helm/GitOps — the admin console never
-touches K8s or per-agent deployments.
-"""
-
 import logging
 
 from fastapi import FastAPI

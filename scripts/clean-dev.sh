@@ -6,8 +6,7 @@ set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/_lib.sh"
 parse_groups "${1:-}"
 
-# Order: services → runtime → infra. Runtime needs k3s up to delete cleanly;
-# if infra is also being cleaned the k3s volume removal handles the rest.
+# Services first; runtime needs k3s up; infra last so its volume wipe handles k3s.
 if has_group service; then
   echo "[service] removing services and volumes..."
   service_compose down -v --remove-orphans

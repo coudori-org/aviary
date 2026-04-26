@@ -37,11 +37,9 @@ const LLM_GATEWAY_API_KEY = process.env.LLM_GATEWAY_API_KEY || undefined;
 const MCP_GATEWAY_URL = process.env.MCP_GATEWAY_URL || undefined;
 const MCP_GATEWAY_API_KEY = process.env.MCP_GATEWAY_API_KEY || undefined;
 
-// Force SDK to use our bwrap wrapper instead of its bundled binary.
 const CLAUDE_CLI_PATH = "/usr/local/bin/claude";
 
-// Model tier env vars — all remapped to agent's configured model so CLI
-// internal tasks (WebFetch summarization, subagents) route through the gateway.
+// All tiers remapped to the agent's model so CLI internal tasks route through the gateway.
 const MODEL_TIER_KEYS = [
   "ANTHROPIC_MODEL",
   "ANTHROPIC_SMALL_FAST_MODEL",
@@ -51,8 +49,7 @@ const MODEL_TIER_KEYS = [
   "CLAUDE_CODE_SUBAGENT_MODEL",
 ] as const;
 
-// Pass-through env vars — must be explicit because SDK env dict replaces parent env.
-// PATH is required for the subprocess to find `node` and `claude` binaries.
+// Must be explicit: SDK env dict replaces parent env.
 const PASSTHROUGH_KEYS = ["PATH"] as const;
 
 
@@ -125,7 +122,6 @@ function buildMcpServers(
 ): Record<string, any> | undefined {
   const servers: Record<string, any> = {};
 
-  // Legacy stdio servers from ConfigMap / API
   if (agentConfig.mcp_servers) {
     Object.assign(servers, agentConfig.mcp_servers);
   }
@@ -376,12 +372,10 @@ function attachmentsToBlocks(atts: Attachment[]): Array<Record<string, unknown>>
     }));
 }
 
-/** Assemble SDK-compatible content from content_parts. */
 function buildMessageContent(
   parts: ContentPart[],
 ): string | Array<Record<string, unknown>> {
   const hasAttachments = parts.some((p) => p.attachments?.length);
-  // Single text-only part — pass as plain string (most common case)
   if (!hasAttachments && parts.length === 1 && parts[0].text) {
     return parts[0].text;
   }
@@ -437,10 +431,7 @@ export async function* processMessage(
   }
   const canResume = hasSessionHistory(claudeDir, sessionId);
 
-  // Workflow-only setup: pre-copy upstream artifacts into the session's
-  // shared dir and point the sandbox at the run's artifact tree. The
-  // copy runs BEFORE the SDK spawns so agent code sees every requested
-  // upstream as `/workspace/{name}` from turn zero.
+  // Pre-copy upstream artifacts BEFORE SDK spawn so they're at /workspace/{name} from turn zero.
   const workflowRun = agentConfig.workflow_run;
   const declaredArtifacts = Array.isArray(agentConfig.artifacts)
     ? agentConfig.artifacts.filter((a): a is ArtifactSpec => !!a?.name)
@@ -465,7 +456,6 @@ export async function* processMessage(
   ].filter(Boolean).join("\n");
 
   const env: Record<string, string> = {
-    // Unset → SDK uses api.anthropic.com.
     ...(anthropicBaseUrl ? { ANTHROPIC_BASE_URL: anthropicBaseUrl } : {}),
     ANTHROPIC_API_KEY: anthropicApiKey,
     ...(customHeaderLines ? { ANTHROPIC_CUSTOM_HEADERS: customHeaderLines } : {}),
@@ -483,13 +473,10 @@ export async function* processMessage(
     ...Object.fromEntries(
       PASSTHROUGH_KEYS.filter((k) => process.env[k]).map((k) => [k, process.env[k]!]),
     ),
-    // GitHub token — enables git/gh CLI authentication inside the sandbox.
-    // GH_TOKEN is used by gh CLI, GITHUB_TOKEN by git credential helper.
     ...(agentConfig.credentials?.github_token
       ? {
           GITHUB_TOKEN: agentConfig.credentials.github_token,
           GH_TOKEN: agentConfig.credentials.github_token,
-          // Configure git to use our credential helper for github.com
           GIT_CONFIG_COUNT: "1",
           GIT_CONFIG_KEY_0: "credential.https://github.com.helper",
           GIT_CONFIG_VALUE_0: "/app/scripts/git-credential-github.sh",
@@ -662,15 +649,10 @@ export async function* processMessage(
           elapsed_time_seconds: msg.elapsed_time_seconds,
         };
       } else if (msg.type === "result") {
-        // Emit final text if nothing was streamed
         if (msg.result && !acc.fullResponse) {
           acc.fullResponse = msg.result;
           yield { type: "chunk", content: msg.result };
         }
-        // Emit result metadata (cost, usage, duration). SDK-native
-        // `msg.structured_output` only surfaces when the built-in
-        // outputFormat option was used — unused in our caller paths now,
-        // but kept so the shape is forward-compatible.
         yield {
           type: "result",
           session_id: msg.session_id,

@@ -31,8 +31,6 @@ export function AgentsList() {
   const [query, setQuery] = React.useState("");
   const [view, setView] = React.useState<View>("grid");
 
-  // Backend has no published/imported yet — every owned agent is "private".
-  // Marketplace (Stage C1) will start tagging real kinds.
   const kindFor = (): AssetKind => "private";
 
   const counts: Record<Filter, number> = {

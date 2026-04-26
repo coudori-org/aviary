@@ -1,20 +1,3 @@
-"""Redis client — responsibility split with the supervisor:
-
-- **Supervisor writes** stream events (chunk / thinking / tool_use / …)
-  because they originate in the SSE stream it drives.
-- **API writes** DB-consistent events and per-user state because only the
-  API knows the DB ids and the session participant list:
-    * `user_message` — broadcast after the user's WS message is saved
-    * `done` / `cancelled` — broadcast after agent message persistence
-    * `error` — pre-stream / save-path failures
-    * `session:{id}:unread:{uid}` counters
-
-Both publish to the same `session:{id}:events` channel; the API WS relay
-subscribes and forwards every event to connected clients. Broadcast via
-Redis (rather than direct WS sends) keeps the design ready for
-multi-participant / multi-replica deployments.
-"""
-
 from __future__ import annotations
 
 import json
@@ -105,19 +88,12 @@ async def publish_user_event(user_id: str, event: dict) -> None:
         logger.error("publish_user_event failed for user %s", user_id, exc_info=True)
 
 
-# ── Writes owned by the API (DB-consistent events + unread) ────────────────
-
 async def publish_message(session_id: str, event: dict) -> None:
-    """Broadcast a DB-consistent event to every WS watching this session."""
     if not _client:
-        # Redis unavailable at startup — skipped silently; init_redis already
-        # logged a warning. No per-event spam.
         return
     try:
         await _client.publish(_session_channel(session_id), json.dumps(event))
     except redis.RedisError:
-        # Connected-then-failed: every session watching this message just
-        # lost the update. Operators need to see this.
         logger.error("publish_message failed for session %s", session_id, exc_info=True)
 
 

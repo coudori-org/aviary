@@ -32,11 +32,9 @@ app.use(healthRouter);
 
 const manager = new SessionManager();
 
-// Track active AbortControllers per (session_id, agent_id) for cancellation.
 const activeAbortControllers = new Map<string, AbortController>();
 const abortKey = (sessionId: string, agentId: string) => `${sessionId}/${agentId}`;
 
-// Startup
 fs.mkdirSync(WORKSPACE_ROOT, { recursive: true });
 setReady(true);
 
@@ -146,7 +144,6 @@ app.post("/abort/:sessionId", (req, res) => {
     return;
   }
 
-  // No agent_id provided — abort every active stream for this session.
   const aborted: string[] = [];
   for (const key of Array.from(activeAbortControllers.keys())) {
     if (key.startsWith(`${sessionId}/`)) {

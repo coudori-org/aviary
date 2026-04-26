@@ -1,10 +1,3 @@
-"""Workflow CRUD + versioning — owner-only.
-
-Run execution is driven by a Temporal worker (separate service). This module
-handles the synchronous slice: workflow CRUD, deploy/edit state transitions,
-and version history.
-"""
-
 import logging
 import uuid
 
@@ -35,8 +28,7 @@ async def create_workflow(db: AsyncSession, user: User, data: WorkflowCreate) ->
     )
     db.add(workflow)
     await db.flush()
-    # Load `versions` (empty) so WorkflowResponse can read
-    # `current_version` without lazy-loading under an async session.
+    # Eager-load `versions` so current_version reads without async lazy-load.
     await db.refresh(workflow, attribute_names=["versions"])
     return workflow
 
@@ -71,8 +63,7 @@ async def update_workflow(db: AsyncSession, workflow: Workflow, data: WorkflowUp
         workflow.definition = data.definition
     if data.model_config_json is not None:
         workflow.model_config_json = data.model_config_json.model_dump()
-    # Treat an explicitly-set empty string as a clear (NULL) so admin can
-    # revert a workflow back to the default environment.
+    # Empty string clears runtime_endpoint to revert to the default environment.
     if data.runtime_endpoint is not None:
         workflow.runtime_endpoint = data.runtime_endpoint.strip() or None
     await db.flush()
@@ -81,10 +72,8 @@ async def update_workflow(db: AsyncSession, workflow: Workflow, data: WorkflowUp
 
 
 async def delete_workflow(db: AsyncSession, workflow: Workflow) -> None:
-    # Terminate any in-flight Temporal workflows before the DB delete so we
-    # don't leave orphan workers writing against rows that are about to
-    # CASCADE-drop. Force-terminate (no graceful signal) — the user is
-    # wiping the workflow, not stopping one run.
+    # Force-terminate in-flight runs before DB cascade so workers don't write
+    # against rows about to drop.
     in_flight = (await db.execute(
         select(WorkflowRun.id).where(
             WorkflowRun.workflow_id == workflow.id,
@@ -99,10 +88,7 @@ async def delete_workflow(db: AsyncSession, workflow: Workflow) -> None:
         except Exception:  # noqa: BLE001
             logger.warning("Temporal terminate failed for run=%s", run_id, exc_info=True)
 
-    # Collect every distinct root_run_id (or run.id when root is null) for
-    # this workflow so we can ask the supervisor to wipe each artifact tree
-    # before the CASCADE drops the rows. Best-effort — artifact removal is
-    # not transactional with the DB delete.
+    # Best-effort artifact cleanup before cascade (not transactional with DB delete).
     rows = await db.execute(
         select(distinct(func.coalesce(WorkflowRun.root_run_id, WorkflowRun.id)))
         .where(WorkflowRun.workflow_id == workflow.id)
@@ -122,14 +108,7 @@ async def delete_workflow(db: AsyncSession, workflow: Workflow) -> None:
 async def _cleanup_terminal_drafts(
     db: AsyncSession, workflow_id: uuid.UUID,
 ) -> None:
-    """Delete finished draft runs for this workflow.
-
-    Both deploy and cancel-edit close out an edit cycle — the scratch
-    runs produced during that cycle are no longer interesting and
-    clutter the history list. Cascade FKs (workflow_node_runs and
-    sessions via workflow_run_id) remove dependent rows in one go.
-    In-flight drafts are spared so the user can still watch them.
-    """
+    # In-flight drafts are spared so the user can keep watching them.
     await db.execute(
         delete(WorkflowRun).where(
             WorkflowRun.workflow_id == workflow_id,
@@ -140,10 +119,6 @@ async def _cleanup_terminal_drafts(
 
 
 async def deploy_workflow(db: AsyncSession, workflow: Workflow, user: User) -> WorkflowVersion:
-    """Snapshot the current definition as a new immutable version. Each
-    deploy always creates a new version — the user action itself is what
-    we're recording — and terminal draft runs from the previous edit
-    cycle are cleaned up here (the natural "commit" boundary)."""
     next_version = (workflow.current_version or 0) + 1
 
     version = WorkflowVersion(
@@ -158,8 +133,6 @@ async def deploy_workflow(db: AsyncSession, workflow: Workflow, user: User) -> W
 
     await _cleanup_terminal_drafts(db, workflow.id)
     await db.flush()
-    # Eager-attach so WorkflowResponse.current_version stays correct after
-    # this action (the relationship is cached on the instance).
     await db.refresh(workflow, attribute_names=["versions"])
     return version
 
@@ -167,18 +140,12 @@ async def deploy_workflow(db: AsyncSession, workflow: Workflow, user: User) -> W
 async def mark_workflow_draft(db: AsyncSession, workflow: Workflow) -> Workflow:
     workflow.status = "draft"
     await db.flush()
-    # `updated_at` uses `onupdate=func.now()`; refresh so Pydantic's
-    # from_attributes serialization doesn't trigger a lazy load.
     await db.refresh(workflow)
     return workflow
 
 
 async def cancel_edit(db: AsyncSession, workflow: Workflow) -> Workflow:
-    """Discard draft edits and restore the latest deployed version —
-    inverse of ``mark_workflow_draft``. Fails when no prior deploy
-    exists; terminal draft runs from the abandoned cycle are cleaned
-    up alongside the reset."""
-    # `versions` is eager-loaded by get_workflow → ordered desc by version.
+    # `versions` is eager-loaded by get_workflow, ordered desc by version.
     latest_version = workflow.versions[0] if workflow.versions else None
     if latest_version is None:
         raise StateError("Workflow has no deployed version to revert to")
@@ -194,5 +161,4 @@ async def cancel_edit(db: AsyncSession, workflow: Workflow) -> Workflow:
 
 
 def list_workflow_versions(workflow: Workflow) -> list[WorkflowVersion]:
-    """Eager-loaded ``versions`` relationship is already ordered desc."""
     return list(workflow.versions)

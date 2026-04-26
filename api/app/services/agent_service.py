@@ -1,5 +1,3 @@
-"""Agent CRUD — owner-only."""
-
 import logging
 import uuid
 
@@ -74,16 +72,12 @@ async def update_agent(db: AsyncSession, agent: Agent, data: AgentUpdate) -> Age
         agent.icon = data.icon
 
     await db.flush()
-    # `updated_at` is server-updated via onupdate=func.now(); refresh so
-    # Pydantic from_attributes doesn't lazy-load it after the session
-    # commits on the way out.
+    # Refresh so server-updated `updated_at` doesn't lazy-load post-commit.
     await db.refresh(agent)
     return agent
 
 
 async def delete_agent(db: AsyncSession, agent: Agent) -> None:
-    """Hard-delete the agent and every session (with messages + runtime
-    workspace) that belongs to it."""
     from app.services import session_service
 
     sessions = (await db.execute(

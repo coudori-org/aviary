@@ -6,7 +6,6 @@ set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/_lib.sh"
 parse_groups "${1:-}"
 
-# Reverse order — service (postgres/redis) goes down last.
 if has_group runtime; then
   if k3s_running; then
     echo "[runtime] scaling runtime to 0..."

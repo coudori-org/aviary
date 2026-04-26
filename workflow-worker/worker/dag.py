@@ -14,7 +14,6 @@ class PlanNode:
 
 
 def build_topological_plan(definition: dict) -> list[PlanNode]:
-    """Kahn's algorithm. Raises ValueError on cycles or missing edge ends."""
     nodes = {n["id"]: n for n in definition.get("nodes", [])}
     edges = definition.get("edges", [])
     in_deg: dict[str, int] = defaultdict(int)

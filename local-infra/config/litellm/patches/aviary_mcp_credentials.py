@@ -36,8 +36,6 @@ _user_sub_cv: contextvars.ContextVar[str | None] = contextvars.ContextVar(
 )
 
 
-# ── Injection config ───────────────────────────────────────────────────────
-
 _INJECTION_CFG: dict[str, dict] = {}
 
 
@@ -71,8 +69,6 @@ def _injected_args_for(server_name: str, tool_name: str) -> dict[str, dict]:
     return result
 
 
-# ── Header helpers ─────────────────────────────────────────────────────────
-
 def _sub_from_headers(raw_headers: Any) -> str | None:
     if not isinstance(raw_headers, dict):
         return None
@@ -93,8 +89,6 @@ def _allowed_tools_from_headers(raw_headers: Any) -> set[str] | None:
         raw = ",".join(raw)
     return {t.strip() for t in str(raw).split(",") if t.strip()}
 
-
-# ── LiteLLM monkey-patches ─────────────────────────────────────────────────
 
 def _install_server_name_forwarder() -> None:
     """Carry ``server_name`` through ``_convert_mcp_to_llm_format`` — LiteLLM
@@ -153,9 +147,7 @@ def _unprefix_tool_name(prefixed: str, server_name: str) -> str:
 async def _rbac_filter_tools(
     server: Any, tools: list, raw_headers: Any, user_sub: str | None,
 ) -> list:
-    """RBAC hook — today a no-op. LiteLLM's ``allow_all_keys`` flag covers
-    the binary public/private model. Fine-grained per-user grants plug in
-    here when they land."""
+    # Placeholder for per-user RBAC grants.
     return tools
 
 
@@ -270,8 +262,6 @@ def _install_auth_noise_filter() -> None:
 
     _logging.getLogger("LiteLLM Proxy").addFilter(_VirtualKeyAssertFilter())
 
-
-# ── tools/call hook: Vault injection ───────────────────────────────────────
 
 try:
     from litellm.integrations.custom_logger import CustomLogger  # type: ignore[import-untyped]

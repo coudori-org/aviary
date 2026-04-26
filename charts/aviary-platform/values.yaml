@@ -33,9 +33,7 @@ externalServices:
 imageWarmer:
   enabled: false
   image: aviary-runtime:latest
-  # Sleep container keeping the DaemonSet alive. Override to a mirrored path
-  # (e.g. <artifactory>/registry.k8s.io/pause:3.9) in air-gapped environments
-  # where registry.k8s.io is unreachable.
+  # Override to a mirrored path in air-gapped environments.
   pauseImage: registry.k8s.io/pause:3.9
 
 # Single RWX PVC shared across every runtime environment. Envs are capability

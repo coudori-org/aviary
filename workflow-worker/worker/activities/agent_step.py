@@ -1,18 +1,3 @@
-"""Agent step activity — one supervisor `/message` round per invocation.
-
-Each step runs inside a first-class ``sessions`` row so the frontend can
-render history + live stream via the normal chat endpoints. Session is
-anchored to ``(workflow_run_id, node_id)`` and stays out of the chat
-sidebar via the ``workflow_run_id IS NULL`` filter in
-``list_sessions_for_agent``.
-
-Cancel delivery: the workflow signal handler cancels the activity task;
-Temporal delivers the cancel via the next heartbeat. We capture
-``stream_id`` from the supervisor's first ``stream_started`` event, then
-on CancelledError hit ``/v1/streams/{stream_id}/abort`` — same path chat
-uses.
-"""
-
 from __future__ import annotations
 
 import asyncio
@@ -39,17 +24,11 @@ from .agent_step_helpers import (
 
 logger = logging.getLogger(__name__)
 
-# Heartbeat interval kept tight so cancel latency stays low even when
-# two activities share an event loop and starve each other pumping SSE.
-# The workflow-side `heartbeat_timeout=60s` absorbs the gap.
+# Tight heartbeat so cancel latency stays low even under SSE-pumping starvation.
 _HEARTBEAT_INTERVAL_SECONDS = 3.0
 
 
 async def _capture_stream_id(session_id: str, stream_id_ref: dict) -> None:
-    """Listen for the supervisor's ``stream_started`` event just long
-    enough to grab the id. The id is needed so cancel can abort the right
-    outbound stream — everything else on the channel is consumed by the
-    frontend directly."""
     ps = await subscribe_session(session_id)
     try:
         async for msg in ps.listen():
@@ -72,14 +51,7 @@ async def _capture_stream_id(session_id: str, stream_id_ref: dict) -> None:
 async def ensure_agent_step_session_activity(
     run_id: str, node_id: str, root_run_id: str | None = None,
 ) -> str:
-    """Create (or find) the shared ``sessions`` row for this step so the
-    inspector's ChatTranscript can subscribe the moment a node_status
-    event arrives. The id is deterministic (uuid5 over root_run_id, node_id)
-    so resume chains and activity retries converge on the same row.
-
-    Anchors on ``root_run_id`` (head of the resume chain) so a resumed
-    run re-executes into its ancestor's session instead of writing a
-    parallel row the original can't see."""
+    # Anchor on root_run_id so resumed runs reuse the ancestor's session row.
     anchor_run_id = root_run_id or run_id
     session_id = step_session_id(run_id, node_id, root_run_id)
     session_uuid = uuid.UUID(session_id)
@@ -106,8 +78,6 @@ async def ensure_agent_step_session_activity(
 
 
 async def _save_user_message(session_id: str, content: str) -> None:
-    """Persist the rendered prompt and publish ``user_message`` so a live
-    ChatTranscript renders the bubble without waiting for history reload."""
     session_uuid = uuid.UUID(session_id)
     async with session_scope() as db:
         msg = Message(
@@ -134,9 +104,6 @@ async def _save_user_message(session_id: str, content: str) -> None:
 async def _save_agent_message(
     session_id: str, result: dict, *, terminal: str, error_message: str | None = None,
 ) -> None:
-    """Persist the assistant turn (chat-compatible shape) and publish the
-    matching terminal event so any live ChatTranscript transitions out of
-    the streaming state — same contract the chat API honours."""
     content = result.get("assembled_text", "") if isinstance(result, dict) else ""
     blocks = result.get("assembled_blocks", []) if isinstance(result, dict) else []
 

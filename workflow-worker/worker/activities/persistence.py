@@ -1,6 +1,5 @@
-"""DB-writing activities — every status transition writes Postgres and
-publishes the matching event in one activity so a live WS listener never
-observes a state the DB doesn't agree with."""
+"""DB writes + event publish in one activity so live WS listeners never
+observe a state the DB doesn't agree with."""
 
 from __future__ import annotations
 
@@ -51,10 +50,6 @@ async def set_node_status(
     error: str | None = None,
     session_id: str | None = None,
 ) -> None:
-    """Upsert the WorkflowNodeRun row, then publish the matching event.
-    ``session_id`` (agent_step only) is tunneled on the event so the
-    inspector's ChatTranscript has a sessionId to subscribe to the moment
-    the step transitions to running."""
     now = datetime.now(timezone.utc)
     run_uuid = uuid.UUID(run_id)
 

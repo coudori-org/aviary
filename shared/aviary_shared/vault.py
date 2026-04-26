@@ -1,14 +1,7 @@
 """Async Vault KV v2 client.
 
-Per-user credentials live at ``secret/aviary/credentials/{sub}/{namespace}/{key_name}``
-where ``sub`` is the OIDC subject claim and ``namespace`` partitions keys by
-owner — ``aviary`` for platform-level credentials (anthropic-api-key,
-github-token), or an MCP server name (``jira``, ``confluence``, …) so two
-servers can use the same key name without colliding.
-
-Methods return ``None`` for missing secrets but raise ``httpx.HTTPError`` for
-transport failures so callers can tell "no credential" apart from "Vault
-unreachable".
+Returns None for missing secrets and raises httpx.HTTPError on transport
+failures so callers can distinguish "no credential" from "Vault unreachable".
 """
 
 from __future__ import annotations

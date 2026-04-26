@@ -1,13 +1,3 @@
-"""WorkflowRun — top-level orchestration.
-
-Runs nodes by frontier: every node whose upstream deps are satisfied
-runs concurrently, so independent branches don't serialize. A failed
-condition propagates ``skipped`` to its descendants. A cancel signal
-aborts in-flight nodes (agent_steps abort their supervisor stream on the
-way out) and marks every later node skipped. First node failure cancels
-peers and fails the run (fail-fast).
-"""
-
 from __future__ import annotations
 
 import asyncio
@@ -40,9 +30,7 @@ _AGENT_STEP_TIMEOUT = timedelta(minutes=30)
 _AGENT_STEP_HEARTBEAT_TIMEOUT = timedelta(seconds=60)
 _TRIGGER_TYPES = {"manual_trigger", "webhook_trigger"}
 
-# Every activity fails fast by default. Node activities opt into retry via
-# `node.data.retry_count`; persistence/publish stay at 1 because the run's
-# own status machine surfaces failures.
+# Node activities opt into retry via `node.data.retry_count`.
 _DEFAULT_RETRY = RetryPolicy(maximum_attempts=1)
 _MAX_RETRY = 10
 
@@ -58,15 +46,7 @@ def _node_retry(node_data: dict) -> RetryPolicy:
 
 
 def _single_input(inputs: dict, trigger_data: dict):
-    """Collapse ``inputs`` into a single ``input`` value for templates.
-
-    - 0 upstream edges → trigger payload (``{{ input.text }}`` works when
-      wired directly from a trigger).
-    - 1 upstream edge → that upstream's output verbatim.
-    - 2+ upstream edges → the whole ``{node_id: output}`` dict. Merge-style
-      nodes that care about provenance reach into it; single-branch
-      consumers use ``{{ inputs.<node_id> }}`` explicitly.
-    """
+    # 0 upstream → trigger payload; 1 → that output verbatim; 2+ → full {node_id: output} dict.
     if not inputs:
         return trigger_data
     if len(inputs) == 1:
@@ -107,9 +87,7 @@ async def _dispatch_node(node: PlanNode, inputs: dict, inp: WorkflowRunInput) ->
             retry_policy=_node_retry(node.data),
         )
     if node.type == "agent_step":
-        # heartbeat_timeout is what makes cancel actually reach the activity
-        # process — without it Temporal can't deliver until the activity
-        # returns. 60s absorbs parallel-dispatch starvation.
+        # heartbeat_timeout is required for cancel delivery; 60s absorbs parallel-dispatch starvation.
         return await workflow.execute_activity(
             run_agent_step_activity,
             args=[
@@ -146,9 +124,6 @@ async def _set_node(
 
 
 def _session_ids(plan: list[PlanNode], run_id: str, root_run_id: str | None) -> dict[str, str | None]:
-    """Precompute deterministic session ids for agent_step nodes. Used by
-    every ``_set_node`` call so the inspector can subscribe the moment the
-    status transitions — and so resumed runs find the ancestor's session."""
     return {
         n.id: (step_session_id(run_id, n.id, root_run_id) if n.type == "agent_step" else None)
         for n in plan
@@ -194,8 +169,7 @@ class WorkflowRunWorkflow:
                     session_id=session_ids.get(nid),
                 )
 
-        # Seed resume_context: carried nodes are already completed so the
-        # frontier immediately releases their dependents.
+        # Carried nodes start completed so the frontier releases their dependents.
         for node in plan:
             if node.id not in resume_context:
                 continue
@@ -214,9 +188,6 @@ class WorkflowRunWorkflow:
         failure_error: str | None = None
 
         async def run_node(node: PlanNode) -> tuple[str, bool, dict | None, str | None]:
-            """Return (node_id, ok, output, error_message). Skipped /
-            cancelled nodes return ok=True output=None so the caller can
-            branch without exception plumbing."""
             sid = session_ids.get(node.id)
             if self._cancelled or node.id in skipped:
                 await _set_node(inp.run_id, node.id, node.type, "skipped", session_id=sid)

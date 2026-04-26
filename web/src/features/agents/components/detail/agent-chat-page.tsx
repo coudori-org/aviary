@@ -54,7 +54,6 @@ export function AgentChatPage({ agentId }: { agentId: string }) {
     [router, pathname, searchParams],
   );
 
-  // Auto-pick most recent session on entry.
   React.useEffect(() => {
     if (sessionParam) return;
     if (detail.loading) return;
@@ -62,7 +61,6 @@ export function AgentChatPage({ agentId }: { agentId: string }) {
     if (first) setSession(first.id);
   }, [sessionParam, detail.loading, detail.sessions, setSession]);
 
-  // Drop stale ?session= when the active session is gone.
   React.useEffect(() => {
     if (!sessionParam || detail.loading) return;
     if (!detail.sessions.some((s) => s.id === sessionParam)) setSession(null);
@@ -81,8 +79,7 @@ export function AgentChatPage({ agentId }: { agentId: string }) {
     [sessionParam, setSession],
   );
 
-  // Workspace rail: persist open/close so the user's last choice sticks
-  // across navigation. Default closed to match the "chat-first" entry.
+  // Default closed for "chat-first" entry; persisted choice sticks across navigation.
   const [workspaceOpen, setWorkspaceOpen] = React.useState(false);
   const [refreshSignal, setRefreshSignal] = React.useState(0);
   React.useEffect(() => {
@@ -120,8 +117,6 @@ export function AgentChatPage({ agentId }: { agentId: string }) {
     );
   }
 
-  // Only the chat surface owns the workspace toggle — the sub-header
-  // hides the button entirely until a session is selected.
   const showWorkspace = workspaceOpen && Boolean(sessionParam);
 
   return (

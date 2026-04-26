@@ -30,7 +30,6 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup
     await init_oidc()
     await init_redis()
     await agent_supervisor.init_client()
@@ -38,7 +37,6 @@ async def lifespan(app: FastAPI):
 
     yield
 
-    # Shutdown
     await temporal_client.close_client()
     await agent_supervisor.close_client()
     await close_redis()

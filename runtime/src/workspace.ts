@@ -71,8 +71,7 @@ export class WorkspaceError extends Error {
   }
 }
 
-// Dot-prefix directories are hidden by default; dot-files (.gitignore, .env)
-// stay visible. `include_hidden` surfaces hidden dirs with hidden:true.
+// Dot-dirs hidden by default; dot-files (.gitignore, .env) stay visible.
 function isHiddenEntry(name: string, isDir: boolean): boolean {
   return isDir && name.startsWith(".");
 }
@@ -230,8 +229,6 @@ export function readFile(
   };
 }
 
-// Metadata-only read. No size limit, no full file load — safe for large binaries.
-// `isBinary` uses the same 8 KB NUL-byte heuristic as readFile.
 export function statFile(
   sessionId: string,
   agentId: string | null,

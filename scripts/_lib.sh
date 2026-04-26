@@ -19,7 +19,6 @@ ensure_env_symlink() {
   fi
 }
 
-# Parse "infra,runtime,service" → _GROUPS array. Empty arg → all groups.
 parse_groups() {
   local raw="${1:-}"
   if [ -z "$raw" ]; then

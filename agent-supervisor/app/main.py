@@ -1,10 +1,3 @@
-"""Aviary Agent Supervisor — stateless Reverse SSE Proxy.
-
-Each publish request carries its own `runtime_endpoint` (null → supervisor
-default). The supervisor consumes SSE from the runtime, publishes events to
-Redis, assembles the final response, and returns it — no DB, no K8s API.
-"""
-
 import logging
 import os
 from contextlib import asynccontextmanager
@@ -25,9 +18,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-# Agent turns range from a second to many minutes; TTFB is sub-second to
-# tens of seconds; Vault calls are sub-second. Pinned via OTel Views so
-# the boundaries reach the backend regardless of SDK default.
+# Pinned via OTel Views so boundaries reach the backend regardless of SDK default.
 _TURN_BUCKETS = [0.5, 1, 2.5, 5, 10, 30, 60, 120, 300, 600]
 _TTFB_BUCKETS = [0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30]
 _EXT_DEP_BUCKETS = [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5]

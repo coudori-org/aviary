@@ -1,18 +1,6 @@
-"""Per-user credential lookup for LiteLLM patches.
+"""Per-user credential lookup for LiteLLM patches. Vault primary, config.yaml fallback.
 
-Primary source is Vault (``VAULT_ADDR`` + ``VAULT_TOKEN``). When neither
-is set we fall back to the ``secrets:`` table in the project's
-config.yaml so the stack is usable without Vault.
-
-Vault paths are namespaced:
-``secret/aviary/credentials/{sub}/{namespace}/{key_name}``. ``namespace``
-is ``aviary`` for platform credentials (anthropic-api-key, github-token)
-and the MCP server name (``jira``, ``confluence``, …) otherwise.
-
-NO cache by design — when a user updates a credential we want the next
-call to pick it up immediately. The Vault hit per tool-call is
-acceptable; if it ever isn't, add caching at a layer that also exposes
-invalidation (not here).
+Intentionally uncached — credential updates must take effect on the next call.
 """
 
 from __future__ import annotations
@@ -31,13 +19,11 @@ logger = logging.getLogger(__name__)
 VAULT_ADDR = os.environ.get("VAULT_ADDR", "")
 VAULT_TOKEN = os.environ.get("VAULT_TOKEN", "")
 
-# Fallback file when Vault is unconfigured. Reads the ``secrets:`` block.
 CONFIG_PATH = os.environ.get("AVIARY_CONFIG_PATH", "")
 
 PLATFORM_NAMESPACE = "aviary"
 
-# Slow-Vault threshold. Anything above this indicates the per-call hit is
-# becoming a real latency contributor — time to add invalidation-aware caching.
+# Warn above this — sustained slow fetches mean we should add invalidation-aware caching.
 _SLOW_FETCH_SECONDS = 0.5
 
 

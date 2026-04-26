@@ -10,18 +10,6 @@ interface AgentConfigGridProps {
   mcpTools: McpToolBinding[];
 }
 
-/**
- * AgentConfigGrid — read-only configuration view for an agent.
- *
- * Four cards in a 2-column grid:
- *   1. Model         — backend, model id, max tokens
- *   2. Identity      — slug, status
- *   3. Instruction   — full-width, system instruction
- *   4. Tools         — full-width, built-in + MCP tools
- *
- * Lives in a separate component so the detail page stays a thin
- * assembler of hero + recent sessions + this grid.
- */
 export function AgentConfigGrid({ agent, mcpTools }: AgentConfigGridProps) {
   return (
     <section>

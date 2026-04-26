@@ -44,8 +44,6 @@ router = APIRouter()
 
 
 def _run_response(r, *, include_node_runs: bool = False) -> WorkflowRunResponse:
-    """Build a run response, narrowing the eager-loaded ``node_runs`` to
-    the list endpoint's shape (None) or the detail endpoint's (full list)."""
     return WorkflowRunResponse.model_validate({
         "id": str(r.id),
         "workflow_id": str(r.workflow_id),
@@ -76,8 +74,6 @@ def _node_run_response(nr) -> dict:
         "error": nr.error,
         "started_at": nr.started_at,
         "completed_at": nr.completed_at,
-        # Derived property on the ORM model; safe to read because get_run
-        # eager-loaded the parent run via back-reference.
         "session_id": nr.session_id,
     }
 

@@ -39,7 +39,6 @@ export function AgentRecentSessions({ agentId }: AgentRecentSessionsProps) {
       .listSessions(agentId)
       .then((res) => {
         if (cancelled) return;
-        // Sort newest first by created_at, take top N
         const sorted = [...res.items].sort((a, b) =>
           b.created_at.localeCompare(a.created_at),
         );

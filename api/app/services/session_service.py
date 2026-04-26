@@ -1,5 +1,3 @@
-"""Session CRUD — owner-only (multi-user participants will return under RBAC)."""
-
 import logging
 import uuid
 from datetime import datetime, timezone
@@ -56,10 +54,7 @@ async def get_session_titles(
 async def get_session_participants(
     db: AsyncSession, session_id: uuid.UUID,
 ) -> list[str]:
-    """Return the list of user_ids that should receive events for a session.
-
-    Currently just the session creator — kept behind a helper so that when
-    multi-user sessions return the broadcast/unread paths don't change."""
+    # Helper kept so multi-user broadcast/unread paths stay stable when RBAC returns.
     session = await get_session(db, session_id)
     if session is None:
         return []
@@ -108,8 +103,7 @@ async def save_message(
     sender_id: uuid.UUID | None = None,
     metadata: dict | None = None,
 ) -> tuple[Message, str | None]:
-    """Returns (message, new_title) — new_title is set on the first user
-    message so callers can publish it after commit."""
+    # new_title is set on the first user message so callers can publish post-commit.
     msg = Message(
         session_id=session_id,
         sender_type=sender_type,

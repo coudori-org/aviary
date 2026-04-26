@@ -1,10 +1,3 @@
-"""Pure helpers for agent_step — request building + result extraction.
-
-Kept activity-free so the orchestration activity stays focused on side
-effects (DB, Redis, supervisor stream) and these can be unit-tested
-without a Temporal worker context.
-"""
-
 from __future__ import annotations
 
 import uuid
@@ -24,23 +17,12 @@ _OUTPUT_TOOL_DESCRIPTION = (
 )
 _ARTIFACT_TOOL_CLI_NAME = "mcp__system__save_as_artifact"
 
-# Hard ceiling on assistant turns per step — protects against local-model
-# verify loops where the model keeps inspecting its own output after
-# emitting the final response.
+# Hard ceiling guards against local-model verify loops after final response.
 AGENT_STEP_MAX_TURNS = 15
 
 
 def step_session_id(run_id: str, node_id: str, root_run_id: str | None = None) -> str:
-    """Deterministic per-(chain, node) session UUID.
-
-    Anchored on the resume chain's **root** run so every run in the chain
-    resolves the same node to the same session — a resumed run can render
-    its carried-over step's chat transcript instead of 404-ing on a
-    session that only exists under the original run's id.
-
-    uuid5 means the orchestrator can compute it without touching the DB
-    (used to surface the id on node_status events before the activity
-    runs)."""
+    # Anchor on resume-chain root so every run in the chain shares the same session.
     anchor = root_run_id or run_id
     return str(uuid.uuid5(uuid.UUID(anchor), node_id))
 
@@ -52,12 +34,7 @@ def render_prompt(template: str, *, input_value, inputs: dict, trigger_data: dic
 
 
 def build_output_tool(raw: list) -> dict:
-    """Normalise `structured_output_fields` into a structured_outputs[] entry.
-
-    A single `text` entry in `raw` overrides the default description only
-    (name/type stay locked). Other entries become extras after name /
-    type / duplicate validation.
-    """
+    # `text` entry can override description only; name/type are locked.
     text_desc = _DEFAULT_TEXT_DESCRIPTION
     extras: list[dict] = []
     seen: set[str] = {"text"}
@@ -116,8 +93,6 @@ def normalize_artifacts(raw: list) -> list[dict]:
 
 
 def collect_input_artifacts(inputs: dict) -> list[dict]:
-    """Flatten upstream ``artifacts_produced`` entries. Used by the runtime
-    to pre-copy files into ``/workspace`` before the SDK starts."""
     out: list[dict] = []
     for src_id, payload in (inputs or {}).items():
         if not isinstance(payload, dict):

@@ -1,13 +1,3 @@
-"""Drives one runtime→Redis SSE proxy round.
-
-Separated from the router so the lifecycle (status transitions, metrics,
-assembly) lives in one place and endpoints stay thin. The `/message` and
-`/a2a` paths share the proxy shape but not the state-machine (A2A
-forwards SSE to the caller rather than buffering to Redis), so A2A has
-its own generator inline in the router — the assembly + terminal-state
-bookkeeping here is specific to `/message`.
-"""
-
 from __future__ import annotations
 
 import asyncio
@@ -25,10 +15,6 @@ logger = logging.getLogger(__name__)
 
 
 class _StreamLifecycle:
-    """Redis status-bit bookkeeping for one stream's lifetime. Collapses the
-    `set_stream_status` / `set_session_status` / metric transitions that
-    used to be sprinkled through `_drive_stream`."""
-
     def __init__(self, session_id: str, stream_id: str) -> None:
         self.session_id = session_id
         self.stream_id = stream_id
@@ -57,8 +43,6 @@ class _StreamLifecycle:
 
 
 async def drive_stream(session_id: str, stream_id: str, body: dict) -> dict:
-    """Stream runtime SSE → Redis → assembled text/blocks. Returns the
-    terminal shape the router sends back to the caller."""
     agent_config = body["agent_config"]
     base = resolve_runtime_base(agent_config.get("runtime_endpoint"))
     reached_runtime = False

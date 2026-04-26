@@ -36,8 +36,6 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-# -- Session CRUD --------------------------------------------------
-
 @router.get("/agents/{agent_id}/sessions", response_model=SessionListResponse)
 async def list_sessions(
     agent_id: uuid.UUID,
@@ -240,14 +238,10 @@ async def update_session_title(
     return SessionResponse.model_validate(session)
 
 
-# -- Workspace browse ----------------------------------------------
-# Proxy through the supervisor to the runtime which holds the PVC.
-
 async def _resolve_session_agent_target(
     db: AsyncSession, session_id: uuid.UUID, user: User,
 ) -> tuple[str, str | None]:
-    """Owner-check and return (agent_id, runtime_endpoint). Workflow-transcript
-    sessions (agent_id IS NULL) have no runtime workspace → 409."""
+    # Workflow-transcript sessions (agent_id IS NULL) have no runtime workspace.
     session = await _require_session_owner(db, session_id, user)
     if session.agent_id is None:
         raise HTTPException(status_code=409, detail="Session has no agent workspace")
@@ -436,14 +430,10 @@ async def get_workspace_download(
     )
 
 
-# -- WebSocket Chat ------------------------------------------------
-
 async def _authorize_ws_session(
     websocket: WebSocket, session_id: uuid.UUID, claims,
 ) -> tuple[Session, Agent | None, User] | None:
-    """Resolve the session + owning user + optional agent. Sends error to the
-    client and returns None on any failure (workflow-origin sessions have
-    ``agent_id IS NULL`` and return agent=None — they're transcript-only)."""
+    # Workflow-origin sessions have agent_id IS NULL → agent=None (transcript-only).
     async with async_session_factory() as db:
         session = await session_service.get_session(db, session_id)
         if not session or session.status != "active":
@@ -476,8 +466,7 @@ async def _authorize_ws_session(
 async def _relay_redis_events(
     websocket: WebSocket, pubsub, session_id_str: str, user_id_str: str,
 ) -> None:
-    """Forward Redis pub/sub events to the client. Terminal events clear the
-    unread badge because an active WS means the user is watching."""
+    # Terminal events clear unread because an active WS means the user is watching.
     try:
         async for raw_msg in pubsub.listen():
             if raw_msg["type"] != "message":
@@ -513,8 +502,6 @@ async def _handle_chat_message(
     aviary_session_id: str,
     user_id_str: str,
 ) -> bool:
-    """Process one inbound chat message. Returns False to close the socket,
-    True to keep it open."""
     if agent is None:
         await websocket.send_json({"type": "error", "message": "This session is read-only"})
         return True
@@ -661,7 +648,6 @@ async def websocket_chat(websocket: WebSocket, session_id: uuid.UUID):
 
 
 async def _replay_stream_if_needed(websocket: WebSocket, session_id: str) -> None:
-    """If a stream is in-flight, replay buffered events to the reconnecting client."""
     stream_id = await redis_service.get_latest_stream_id(session_id)
     if not stream_id:
         return

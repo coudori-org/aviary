@@ -18,9 +18,8 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-# Admin runs in its own container without the API package on the import path,
-# so we keep a small local copy of the agent schema. Shape matches the API
-# version exactly so the shared JS/TS clients can consume both interchangeably.
+# Local schema copy: admin's container doesn't import the API package.
+# Shape mirrors the API exactly so shared JS/TS clients can consume both.
 
 def _to_str(v):
     return str(v) if isinstance(v, uuid.UUID) else v
@@ -104,9 +103,7 @@ async def update_agent(
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
 
-    # Schema field names match ORM attribute names now — no translation map.
-    # Explicit empty-string runtime_endpoint means "clear it" so admin can
-    # revert to the default runtime.
+    # Empty string clears runtime_endpoint to revert to the default runtime.
     for field, value in body.model_dump(exclude_unset=True).items():
         if field == "runtime_endpoint" and value == "":
             value = None

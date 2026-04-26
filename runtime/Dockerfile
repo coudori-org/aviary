@@ -1,4 +1,3 @@
-# --- Build stage: compile TypeScript ---
 FROM node:22-slim AS build
 
 ARG NPM_CONFIG_REGISTRY
@@ -11,7 +10,6 @@ COPY tsconfig.json /app/
 COPY src/ /app/src/
 RUN npx tsc
 
-# --- Runtime stage ---
 FROM node:22-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -30,41 +28,32 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
     && apt-get update && apt-get install -y --no-install-recommends gh \
     && rm -rf /var/lib/apt/lists/*
 
-# Replace `claude` binary with bubblewrap sandbox wrapper.
-# SDK invokes `claude` → wrapper → bwrap namespace → `claude-real`.
-# This guarantees interception regardless of how the SDK resolves the binary.
+# Stash real binary; sandbox wrapper at /usr/local/bin/claude is installed below.
 RUN CLAUDE_BIN=$(which claude) && \
     mv "$CLAUDE_BIN" "$(dirname "$CLAUDE_BIN")/claude-real" && \
     cp /dev/null "$CLAUDE_BIN"
-# Actual wrapper content copied below after COPY scripts/
 
 WORKDIR /app
 COPY package.json package-lock.json /app/
 RUN npm ci --omit=dev
 
-# Copy compiled JS from build stage (no TypeScript needed at runtime)
 COPY --from=build /app/dist/ /app/dist/
 
 COPY scripts/ /app/scripts/
 COPY config/managed-settings.json /etc/claude-code/managed-settings.json
 
-# Install the sandbox wrapper as the `claude` command
 RUN CLAUDE_BIN=$(which claude-real) && \
     cp /app/scripts/claude-sandbox.sh "$(dirname "$CLAUDE_BIN")/claude" && \
     chmod +x "$(dirname "$CLAUDE_BIN")/claude"
 
-# /workspace and /artifacts are bwrap bind targets. /workspace-root is the
-# PVC / docker-volume mount point — node-owned so a fresh docker named volume
-# inherits the right perms (K8s does this via an initContainer instead).
+# bwrap bind targets; workspace-root node-owned so fresh docker volumes inherit perms.
 RUN mkdir -p /workspace /artifacts /workspace-root \
     && chown node:node /workspace-root
 
-# Global git config — available inside bwrap via --ro-bind / /
 RUN git config --system user.name "aviary" \
     && git config --system user.email "aviary-agent@aviary.com"
 
-# Use built-in non-root `node` user (UID 1000)
-# Claude Code CLI refuses --dangerously-skip-permissions as root
+# Non-root node user (UID 1000) required: Claude Code CLI refuses --dangerously-skip-permissions as root.
 RUN chown -R node:node /app
 USER node
 

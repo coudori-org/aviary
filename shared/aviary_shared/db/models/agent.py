@@ -34,8 +34,6 @@ class Agent(Base):
 
     icon: Mapped[str | None] = mapped_column(String(50), nullable=True)
 
-    # Optional per-agent runtime endpoint override. NULL → caller falls back to
-    # the supervisor's configured default environment endpoint.
     runtime_endpoint: Mapped[str | None] = mapped_column(String(512), nullable=True)
 
     status: Mapped[str] = mapped_column(String(20), default="active", server_default="active")
