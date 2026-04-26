@@ -4,6 +4,8 @@ import * as React from "react";
 import { Plus, MessageSquare, Trash2, Check } from "@/components/icons";
 import { Spinner } from "@/components/ui/spinner";
 import { useSessionStatus } from "@/features/layout/providers/session-status-provider";
+import { useSidebar } from "@/features/layout/providers/sidebar-provider";
+import { usePanelResize } from "@/features/workspace/hooks/use-panel-resize";
 import { formatRelativeTime } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 import type { Session } from "@/types";
@@ -18,6 +20,13 @@ export interface SessionsRailProps {
   onDelete: (sessionId: string) => Promise<void>;
 }
 
+const STORAGE_KEY = "aviary:sessions-rail-width";
+const DEFAULT_WIDTH = 240;
+const MIN_WIDTH = 200;
+const CHAT_MIN_WIDTH = 480;
+const NAV_COLLAPSED_WIDTH = 56;
+const NAV_EXPANDED_WIDTH = 220;
+
 export function SessionsRail({
   sessions,
   selectedId,
@@ -27,12 +36,24 @@ export function SessionsRail({
   onCreate,
   onDelete,
 }: SessionsRailProps) {
+  const { collapsed: navCollapsed } = useSidebar();
+  const navWidth = navCollapsed ? NAV_COLLAPSED_WIDTH : NAV_EXPANDED_WIDTH;
+  const { width, isResizing, onMouseDown } = usePanelResize({
+    storageKey: STORAGE_KEY,
+    defaultWidth: DEFAULT_WIDTH,
+    minWidth: MIN_WIDTH,
+    reserveForMain: navWidth + CHAT_MIN_WIDTH,
+    side: "left",
+  });
+
   return (
     <aside
       className={cn(
-        "flex w-[240px] shrink-0 flex-col",
-        "border-r border-border-subtle bg-surface"
+        "relative flex shrink-0 flex-col",
+        "border-r border-border-subtle bg-surface",
+        !isResizing && "transition-[width] duration-panel ease-panel",
       )}
+      style={{ width }}
       aria-label="Agent sessions"
     >
       <header className="flex items-center justify-between border-b border-border-subtle px-3 py-2">
@@ -70,7 +91,40 @@ export function SessionsRail({
           ))
         )}
       </div>
+
+      <ResizeHandle active={isResizing} onMouseDown={onMouseDown} />
     </aside>
+  );
+}
+
+function ResizeHandle({
+  active,
+  onMouseDown,
+}: {
+  active: boolean;
+  onMouseDown: (e: React.MouseEvent) => void;
+}) {
+  return (
+    <div
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="Resize sessions panel"
+      onMouseDown={onMouseDown}
+      className={cn(
+        "group absolute top-0 bottom-0 z-20 w-2 translate-x-1/2 cursor-col-resize",
+        active && "select-none",
+      )}
+      style={{ right: 0 }}
+    >
+      <div
+        className={cn(
+          "pointer-events-none absolute top-0 bottom-0 left-1/2 -translate-x-1/2 w-px transition-colors",
+          active
+            ? "bg-info/80 w-0.5"
+            : "bg-active group-hover:bg-info/60 group-hover:w-0.5",
+        )}
+      />
+    </div>
   );
 }
 

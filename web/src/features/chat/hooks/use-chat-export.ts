@@ -27,22 +27,48 @@ export function useChatExport({ containerRef, messages, session }: UseChatExport
     const win = window.open("", "_blank");
     if (!win) return;
 
+    const html = document.documentElement;
+    const theme = html.getAttribute("data-theme") ?? "dark";
+    const accent = html.getAttribute("data-accent") ?? "blue";
+    const bodyClass = document.body.className;
+    const titleText = (session?.title || "Chat").replace(/[<&>]/g, "");
+
     const styles = Array.from(document.querySelectorAll('style, link[rel="stylesheet"]'))
       .map((node) => node.outerHTML)
       .join("\n");
 
-    win.document.write(`<!DOCTYPE html><html><head>${styles}
-      <style>
-        body { background: #07080a; margin: 0; padding: 24px; }
-        @media print {
-          body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-        }
-      </style>
-    </head><body>${el.innerHTML}</body></html>`);
+    win.document.write(`<!DOCTYPE html>
+<html lang="en" data-theme="${theme}" data-accent="${accent}">
+<head>
+  <meta charset="utf-8" />
+  <title>${titleText}</title>
+  ${styles}
+  <style>
+    html, body { background: var(--bg-canvas); color: var(--fg-primary); margin: 0; }
+    body { padding: 24px; }
+    /* Neutralize the live-app scroll container so the entire transcript prints. */
+    body > [data-print-root] { position: static !important; inset: auto !important; height: auto !important; overflow: visible !important; }
+    body > [data-print-root] > * { position: static !important; inset: auto !important; height: auto !important; overflow: visible !important; }
+    .print-header { margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid var(--border-subtle); }
+    .print-header-title { font-size: 16px; font-weight: 600; color: var(--fg-primary); }
+    .print-header-meta { font-size: 11px; color: var(--fg-tertiary); margin-top: 2px; }
+    @media print {
+      body { -webkit-print-color-adjust: exact; print-color-adjust: exact; padding: 0; }
+    }
+  </style>
+</head>
+<body class="${bodyClass}">
+  <div class="print-header">
+    <div class="print-header-title">${titleText}</div>
+    <div class="print-header-meta">${new Date().toLocaleString()}</div>
+  </div>
+  <div data-print-root>${el.innerHTML}</div>
+</body>
+</html>`);
     win.document.close();
 
     setTimeout(() => win.print(), 500);
-  }, [containerRef]);
+  }, [containerRef, session]);
 
   const exportText = useCallback(async () => {
     if (messages.length === 0) return;

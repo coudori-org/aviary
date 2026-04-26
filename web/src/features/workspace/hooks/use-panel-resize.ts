@@ -9,14 +9,20 @@ interface UsePanelResizeOptions {
   minWidth: number;
   /** Reserved viewport width for the main column — panel is clamped to fit. */
   reserveForMain: number;
+  /** Which side of the viewport the panel is anchored to. Drag direction
+   *  follows: for a left-anchored panel the handle is on its right edge and
+   *  pulling rightward grows it; for a right-anchored panel it's the inverse.
+   *  Defaults to "right" to keep the workspace panel callsite unchanged. */
+  side?: "left" | "right";
 }
 
 export function usePanelResize({
-  storageKey, defaultWidth, minWidth, reserveForMain,
+  storageKey, defaultWidth, minWidth, reserveForMain, side = "right",
 }: UsePanelResizeOptions) {
   const [width, setWidth] = useState(defaultWidth);
   const [isResizing, setIsResizing] = useState(false);
   const draggingRef = useRef(false);
+  const widthRef = useRef(defaultWidth);
   // Captured for the mouseup handler so a mode switch mid-drag still
   // persists under the key that was active when the drag started.
   const activeKeyRef = useRef(storageKey);
@@ -26,6 +32,10 @@ export function usePanelResize({
     const ceiling = Math.max(minWidth, window.innerWidth - reserveForMain);
     return Math.max(minWidth, Math.min(ceiling, px));
   }, [minWidth, reserveForMain]);
+
+  useEffect(() => {
+    widthRef.current = width;
+  }, [width]);
 
   useEffect(() => {
     activeKeyRef.current = storageKey;
@@ -52,28 +62,28 @@ export function usePanelResize({
     e.preventDefault();
     draggingRef.current = true;
     setIsResizing(true);
+    const startX = e.clientX;
+    const startWidth = widthRef.current;
+    const direction = side === "left" ? 1 : -1;
 
     const onMove = (ev: MouseEvent) => {
       if (!draggingRef.current) return;
-      setWidth(clamp(window.innerWidth - ev.clientX));
+      setWidth(clamp(startWidth + (ev.clientX - startX) * direction));
     };
     const onUp = () => {
       draggingRef.current = false;
       setIsResizing(false);
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
-      setWidth((current) => {
-        try {
-          window.localStorage.setItem(activeKeyRef.current, String(current));
-        } catch {
-          // Ignore storage failures.
-        }
-        return current;
-      });
+      try {
+        window.localStorage.setItem(activeKeyRef.current, String(widthRef.current));
+      } catch {
+        // Ignore storage failures.
+      }
     };
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
-  }, [clamp]);
+  }, [clamp, side]);
 
   return { width, isResizing, onMouseDown };
 }
