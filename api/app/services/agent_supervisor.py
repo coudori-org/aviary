@@ -21,9 +21,8 @@ _supervisor = ServiceClient(base_url=settings.agent_supervisor_url)
 
 
 def _auth_headers(user_token: str) -> dict[str, str]:
-    # In no-IdP dev mode the session has no real access token; sending an
-    # empty Bearer would be rejected by the supervisor. Omit the header so
-    # the supervisor falls through to its dev path.
+    # No-IdP dev mode has no JWT — omit the header so the supervisor falls
+    # through to its dev path.
     return {"Authorization": f"Bearer {user_token}"} if user_token else {}
 
 

@@ -57,7 +57,7 @@ async def get_current_user(
     db: AsyncSession = Depends(get_db),
 ) -> User:
     try:
-        claims = await validate_token(session.access_token)
+        claims = await validate_token(session.id_token or "")
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(e)) from e
     return await _upsert_user(db, claims)

@@ -271,7 +271,7 @@ async def get_workspace_tree(
 ):
     agent_id, runtime_endpoint = await _resolve_session_agent_target(db, session_id, user)
     status_code, payload = await agent_supervisor.fetch_workspace_tree(
-        str(session_id), session_data.access_token, runtime_endpoint, agent_id, path, include_hidden,
+        str(session_id), session_data.id_token or "", runtime_endpoint, agent_id, path, include_hidden,
     )
     return JSONResponse(status_code=status_code, content=payload)
 
@@ -286,7 +286,7 @@ async def get_workspace_file(
 ):
     agent_id, runtime_endpoint = await _resolve_session_agent_target(db, session_id, user)
     status_code, payload = await agent_supervisor.fetch_workspace_file(
-        str(session_id), session_data.access_token, runtime_endpoint, agent_id, path,
+        str(session_id), session_data.id_token or "", runtime_endpoint, agent_id, path,
     )
     return JSONResponse(status_code=status_code, content=payload)
 
@@ -301,7 +301,7 @@ async def get_workspace_stat(
 ):
     agent_id, runtime_endpoint = await _resolve_session_agent_target(db, session_id, user)
     status_code, payload = await agent_supervisor.stat_workspace_file(
-        str(session_id), session_data.access_token, runtime_endpoint, agent_id, path,
+        str(session_id), session_data.id_token or "", runtime_endpoint, agent_id, path,
     )
     return JSONResponse(status_code=status_code, content=payload)
 
@@ -340,7 +340,7 @@ async def put_workspace_file(
 ):
     agent_id, runtime_endpoint = await _resolve_session_agent_target(db, session_id, user)
     status_code, payload = await agent_supervisor.write_workspace_file(
-        str(session_id), session_data.access_token, runtime_endpoint, agent_id,
+        str(session_id), session_data.id_token or "", runtime_endpoint, agent_id,
         body.path, body.content, body.encoding, body.expected_mtime, body.overwrite,
     )
     return JSONResponse(status_code=status_code, content=payload)
@@ -356,7 +356,7 @@ async def post_workspace_dir(
 ):
     agent_id, runtime_endpoint = await _resolve_session_agent_target(db, session_id, user)
     status_code, payload = await agent_supervisor.create_workspace_dir(
-        str(session_id), session_data.access_token, runtime_endpoint, agent_id, body.path,
+        str(session_id), session_data.id_token or "", runtime_endpoint, agent_id, body.path,
     )
     return JSONResponse(status_code=status_code, content=payload)
 
@@ -371,7 +371,7 @@ async def delete_workspace_entry(
 ):
     agent_id, runtime_endpoint = await _resolve_session_agent_target(db, session_id, user)
     status_code, payload = await agent_supervisor.delete_workspace_entry(
-        str(session_id), session_data.access_token, runtime_endpoint, agent_id,
+        str(session_id), session_data.id_token or "", runtime_endpoint, agent_id,
         body.path, body.recursive,
     )
     return JSONResponse(status_code=status_code, content=payload)
@@ -387,7 +387,7 @@ async def post_workspace_move(
 ):
     agent_id, runtime_endpoint = await _resolve_session_agent_target(db, session_id, user)
     status_code, payload = await agent_supervisor.move_workspace_entry(
-        str(session_id), session_data.access_token, runtime_endpoint, agent_id,
+        str(session_id), session_data.id_token or "", runtime_endpoint, agent_id,
         body.from_path, body.to_path,
     )
     return JSONResponse(status_code=status_code, content=payload)
@@ -404,7 +404,7 @@ async def get_workspace_download(
 ):
     agent_id, runtime_endpoint = await _resolve_session_agent_target(db, session_id, user)
     resp = await agent_supervisor.stream_workspace_download(
-        str(session_id), session_data.access_token, runtime_endpoint, agent_id, path, inline,
+        str(session_id), session_data.id_token or "", runtime_endpoint, agent_id, path, inline,
     )
     if resp.status_code != 200:
         try:
@@ -457,7 +457,7 @@ async def _handshake_ws(websocket: WebSocket) -> tuple[str, object] | None:
         return None
 
     try:
-        claims = await validate_token(initial_session.access_token)
+        claims = await validate_token(initial_session.id_token or "")
     except ValueError:
         await websocket.close(code=4001, reason="Invalid token")
         return None
@@ -595,7 +595,7 @@ async def _handle_chat_message(
         agent_config=agent_config,
         content=content,
         user_message_id=user_message_id,
-        user_token=fresh.access_token,
+        user_token=fresh.id_token or "",
         attachments=attachments,
     )
     return True

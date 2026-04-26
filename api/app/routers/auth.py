@@ -82,7 +82,6 @@ async def dev_login(response: Response, db: AsyncSession = Depends(get_db)):
 
     session_id = await create_session(
         user_external_id=claims.sub,
-        access_token="",
         refresh_token="",
         id_token=None,
         expires_in=DEV_SESSION_EXPIRES_IN,
@@ -111,17 +110,17 @@ async def auth_callback(
             detail=f"Token exchange failed: {e}",
         ) from e
 
-    access_token = token_data["access_token"]
-    refresh_token = token_data.get("refresh_token")
-    # without a refresh token the session can't outlive the access TTL
-    if not refresh_token:
+    id_token = token_data.get("id_token") or ""
+    refresh_token = token_data.get("refresh_token") or ""
+
+    if not id_token:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="OIDC server did not return a refresh token",
+            detail="OIDC server did not return an id_token (request 'openid' scope)",
         )
 
     try:
-        claims = await validate_token(access_token)
+        claims = await validate_token(id_token)
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -132,9 +131,8 @@ async def auth_callback(
 
     session_id = await create_session(
         user_external_id=claims.sub,
-        access_token=access_token,
         refresh_token=refresh_token,
-        id_token=token_data.get("id_token"),
+        id_token=id_token,
         expires_in=token_data.get("expires_in", 300),
     )
     _set_session_cookie(response, session_id)

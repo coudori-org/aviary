@@ -16,7 +16,6 @@ class Settings(BaseSettings):
     oidc_internal_issuer: str | None = None
     oidc_client_id: str | None = None
     oidc_client_secret: str | None = None
-    oidc_audience: str | None = None
     dev_user_sub: str = "dev-user"
 
     # CORS

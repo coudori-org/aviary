@@ -16,10 +16,14 @@
       {
         "name": "regular_user",
         "description": "Default role for authenticated users"
+      },
+      {
+        "name": "offline_access",
+        "description": "Allows refresh tokens via the offline_access scope"
       }
     ]
   },
-  "defaultRoles": ["regular_user"],
+  "defaultRoles": ["regular_user", "offline_access"],
   "groups": [
     {
       "name": "engineering",
@@ -130,7 +134,7 @@
           "temporary": false
         }
       ],
-      "realmRoles": ["regular_user"]
+      "realmRoles": ["regular_user", "offline_access"]
     },
     {
       "username": "user2@test.com",
@@ -147,7 +151,7 @@
           "temporary": false
         }
       ],
-      "realmRoles": ["regular_user"]
+      "realmRoles": ["regular_user", "offline_access"]
     }
   ]
 }

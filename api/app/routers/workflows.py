@@ -199,7 +199,7 @@ async def workflow_assistant_stream(
         task = asyncio.create_task(
             workflow_assistant_service.ask(
                 workflow, body,
-                user_token=session_data.access_token,
+                user_token=session_data.id_token or "",
                 user_sub=session_data.user_external_id,
                 session_id=session_id,
             ),
@@ -270,7 +270,7 @@ async def trigger_run(
     db: AsyncSession = Depends(get_db),
 ):
     run = await workflow_run_service.create_run(
-        db, workflow, user, body, user_token=session_data.access_token,
+        db, workflow, user, body, user_token=session_data.id_token or "",
     )
     return _run_response(run)
 
@@ -338,7 +338,7 @@ async def resume_run(
     if source is None or source.workflow_id != workflow.id:
         raise HTTPException(status_code=404, detail="Run not found")
     new_run = await workflow_run_service.resume_run(
-        db, workflow, source, user, user_token=session_data.access_token,
+        db, workflow, source, user, user_token=session_data.id_token or "",
     )
     return _run_response(new_run)
 
@@ -370,7 +370,7 @@ async def workflow_run_ws(websocket: WebSocket, workflow_id: uuid.UUID, run_id: 
         await websocket.close(code=4001, reason="Invalid or expired session")
         return
     try:
-        claims = await validate_token(initial_session.access_token)
+        claims = await validate_token(initial_session.id_token or "")
     except ValueError:
         await websocket.close(code=4001, reason="Invalid token")
         return

@@ -44,7 +44,7 @@ export async function initiateLogin(): Promise<void> {
     response_type: "code",
     client_id: config.client_id,
     redirect_uri: `${window.location.origin}/auth/callback`,
-    scope: "openid profile email",
+    scope: "openid profile email offline_access",
     code_challenge: codeChallenge,
     code_challenge_method: "S256",
     state,

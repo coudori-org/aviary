@@ -36,14 +36,12 @@ class OIDCValidator:
         self,
         issuer: str | None,
         internal_issuer: str | None = None,
-        audience: str | None = None,
         jwks_cache_ttl: int = 3600,
         dev_user_sub: str = "dev-user",
     ):
         self.enabled = bool(issuer)
         self.issuer = issuer or ""
         self.internal_issuer = internal_issuer or self.issuer
-        self.audience = audience
         self._jwks_cache_ttl = jwks_cache_ttl
 
         self._dev_claims = TokenClaims(
@@ -143,14 +141,19 @@ class OIDCValidator:
             if rsa_key is None:
                 raise ValueError("Token signing key not found in JWKS")
 
+        # discovery doc's `issuer` is the canonical form a token's `iss`
+        # will carry (Auth0 keeps a trailing slash; env URLs may not).
+        expected_iss = (self._oidc_config or {}).get("issuer") or self.issuer
         try:
             payload = jwt.decode(
                 token,
                 rsa_key,
                 algorithms=["RS256"],
-                issuer=self.issuer,
-                audience=self.audience,
-                options={"verify_aud": self.audience is not None},
+                issuer=expected_iss,
+                # at_hash binds id_token to access_token; we don't keep
+                # access_token around to verify, and JWKS-signature + iss
+                # check already guarantees integrity for our use.
+                options={"verify_aud": False, "verify_at_hash": False},
             )
         except JWTError as e:
             raise ValueError(f"Token validation failed: {e}") from e

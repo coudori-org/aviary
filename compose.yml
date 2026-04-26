@@ -30,7 +30,6 @@ services:
       OIDC_INTERNAL_ISSUER: ${OIDC_INTERNAL_ISSUER:-}
       OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-}
       OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}
-      OIDC_AUDIENCE: ${OIDC_AUDIENCE:-}
       DEV_USER_SUB: ${DEV_USER_SUB:-dev-user}
       AGENT_SUPERVISOR_URL: ${AGENT_SUPERVISOR_URL:-http://supervisor:9000}
       LITELLM_URL: ${LITELLM_URL:-http://host.docker.internal:8090}
@@ -88,7 +87,6 @@ services:
       OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME:-aviary-supervisor}
       OIDC_ISSUER: ${OIDC_ISSUER:-}
       OIDC_INTERNAL_ISSUER: ${OIDC_INTERNAL_ISSUER:-}
-      OIDC_AUDIENCE: ${OIDC_AUDIENCE:-}
       DEV_USER_SUB: ${DEV_USER_SUB:-dev-user}
       VAULT_ADDR: ${VAULT_ADDR:-http://host.docker.internal:8200}
       VAULT_TOKEN: ${VAULT_TOKEN:-dev-root-token}

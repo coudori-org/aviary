@@ -17,7 +17,6 @@ class Settings(BaseSettings):
     # OIDC — see .env.example.
     oidc_issuer: str | None = None
     oidc_internal_issuer: str | None = None
-    oidc_audience: str | None = None
     dev_user_sub: str = "dev-user"
 
     # Vault — per-user credentials (GitHub token, etc.) live at

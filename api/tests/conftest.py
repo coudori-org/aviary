@@ -225,10 +225,9 @@ def _setup_auth_override():
         claims = _TOKEN_CLAIMS.get(token)
         return SessionData(
             user_external_id=claims.sub if claims else "unknown",
-            access_token=token,
             refresh_token="test-refresh",
-            id_token=None,
-            access_token_expires_at=0,
+            id_token=token,
+            expires_at=0,
         )
 
     app.dependency_overrides[get_current_user] = _mock_get_current_user

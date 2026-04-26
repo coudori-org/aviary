@@ -134,7 +134,6 @@ All IdP wiring lives in `shared/aviary_shared/auth/` and is driven by env vars. 
 - `OIDC_CLIENT_ID` — for the auth-code flow on the API server.
 - `OIDC_CLIENT_SECRET` — only for confidential clients (e.g. Okta). Public PKCE clients (local Keycloak `aviary-web`) leave this unset.
 - `OIDC_INTERNAL_ISSUER` — only when the public URL isn't reachable from inside the container (local Keycloak: `http://host.docker.internal:8080/...`). For hosted IdPs leave it unset.
-- `OIDC_AUDIENCE` — optional `aud` claim check.
 
 **OIDC dual-URL pattern**: tokens carry `iss=<public URL>`, but the API container needs the internal DNS for discovery/JWKS. `_rewrite_url()` / `to_public_url()` in `aviary_shared.auth.oidc` handle the swap whenever `OIDC_INTERNAL_ISSUER` differs.
 
@@ -295,7 +294,6 @@ API/Admin: dedicated `aviary_test` database with `NullPool`, no lifespan.
 | `OIDC_INTERNAL_ISSUER` | Internal IdP URL (discovery/JWKS fetch) — leave empty for hosted IdPs |
 | `OIDC_CLIENT_ID` | OIDC client id used for the auth-code/PKCE flow |
 | `OIDC_CLIENT_SECRET` | Required for confidential clients (e.g. Okta); leave unset for PKCE-only public clients |
-| `OIDC_AUDIENCE` | Optional `aud` claim check |
 | `DEV_USER_SUB` | `sub` used everywhere when `OIDC_ISSUER` is unset (default: `dev-user`) |
 | `DATABASE_URL` | PostgreSQL async connection |
 | `REDIS_URL` | Redis for pub/sub, caching, presence |
@@ -327,7 +325,6 @@ API/Admin: dedicated `aviary_test` database with `NullPool`, no lifespan.
 | `OTEL_SERVICE_NAME` | Resource attribute `service.name` (default: `aviary-supervisor`) |
 | `OIDC_ISSUER` | Public IdP URL (Bearer token `iss` validation on `/publish` and `/a2a`). Unset → no-IdP mode. |
 | `OIDC_INTERNAL_ISSUER` | Internal IdP URL (JWKS fetch) — leave empty for hosted IdPs |
-| `OIDC_AUDIENCE` | Optional `aud` claim check |
 | `DEV_USER_SUB` | `sub` used when `OIDC_ISSUER` is unset (default: `dev-user`) |
 | `VAULT_ADDR` / `VAULT_TOKEN` | Vault connection for per-user credential lookup (keyed by JWT `sub`) |
 
