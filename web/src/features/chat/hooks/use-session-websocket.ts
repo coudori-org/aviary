@@ -76,7 +76,11 @@ export function useSessionWebSocket({
   const retryNowRef = useRef<() => void>(() => {});
 
   useEffect(() => {
-    if (!sessionId || !enabled) return;
+    if (!sessionId || !enabled) {
+      setStatus("ready");
+      setStatusMessage(null);
+      return;
+    }
 
     // Each effect run gets its own cancellation flag. A ref would be
     // shared across the stale connect() Promises from prior runs and
