@@ -1,6 +1,7 @@
 FROM python:3.12-slim
 
 COPY --from=ghcr.io/astral-sh/uv:0.7 /uv /usr/local/bin/uv
+COPY --from=curlimages/curl /usr/bin/curl /usr/bin/curl
 
 WORKDIR /workspace
 

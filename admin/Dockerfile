@@ -1,12 +1,9 @@
 FROM python:3.12-slim
 
 COPY --from=ghcr.io/astral-sh/uv:0.7 /uv /usr/local/bin/uv
+COPY --from=curlimages/curl /usr/bin/curl /usr/bin/curl
 
 WORKDIR /workspace
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
 
 # Copy workspace layout for dependency resolution (cached layer)
 COPY pyproject.toml uv.lock ./
