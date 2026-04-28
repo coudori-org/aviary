@@ -1,13 +1,4 @@
-"""Jira Cloud MCP tools — REST API v3 with ADF body fields.
-
-Auth: HTTP Basic. The caller (MCP Gateway) injects a single `jira_token`
-argument already formatted as `{email}:{api_token}`; common.basic_auth
-just base64-encodes it.
-
-Rich text fields (description, comment body) accept markdown — `_md_to_adf`
-converts them to Atlassian Document Format on the way out so tables, code,
-lists, and inline formatting render correctly in Jira Cloud.
-"""
+"""Jira Cloud MCP tools — REST API v3 with ADF body fields."""
 
 import json
 
@@ -19,20 +10,11 @@ from common import request, result
 mcp = FastMCP("jira", host="0.0.0.0", port=8000, stateless_http=True)
 
 
-# ── Markdown → ADF ─────────────────────────────────────────────
-
 _md = MarkdownIt("commonmark").enable("table").enable("strikethrough")
 
 
 def _md_to_adf(md: str) -> dict:
-    """Convert markdown to Atlassian Document Format.
-
-    Walks the markdown-it-py token stream and emits ADF block nodes for
-    paragraphs, headings, lists, code blocks, blockquotes, horizontal rules,
-    and tables. Inline content supports text, bold, italic, strike, inline
-    code, links, soft/hard breaks. Anything unrecognized is silently dropped
-    rather than raising — the function never throws.
-    """
+    # Unrecognized tokens are silently dropped — never throws.
     if not md:
         return {"type": "doc", "version": 1, "content": []}
     tokens = _md.parse(md)
@@ -43,7 +25,6 @@ def _md_to_adf(md: str) -> dict:
 
 
 def _find_block_close(tokens: list, open_idx: int, close_type: str) -> int:
-    """Return the index of the matching close token for a block-level open."""
     level = tokens[open_idx].level
     for j in range(open_idx + 1, len(tokens)):
         if tokens[j].type == close_type and tokens[j].level == level:
@@ -219,9 +200,6 @@ def _walk_inline(children: list, marks: list[dict] | None = None) -> list[dict]:
         else:
             i += 1
     return out
-
-
-# ── Tools ──────────────────────────────────────────────────────
 
 
 @mcp.tool()

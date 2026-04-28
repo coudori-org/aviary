@@ -1,11 +1,4 @@
-"""Jira MCP server entry point.
-
-JIRA_API_VARIANT picks the API surface:
-  - cloud (default): Atlassian Cloud, REST API v3 + ADF.
-  - legacy        : Server / Data Center, REST API v2 + plain text.
-
-JIRA_BASE_URL must point at the matching site.
-"""
+"""Jira MCP server entry — JIRA_API_VARIANT picks cloud (default) or legacy."""
 
 import os
 

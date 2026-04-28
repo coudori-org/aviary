@@ -1,12 +1,4 @@
-"""Confluence Cloud MCP tools — REST API v2 (with two v1 fallbacks).
-
-Auth: HTTP Basic. The caller (MCP Gateway) injects a single `confluence_token`
-argument already formatted as `{email}:{api_token}`; common.basic_auth
-just base64-encodes it.
-
-Page bodies accept markdown — `md_to_storage` (in common) converts them to
-Confluence storage XHTML.
-"""
+"""Confluence Cloud MCP tools — REST API v2 (with two v1 fallbacks)."""
 
 import json
 
@@ -17,15 +9,8 @@ from common import md_to_storage, request, result
 mcp = FastMCP("confluence", host="0.0.0.0", port=8000, stateless_http=True)
 
 
-# ── Internal helpers ───────────────────────────────────────────
-
-
 async def _resolve_space_id(space_key: str, *, token: str) -> str:
-    """Return the numeric space id for a space key, or an ERROR string.
-
-    v2's GET /spaces/{id} requires a numeric id, but humans use space keys —
-    so we look up via the list endpoint with `keys=` filter.
-    """
+    # v2 endpoints want numeric spaceId; users pass keys.
     res = await request(
         "GET",
         "/wiki/api/v2/spaces",
@@ -38,9 +23,6 @@ async def _resolve_space_id(space_key: str, *, token: str) -> str:
     if not spaces:
         return f"ERROR: space key '{space_key}' not found"
     return str(spaces[0].get("id"))
-
-
-# ── Tools ──────────────────────────────────────────────────────
 
 
 @mcp.tool()

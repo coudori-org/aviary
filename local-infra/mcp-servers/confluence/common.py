@@ -1,10 +1,4 @@
-"""Shared HTTP plumbing + markdown→storage converter for the Confluence MCP
-server (cloud + legacy variants).
-
-The Confluence "storage" XHTML format is the same on Cloud and Server / DC,
-so the conversion lives here. Endpoint paths and request shapes differ —
-those live in `cloud.py` / `legacy.py`.
-"""
+"""HTTP plumbing + markdown→storage converter for the Confluence MCP server."""
 
 import base64
 import html
@@ -17,12 +11,11 @@ from typing import Any
 import httpx
 from markdown_it import MarkdownIt
 
-# Quiet per-request access logs + FastMCP internal chatter; both fire many
-# times per second under normal use and drown the dev console.
 logging.getLogger("uvicorn.access").disabled = True
 logging.getLogger("mcp").setLevel(logging.WARNING)
 
 CONFLUENCE_BASE_URL = os.environ["CONFLUENCE_BASE_URL"].rstrip("/")
+_VARIANT = os.environ.get("CONFLUENCE_API_VARIANT", "cloud").lower()
 
 
 _http_client: httpx.AsyncClient | None = None
@@ -35,7 +28,10 @@ def client() -> httpx.AsyncClient:
     return _http_client
 
 
-def basic_auth(token: str) -> str:
+def auth_header(token: str) -> str:
+    # legacy = Server/DC PAT (Bearer); cloud = `{email}:{api-token}` (Basic).
+    if _VARIANT == "legacy":
+        return f"Bearer {token}"
     raw = token.encode("utf-8")
     return "Basic " + base64.b64encode(raw).decode("ascii")
 
@@ -48,13 +44,10 @@ async def request(
     json_body: Any = None,
     params: dict | None = None,
 ) -> dict | list | str:
-    """Issue an authenticated Confluence API request.
-
-    Returns parsed JSON on 2xx, or an "ERROR: ..." string on failure. Tools
-    propagate that string as their return value.
-    """
+    # Returns parsed JSON on 2xx, "ERROR: ..." string on failure (tools
+    # propagate the string so the agent sees a readable error).
     headers = {
-        "Authorization": basic_auth(token),
+        "Authorization": auth_header(token),
         "Accept": "application/json",
     }
     if json_body is not None:
@@ -82,8 +75,6 @@ def result(value: dict | list | str) -> str:
     return json.dumps(value)
 
 
-# ── Markdown → Confluence storage format ───────────────────────
-
 _md = MarkdownIt("commonmark").enable("table").enable("strikethrough")
 
 _FENCE_RE = re.compile(
@@ -96,7 +87,7 @@ def _replace_fence(m: re.Match) -> str:
     lang = m.group(1) or ""
     code = html.unescape(m.group(2) or "")
     code = code.rstrip("\n")
-    # CDATA can't contain "]]>"
+    # CDATA can't contain "]]>".
     code = code.replace("]]>", "]]]]><![CDATA[>")
     parts = ['<ac:structured-macro ac:name="code">']
     if lang:
@@ -107,17 +98,7 @@ def _replace_fence(m: re.Match) -> str:
 
 
 def md_to_storage(md: str) -> str:
-    """Convert markdown to Confluence storage format (XHTML).
-
-    Standard markdown → HTML via markdown-it-py (CommonMark + GFM tables +
-    strikethrough), then post-processed to wrap fenced code blocks in
-    Confluence's native <ac:structured-macro ac:name="code"> macro.
-
-    If the input already starts with '<' (after stripping whitespace) it is
-    treated as raw storage XML and passed through unchanged — letting power
-    users hand-write storage when they need macros the converter doesn't know
-    about.
-    """
+    # Input starting with '<' is treated as raw storage XML and passed through.
     if not md:
         return ""
     if md.lstrip().startswith("<"):

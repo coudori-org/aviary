@@ -1,16 +1,9 @@
 """Confluence legacy MCP tools — REST API v1 (Server / Data Center).
 
-Differences from the cloud variant:
-  - Path prefix is /rest/api/{content,space,search} — no /wiki prefix and
-    no /api/v2.
-  - Pages, comments, and labels all flow through /rest/api/content with the
-    discriminator `type` ("page" / "comment" / etc).
-  - Spaces are addressed by key, not numeric id; no resolver step needed.
-  - Page history is returned via /rest/api/content/{id}/history (Server v1
-    doesn't expose a per-version listing on every release).
-
-Storage XHTML body shape is unchanged — `md_to_storage` works on both
-Cloud and Server / DC.
+Cloud-parity quirks worth knowing:
+  - Pages/comments/labels share /rest/api/content with a `type` discriminator.
+  - Spaces are addressed by key directly — no numeric-id resolver needed.
+  - History is fetched via /rest/api/content/{id}/history.
 """
 
 import json
@@ -20,9 +13,6 @@ from mcp.server.fastmcp import FastMCP
 from common import md_to_storage, request, result
 
 mcp = FastMCP("confluence", host="0.0.0.0", port=8000, stateless_http=True)
-
-
-# ── Tools ──────────────────────────────────────────────────────
 
 
 @mcp.tool()

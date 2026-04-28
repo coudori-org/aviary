@@ -1,20 +1,11 @@
 """Jira legacy MCP tools — REST API v2 (Server / Data Center).
 
-Differences from the cloud variant:
-  - Path prefix is /rest/api/2 instead of /rest/api/3.
-  - Body fields (description, comment body) are plain strings (wiki markup),
-    not ADF — the markdown is forwarded to Jira as-is. Tables/code blocks
-    won't render as nicely as on Cloud, but the content is preserved.
-  - Users are identified by `name` (the Server username), not `accountId`.
-    The tool surface keeps the `account_id` parameter name for parity, but
-    the value travels through as `name` on the wire. `find_user` returns
-    the username under the `accountId` key for the same reason.
-  - `search_issues` uses GET /rest/api/2/search with `startAt` paging.
-    For surface parity, `next_page_token` is interpreted as the startAt
-    integer (string) and the response carries `nextPageToken` set to the
-    next startAt when more results remain.
-
-Auth and the agile API (/rest/agile/1.0) are unchanged.
+Cloud-parity quirks worth knowing:
+  - Bodies are wiki markup, not ADF — markdown is forwarded as-is.
+  - Users are identified by `name`; `account_id` parameter name is kept
+    for surface parity but the value travels as `name` on the wire.
+  - `search_issues` paginates via `startAt`; `next_page_token` carries
+    that integer as a string.
 """
 
 import json
@@ -24,9 +15,6 @@ from mcp.server.fastmcp import FastMCP
 from common import request, result
 
 mcp = FastMCP("jira", host="0.0.0.0", port=8000, stateless_http=True)
-
-
-# ── Tools ──────────────────────────────────────────────────────
 
 
 @mcp.tool()
