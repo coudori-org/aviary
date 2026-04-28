@@ -1,6 +1,8 @@
 image:
   pullPolicy: Never
 
+# NodePort is the off-cluster Caddy proxy's upstream — mirrors how prod
+# ALB targets the web Service. The browser never hits this directly.
 service:
   type: NodePort
-  nodePort: 31300
+  nodePort: 31301

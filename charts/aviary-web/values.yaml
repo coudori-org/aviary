@@ -2,8 +2,8 @@ namespace: platform
 
 replicas: 1
 
-# NEXT_PUBLIC_* and INTERNAL_API_URL are baked at build time, so the image tag
-# carries the env it was built for. Local: :k8s-local. Prod: CI-built tag.
+# INTERNAL_API_URL is baked at build time. Browser-side URLs come from
+# window.location at runtime, so the same image works behind any edge proxy.
 image:
   repository: aviary-web
   tag: k8s-local
@@ -12,7 +12,7 @@ image:
 service:
   type: ClusterIP
   port: 3000
-  nodePort: 31300
+  nodePort: 31301
 
 config:
   internalAPIURL: "http://aviary-api.platform.svc.cluster.local:8000"

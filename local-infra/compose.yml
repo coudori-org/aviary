@@ -158,12 +158,28 @@ services:
       - "6443:6443"
       - "30300:30300"   # aviary-env-default NodePort
       - "30301:30301"   # aviary-env-custom NodePort
-      - "31000:31000"   # aviary-api NodePort
-      - "31300:31300"   # aviary-web NodePort
+      - "31000:31000"   # aviary-api NodePort  (proxy upstream)
+      - "31301:31301"   # aviary-web NodePort  (proxy upstream)
     volumes:
       - k8sdata:/var/lib/rancher/k3s
       - workspacedata:/var/lib/aviary-workspace
       - ./config/k3s/registries.yaml:/etc/rancher/k3s/registries.yaml
+
+  # Mimics the prod ALB: lives outside the cluster, fans out to the
+  # web and api NodePorts via host.docker.internal. Same-origin entry
+  # for the browser at http://localhost.
+  proxy-k3s:
+    profiles: ["k3s"]
+    image: caddy:2-alpine
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "${LOCAL_DEPLOY_PROXY_PORT:-80}:80"
+    volumes:
+      - ./config/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+    depends_on:
+      k8s:
+        condition: service_started
 
   mcp-jira:
     build:

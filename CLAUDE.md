@@ -29,17 +29,22 @@ The repo is two compose stacks that mirror the production split:
 
 Both stacks read the **same `.env`** — `local-infra/.env` is a symlink to the root `.env` (created by `setup-dev.sh`). Per-stack variables are organized into `Aviary services` / `Local-infra` sections in [.env.example](.env.example) but live in one file.
 
-Services: Web (`:3000`), API (`:8000`), Admin (`:8001`), Keycloak (`:8080`, admin/admin), Vault (`:8200`), LiteLLM Gateway (`:8090`, inference + aggregated MCP at `/mcp`), Agent Supervisor (`:9000`), Temporal UI (`:8233`), Prometheus (`:9090`), Grafana (`:3001`).
+Services: **Browser entry — Caddy proxy** routes `/api/*` → API and everything else → Web. Service compose uses `:3000` (the host port web used to occupy); local-deploy mode uses `:80` to match prod ALB on the dot. Either way it's a single same-origin entry — the frontend has no hardcoded ports. Other entry points: Admin (`:8001`, operator console), Keycloak (`:8080`, admin/admin), Vault (`:8200`), LiteLLM Gateway (`:8090`, inference + aggregated MCP at `/mcp`), Temporal UI (`:8233`), Prometheus (`:9090`), Grafana (`:3001`).
 Test accounts: `user1@test.com`, `user2@test.com` (all `password`).
 
 ## Architecture
 
 ```
-Browser → Next.js (:3000) → API rewrite proxy → FastAPI (:8000)
-                                                  │
-                                                  ├── Redis pub/sub (WS broadcast)
-                                                  │
-   WebSocket ◄────────── Redis subscribe ─────────┘
+Browser ─┐  (single origin — :3000 service compose / :80 local-deploy / :443 ALB in prod)
+         ▼
+       Caddy / ALB
+         ├── /api/*  → FastAPI (:8000)  ← REST + WebSocket
+         └── /*      → Next.js (:3000)  ← UI
+
+FastAPI (:8000)
+   ├── Redis pub/sub (WS broadcast)
+   │
+   WebSocket ◄────────── Redis subscribe ─────────┐
                                                   ▼
                       lookup agent.runtime_endpoint
                                                   │
@@ -54,9 +59,9 @@ Admin Console (:8001) → DB (no infra calls)
 
 Project root (docker compose — minimal stack that boots E2E on its own):
   postgres, redis, temporal, temporal-ui (:8233), api, admin,
-  agent-supervisor, workflow-worker, web, db-migrate,
-  runtime  ← default agent runtime; supervisor's DEFAULT_RUNTIME_ENDPOINT
-            points at it.
+  agent-supervisor, workflow-worker, web, proxy (:80, Caddyfile under
+  ./proxy), db-migrate, runtime  ← default agent runtime; supervisor's
+  DEFAULT_RUNTIME_ENDPOINT points at it.
 
 local-infra/ (docker compose — opt-in simulation of external infra):
   Keycloak, Vault, LiteLLM (:8090 — inference + MCP), Prometheus, Grafana,

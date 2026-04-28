@@ -29,7 +29,7 @@ config:
   vaultAddr: ""
   devUserSub: "dev-user"
   cookieSecure: "false"
-  corsOrigins: '["http://localhost:31300","http://localhost:3000"]'
+  corsOrigins: '["http://localhost"]'
 
 # Empty string = unset. In prod, override the rendered Secret via ExternalSecret/SOPS.
 secrets:

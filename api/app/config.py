@@ -18,7 +18,7 @@ class Settings(BaseSettings):
     oidc_client_secret: str | None = None
     dev_user_sub: str = "dev-user"
 
-    # CORS
+    # CORS — single proxy origin (the browser never hits web directly).
     cors_origins: list[str] = ["http://localhost:3000"]
 
     # Agent Supervisor

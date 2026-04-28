@@ -1,7 +1,7 @@
 replicas: 2
 
 image:
-  # CI build supplies a tag baked against the prod NEXT_PUBLIC_* URLs.
+  # CI build supplies a tag baked against the prod INTERNAL_API_URL.
   tag: prod
   pullPolicy: IfNotPresent
 

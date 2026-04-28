@@ -13,6 +13,8 @@ config:
   mcpGatewayURL: "http://litellm.platform.svc.cluster.local:4000"
   vaultAddr: "http://vault.platform.svc.cluster.local:8200"
   cookieSecure: "false"
+  # The Caddy proxy entry on :80 is the only origin the browser ever uses.
+  corsOrigins: '["http://localhost"]'
 
 secrets:
   llmGatewayAPIKey: "sk-aviary-dev"

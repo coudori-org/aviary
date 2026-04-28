@@ -33,9 +33,4 @@ services:
       - ./web:/app
       - /app/node_modules
       - /app/.next
-    environment:
-      NEXT_PUBLIC_API_URL: http://localhost:8000
-      NEXT_PUBLIC_WS_URL: ws://localhost:8000
-      NEXT_PUBLIC_OIDC_ISSUER: http://localhost:8080/realms/aviary
-      NEXT_PUBLIC_OIDC_CLIENT_ID: aviary-web
     command: ["npm", "run", "dev"]

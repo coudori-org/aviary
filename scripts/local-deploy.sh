@@ -17,6 +17,10 @@ DEPLOY_ORDER=(
   aviary-web
 )
 
+# The browser entry (Caddy) lives outside the cluster — see local-infra
+# compose `proxy-k3s`. It hits web/api via NodePorts on host.docker.internal,
+# mirroring the prod ALB → K8s Service target group topology.
+
 # aviary-env-{default,custom} both render aviary-environment with different values.
 chart_for() {
   case "$1" in
@@ -66,7 +70,7 @@ ensure_k3s_up() {
   ensure_env_symlink
   ensure_config_yaml
   echo "[k3s] ensuring container is up..."
-  infra_compose up -d k8s
+  infra_compose up -d k8s proxy-k3s
   echo -n "[k3s] waiting for api..."
   until k8s kubectl get nodes 2>/dev/null | grep -q " Ready"; do sleep 2; done
   echo " ready."
@@ -91,11 +95,10 @@ cmd_setup() {
     IFS='|' read -r image dockerfile context extra <<<"${IMAGE_FOR[$chart]}"
     case "$chart" in
       aviary-web)
-        # NEXT_PUBLIC_* / INTERNAL_API_URL bake at build time — see web/Dockerfile.
+        # INTERNAL_API_URL is baked into routes-manifest.json by next.config.ts's
+        # rewrites(). Browser-side URLs come from window.location at runtime.
         build_and_load_image "$image" "$dockerfile" "$context" \
           --target runner \
-          --build-arg "NEXT_PUBLIC_API_URL=http://localhost:31000" \
-          --build-arg "NEXT_PUBLIC_WS_URL=ws://localhost:31000" \
           --build-arg "INTERNAL_API_URL=http://aviary-api.platform.svc.cluster.local:8000"
         ;;
       *)
@@ -191,8 +194,7 @@ print_summary() {
 
 [deploy] done.
 
-  Web:           http://localhost:31300
-  API:           http://localhost:31000/api/health
+  Browser:       http://localhost                (Caddy proxy → web + /api → api)
   Default rt:    http://localhost:30300
   Custom rt:     http://localhost:30301
 

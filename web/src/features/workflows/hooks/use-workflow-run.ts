@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { workflowsApi } from "../api/workflows-api";
+import { getWsBaseUrl } from "@/lib/ws/url";
 import type { WorkflowRun, WorkflowNodeRun } from "@/types";
 
 export type NodeRunStatus = "pending" | "running" | "completed" | "failed" | "skipped";
@@ -62,8 +63,7 @@ export function useWorkflowRun(workflowId: string) {
   }, []);
 
   const connectWs = useCallback((wfId: string, rId: string) => {
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const url = `${protocol}//${window.location.hostname}:8000/api/workflows/${wfId}/runs/${rId}/ws`;
+    const url = `${getWsBaseUrl()}/api/workflows/${wfId}/runs/${rId}/ws`;
     const ws = new WebSocket(url);
     wsRef.current = ws;
 
