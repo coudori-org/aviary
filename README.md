@@ -25,12 +25,18 @@ The platform is designed to drop into an existing organization: it plugs into yo
         ┌──────────────────────────────────────────────────────┐
         │                      Web UI                          │
         │     Agents · Workflows · Chat · Runs · Admin         │
-        └──────────────┬─────────────────────┬─────────────────┘
-                       │ REST + WebSocket    │
-        ┌──────────────▼─────────┐   ┌───────▼─────────────────┐
-        │      API Server        │   │      Admin Console      │
-        │   Auth · CRUD · Chat   │   │  Agent / workflow defs  │
-        └──────┬─────────────┬───┘   └─────────────────────────┘
+        └──────────────────────────┬───────────────────────────┘
+                                   │ single origin
+                                   │ (REST + WebSocket)
+                  ┌────────────────▼────────────────┐
+                  │   Edge proxy  (Caddy / ALB)     │
+                  │   /api/* → API ·  /* → Web      │
+                  └──────┬──────────────────┬───────┘
+                         │                  │
+        ┌────────────────▼───────┐  ┌───────▼─────────────────┐
+        │      API Server        │  │      Admin Console      │
+        │   Auth · CRUD · Chat   │  │  Agent / workflow defs  │
+        └──────┬─────────────┬───┘  └─────────────────────────┘
                │             │
                │    ┌────────▼─────────────────────────────────┐
                │    │           Platform Services              │
@@ -199,7 +205,7 @@ Two runtime environments come pre-configured:
 
 Per-agent routing: in the Admin Console, set `agent.runtime_endpoint` to `http://host.docker.internal:30300` (or `:30301`) to send that agent to the K8s pool instead of the in-compose runtime.
 
-NodePorts (31xxx) are picked so they don't collide with the compose-side host ports (3000/8000/9000) — service compose can run alongside, sharing the same postgres/redis. Stop the duplicates first (`docker compose stop api supervisor web`) to avoid two writers racing.
+The off-cluster Caddy proxy (`local-infra/compose.yml` `proxy-k3s`, host port `:80`) and the service-compose Caddy proxy (host port `:3000`) use different ports so they can coexist while sharing infra. If you keep service compose running alongside, stop its app components first (`docker compose stop web api supervisor workflow-worker`) so the two stacks don't race on the same database.
 
 ### Scenario D — Iterating on a single component
 
@@ -243,10 +249,10 @@ After `setup-dev.sh` finishes, these URLs are reachable on the host. Endpoints p
 
 | Service | URL | Purpose |
 |---------|-----|---------|
-| Web UI | http://localhost:3000 | End-user app |
-| API Server | http://localhost:8000 | REST + WebSocket |
+| Browser entry (Caddy proxy) | http://localhost:3000 | `/api/*` → API · `/` → Web — mirrors the prod ALB |
 | Admin Console | http://localhost:8001 | Operator UI (no auth, local-only) |
-| Agent Supervisor | http://localhost:9000 | Bearer-gated; streaming proxy |
+
+The API and Supervisor live on internal compose DNS only — `api:8000` / `supervisor:9000`. They are not published to the host; reach them via `docker compose exec` or hit them through the Caddy proxy.
 
 ### `infra` group
 
@@ -269,17 +275,16 @@ Test accounts (in Keycloak realm `aviary`): `user1@test.com`, `user2@test.com`, 
 
 ### `local-deploy.sh` (K3s)
 
-After `./scripts/local-deploy.sh setup` finishes, NodePorts are exposed on the K3s container's host network:
+After `./scripts/local-deploy.sh setup` finishes, the off-cluster Caddy proxy (`local-infra/compose.yml` `proxy-k3s`) sits in front of the K3s NodePorts — same role as the prod ALB.
 
 | Endpoint | Chart / purpose |
 |----------|-----------------|
-| http://localhost:31300 | `aviary-web` (Next.js) |
-| http://localhost:31000/api/health | `aviary-api` |
+| http://localhost | Caddy proxy → `aviary-web` + `/api/*` → `aviary-api` (single browser entry) |
 | http://localhost:30300 | `aviary-env-default` runtime pool |
 | http://localhost:30301 | `aviary-env-custom` runtime pool |
 | `kubectl` via container | `cd local-infra && docker compose --profile k3s exec k8s kubectl …` |
 
-`aviary-admin` and `aviary-supervisor` are ClusterIP only — reach them with `kubectl port-forward -n platform svc/aviary-admin 8001:8001` (or `svc/aviary-supervisor 9000:9000`). Postgres / Redis / Temporal / Keycloak / Vault / LiteLLM stay in compose and are exposed to the cluster via the `aviary-platform` external-services proxy.
+`aviary-admin` and `aviary-supervisor` are ClusterIP only — reach them with `kubectl port-forward -n platform svc/aviary-admin 8001:8001` (or `svc/aviary-supervisor 9000:9000`). The web/api NodePorts (31301/31000) are the proxy's upstream — not browser-facing. Postgres / Redis / Temporal / Keycloak / Vault / LiteLLM stay in compose and are exposed to the cluster via the `aviary-platform` external-services proxy.
 
 ## Configuration
 
